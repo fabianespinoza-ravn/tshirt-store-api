@@ -1,0 +1,11 @@
+node_modules/
+dist/
+coverage/
+
+# Nunca commitear secretos. .env.example es la plantilla.
+.env
+.env.*
+!.env.example
+
+*.log
+.DS_Store

@@ -1,0 +1,82 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: tshirt-store-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: tshirt
+      POSTGRES_PASSWORD: tshirt
+      POSTGRES_DB: tshirt_store
+    # Puerto del host desplazado: 5432 lo ocupa otro Postgres de esta máquina que
+    # arranca solo con Docker Desktop. Dentro del contenedor sigue siendo 5432.
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tshirt -d tshirt_store"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # La cola de F8 corre sobre este Redis. BullMQ es el default que nombra el
+  # programa para esta aplicación, y va sobre el Redis que ya está en el stack.
+  redis:
+    image: redis:7-alpine
+    container_name: tshirt-store-redis
+    restart: unless-stopped
+    # Desplazado por el mismo motivo que Postgres: hay un redis-db en la máquina
+    # con 6379 reservado.
+    ports:
+      - "6380:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # S3 en local. MinIO habla el protocolo de S3, así que el código usa el SDK de
+  # AWS sin cambios y en producción sólo se quita el endpoint. El enunciado exige
+  # S3 y esto no lo sustituye: lo emula para desarrollo y para los tests e2e de
+  # la semana 4, que corren contra un almacén real en vez de contra un mock.
+  minio:
+    image: minio/minio:latest
+    container_name: tshirt-store-s3
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: tshirt
+      MINIO_ROOT_PASSWORD: tshirt-local-dev
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # MinIO no crea buckets solo. Este contenedor corre una vez, crea el bucket y
+  # termina; `restart: no` es lo que impide que quede reintentando.
+  minio-init:
+    image: minio/mc:latest
+    container_name: tshirt-store-s3-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    restart: "no"
+    entrypoint: >-
+      /bin/sh -c "
+      mc alias set local http://minio:9000 tshirt tshirt-local-dev &&
+      mc mb --ignore-existing local/tshirt-store-images &&
+      echo 'bucket tshirt-store-images listo'
+      "
+
+volumes:
+  pgdata:
+  redisdata:
+  miniodata:
