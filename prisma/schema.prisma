@@ -1,0 +1,481 @@
+// T-Shirt Store API — traducción del ERD de la Semana 1.
+//
+// Los nombres de campo van en camelCase para el cliente y se mapean a snake_case
+// en la base con @map, de modo que el esquema físico coincide con el ERD.
+//
+// Los UUID los genera la aplicación como UUIDv7, no un default de SQL: por eso
+// ningún id lleva @default. Ver la cabecera del ERD.
+//
+// LO QUE PRISMA NO PUEDE EXPRESAR, y va en una migración SQL a mano:
+// los seis índices únicos parciales, el índice parcial de la barrida de pedidos,
+// y todos los CHECK. Está listado en prisma/RAW-SQL.md.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  MANAGER
+  CLIENT
+  DELIVERY
+
+  @@map("user_role")
+}
+
+enum UserState {
+  GUEST
+  ACTIVE
+
+  @@map("user_state")
+}
+
+enum CartStatus {
+  ACTIVE
+  CHECKED_OUT
+
+  @@map("cart_status")
+}
+
+enum OrderStatus {
+  PENDING
+  PAID
+  PROCESSING
+  SHIPPED
+  DELIVERED
+  CANCELLED
+  FAILED
+
+  @@map("order_status")
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+
+  @@map("payment_status")
+}
+
+enum PaymentMethod {
+  PAYMENT_INTENT
+  PAYMENT_LINK
+
+  @@map("payment_method")
+}
+
+enum DiscountType {
+  PERCENTAGE
+  FIXED_AMOUNT
+
+  @@map("discount_type")
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  FAILED
+
+  @@map("notification_status")
+}
+
+enum Size {
+  XS
+  S
+  M
+  L
+  XL
+  XXL
+
+  @@map("size")
+}
+
+enum Color {
+  BLACK
+  WHITE
+  RED
+  BLUE
+  GREEN
+  YELLOW
+  GRAY
+  NAVY
+
+  @@map("color")
+}
+
+// ─── identity_and_access ────────────────────────────────────────────────────
+
+model User {
+  id              String     @id @db.Uuid
+  email           String     @db.VarChar
+  passwordHash    String?    @map("password_hash") @db.VarChar
+  role            UserRole   @default(CLIENT)
+  state           UserState  @default(ACTIVE)
+  emailVerifiedAt DateTime?  @map("email_verified_at") @db.Timestamptz
+  deletedAt       DateTime?  @map("deleted_at") @db.Timestamptz
+  createdAt       DateTime   @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime   @updatedAt @map("updated_at") @db.Timestamptz
+
+  refreshTokens          RefreshToken[]
+  passwordResetTokens    PasswordResetToken[]
+  emailVerificationTokens EmailVerificationToken[]
+  carts                  Cart[]
+  productLikes           ProductLike[]
+  orders                 Order[]             @relation("OrderBuyer")
+  deliveries             Order[]             @relation("OrderDeliveredBy")
+  stockNotifications     StockNotification[]
+
+  // uq_users_email_live_partial: UNIQUE (email) WHERE deleted_at IS NULL → SQL a mano
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String    @id @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  tokenHash String    @unique(map: "uq_refresh_tokens_token_hash") @map("token_hash") @db.VarChar
+  familyId  String    @map("family_id") @db.Uuid
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId], map: "idx_refresh_tokens_user_id")
+  @@index([familyId], map: "idx_refresh_tokens_family_id")
+  @@map("refresh_tokens")
+}
+
+model PasswordResetToken {
+  id         String    @id @db.Uuid
+  userId     String    @map("user_id") @db.Uuid
+  tokenHash  String    @unique(map: "uq_password_reset_tokens_token_hash") @map("token_hash") @db.VarChar
+  expiresAt  DateTime  @map("expires_at") @db.Timestamptz
+  consumedAt DateTime? @map("consumed_at") @db.Timestamptz
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId], map: "idx_password_reset_tokens_user_id")
+  @@map("password_reset_tokens")
+}
+
+model EmailVerificationToken {
+  id                  String    @id @db.Uuid
+  userId              String    @map("user_id") @db.Uuid
+  tokenHash           String    @unique(map: "uq_email_verification_tokens_token_hash") @map("token_hash") @db.VarChar
+  pendingPasswordHash String?   @map("pending_password_hash") @db.VarChar
+  expiresAt           DateTime  @map("expires_at") @db.Timestamptz
+  consumedAt          DateTime? @map("consumed_at") @db.Timestamptz
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id])
+
+  // uq_email_verification_tokens_live_partial: UNIQUE (user_id) WHERE consumed_at IS NULL → SQL a mano
+  @@map("email_verification_tokens")
+}
+
+// ─── catalog ────────────────────────────────────────────────────────────────
+
+model Category {
+  id        String   @id @db.Uuid
+  name      String   @unique(map: "uq_categories_name") @db.VarChar
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  products ProductCategory[]
+
+  @@map("categories")
+}
+
+model Product {
+  id          String    @id @db.Uuid
+  name        String    @db.VarChar
+  description String    @db.Text
+  isActive    Boolean   @default(true) @map("is_active")
+  deletedAt   DateTime? @map("deleted_at") @db.Timestamptz
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+
+  categories ProductCategory[]
+  images     ProductImage[]
+  skus       Sku[]
+  likes      ProductLike[]
+
+  @@index([createdAt, id], map: "idx_products_created_at_id")
+  @@map("products")
+}
+
+model ProductCategory {
+  id         String   @id @db.Uuid
+  productId  String   @map("product_id") @db.Uuid
+  categoryId String   @map("category_id") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  product  Product  @relation(fields: [productId], references: [id])
+  category Category @relation(fields: [categoryId], references: [id])
+
+  @@unique([productId, categoryId], map: "uq_product_categories_product_category")
+  @@index([categoryId, productId], map: "idx_product_categories_category_product")
+  @@map("product_categories")
+}
+
+model ProductImage {
+  id        String   @id @db.Uuid
+  productId String   @map("product_id") @db.Uuid
+  s3Key     String   @map("s3_key") @db.VarChar
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  product Product @relation(fields: [productId], references: [id])
+  skus    Sku[]
+
+  @@unique([id, productId], map: "uq_product_images_id_product")
+  @@index([productId], map: "idx_product_images_product_id")
+  @@map("product_images")
+}
+
+model Sku {
+  id           String   @id @db.Uuid
+  productId    String   @map("product_id") @db.Uuid
+  imageId      String?  @map("image_id") @db.Uuid
+  size         Size
+  color        Color
+  price        Int
+  stock        Int      @default(0)
+  reserved     Int      @default(0)
+  restockCycle Int      @default(0) @map("restock_cycle")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  product Product @relation(fields: [productId], references: [id])
+
+  // FK compuesta: una variante solo puede apuntar a una imagen de su propio producto.
+  image ProductImage? @relation(fields: [imageId, productId], references: [id, productId])
+
+  cartItems          CartItem[]
+  orderItems         OrderItem[]
+  paymentLinks       PaymentLink[]
+  stockNotifications StockNotification[]
+
+  @@unique([productId, size, color], map: "uq_skus_product_size_color")
+  @@index([productId], map: "idx_skus_product_id")
+  @@map("skus")
+}
+
+// ─── cart_and_interaction ───────────────────────────────────────────────────
+
+model Cart {
+  id        String     @id @db.Uuid
+  userId    String     @map("user_id") @db.Uuid
+  status    CartStatus @default(ACTIVE)
+  createdAt DateTime   @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime   @updatedAt @map("updated_at") @db.Timestamptz
+
+  user  User       @relation(fields: [userId], references: [id])
+  items CartItem[]
+
+  // uq_carts_user_active_partial: UNIQUE (user_id) WHERE status = 'ACTIVE' → SQL a mano
+  @@map("carts")
+}
+
+model CartItem {
+  id        String   @id @db.Uuid
+  cartId    String   @map("cart_id") @db.Uuid
+  skuId     String   @map("sku_id") @db.Uuid
+  quantity  Int
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  cart Cart @relation(fields: [cartId], references: [id])
+  sku  Sku  @relation(fields: [skuId], references: [id])
+
+  @@unique([cartId, skuId], map: "uq_cart_items_cart_sku")
+  @@index([skuId], map: "idx_cart_items_sku_id")
+  @@map("cart_items")
+}
+
+model ProductLike {
+  id        String   @id @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  productId String   @map("product_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  user    User    @relation(fields: [userId], references: [id])
+  product Product @relation(fields: [productId], references: [id])
+
+  @@unique([userId, productId], map: "uq_product_likes_user_product")
+  @@index([productId], map: "idx_product_likes_product_id")
+  @@map("product_likes")
+}
+
+// ─── orders_and_payments ────────────────────────────────────────────────────
+
+model Order {
+  id                  String      @id @db.Uuid
+  userId              String      @map("user_id") @db.Uuid
+  status              OrderStatus @default(PENDING)
+  expiresAt           DateTime?   @map("expires_at") @db.Timestamptz
+  subtotal            Int
+  orderDiscountAmount Int         @default(0) @map("order_discount_amount")
+  total               Int
+  recipientName       String      @map("recipient_name") @db.VarChar
+  line1               String      @db.VarChar
+  line2               String?     @db.VarChar
+  city                String      @db.VarChar
+  region              String?     @db.VarChar
+  postalCode          String      @map("postal_code") @db.VarChar
+  deliveredById       String?     @map("delivered_by_id") @db.Uuid
+  deliveredAt         DateTime?   @map("delivered_at") @db.Timestamptz
+  createdAt           DateTime    @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt           DateTime    @updatedAt @map("updated_at") @db.Timestamptz
+
+  user        User  @relation("OrderBuyer", fields: [userId], references: [id])
+  deliveredBy User? @relation("OrderDeliveredBy", fields: [deliveredById], references: [id])
+
+  items         OrderItem[]
+  payments      Payment[]
+  statusHistory OrderStatusHistory[]
+  redemption    PromoCodeRedemption?
+
+  @@index([userId, createdAt, id], map: "idx_orders_user_created_id")
+  @@index([status], map: "idx_orders_status")
+  @@index([deliveredById], map: "idx_orders_delivered_by")
+  // idx_orders_pending_expires_partial: (expires_at) WHERE status = 'PENDING' → SQL a mano
+  @@map("orders")
+}
+
+model OrderItem {
+  id          String   @id @db.Uuid
+  orderId     String   @map("order_id") @db.Uuid
+  skuId       String   @map("sku_id") @db.Uuid
+  productName String   @map("product_name") @db.VarChar
+  unitPrice   Int      @map("unit_price")
+  quantity    Int
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  order Order @relation(fields: [orderId], references: [id])
+  sku   Sku   @relation(fields: [skuId], references: [id])
+
+  @@index([orderId], map: "idx_order_items_order_id")
+  @@index([skuId], map: "idx_order_items_sku_id")
+  @@map("order_items")
+}
+
+model Payment {
+  id                      String        @id @db.Uuid
+  orderId                 String        @map("order_id") @db.Uuid
+  method                  PaymentMethod
+  status                  PaymentStatus @default(PENDING)
+  amount                  Int
+  stripePaymentIntentId   String?       @unique(map: "uq_payments_stripe_payment_intent_id") @map("stripe_payment_intent_id") @db.VarChar
+  stripeCheckoutSessionId String?       @unique(map: "uq_payments_stripe_checkout_session_id") @map("stripe_checkout_session_id") @db.VarChar
+  stripeRefundId          String?       @map("stripe_refund_id") @db.VarChar
+  refundedAt              DateTime?     @map("refunded_at") @db.Timestamptz
+  createdAt               DateTime      @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt               DateTime      @updatedAt @map("updated_at") @db.Timestamptz
+
+  order Order @relation(fields: [orderId], references: [id])
+
+  // uq_payments_order_succeeded_partial: UNIQUE (order_id) WHERE status = 'SUCCEEDED' → SQL a mano
+  @@map("payments")
+}
+
+model PaymentLink {
+  id                  String   @id @db.Uuid
+  skuId               String   @map("sku_id") @db.Uuid
+  stripePaymentLinkId String   @unique(map: "uq_payment_links_stripe_payment_link_id") @map("stripe_payment_link_id") @db.VarChar
+  url                 String   @db.VarChar
+  unitPriceAtCreation Int      @map("unit_price_at_creation")
+  isActive            Boolean  @default(true) @map("is_active")
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt           DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  sku Sku @relation(fields: [skuId], references: [id])
+
+  // uq_payment_links_sku_active_partial: UNIQUE (sku_id) WHERE is_active → SQL a mano
+  @@map("payment_links")
+}
+
+// Sin ninguna clave ajena, a propósito: el evento llega antes de que existan las
+// filas que va a crear. La correlación es por valor, no por referencia.
+model WebhookEvent {
+  id            String    @id @db.Uuid
+  stripeEventId String    @unique(map: "uq_webhook_events_stripe_event_id") @map("stripe_event_id") @db.VarChar
+  eventType     String    @map("event_type") @db.VarChar
+  payload       Json      @db.JsonB
+  processedAt   DateTime? @map("processed_at") @db.Timestamptz
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  @@map("webhook_events")
+}
+
+model OrderStatusHistory {
+  id        String      @id @db.Uuid
+  orderId   String      @map("order_id") @db.Uuid
+  status    OrderStatus
+  sequence  Int
+  createdAt DateTime    @default(now()) @map("created_at") @db.Timestamptz
+
+  order Order @relation(fields: [orderId], references: [id])
+
+  @@unique([orderId, sequence], map: "uq_order_status_history_order_sequence")
+  @@map("order_status_history")
+}
+
+// ─── promotions_and_notifications ───────────────────────────────────────────
+
+model PromoCode {
+  id                    String       @id @db.Uuid
+  code                  String       @db.VarChar
+  type                  DiscountType
+  discountValue         Int          @map("discount_value")
+  minimumPurchaseAmount Int?         @map("minimum_purchase_amount")
+  usageLimit            Int          @map("usage_limit")
+  usageCount            Int          @default(0) @map("usage_count")
+  usageReserved         Int          @default(0) @map("usage_reserved")
+  expiresAt             DateTime     @map("expires_at") @db.Timestamptz
+  isActive              Boolean      @default(true) @map("is_active")
+  deletedAt             DateTime?    @map("deleted_at") @db.Timestamptz
+  createdAt             DateTime     @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt             DateTime     @updatedAt @map("updated_at") @db.Timestamptz
+
+  redemptions PromoCodeRedemption[]
+
+  // uq_promo_codes_code_live_partial: UNIQUE (code) WHERE deleted_at IS NULL → SQL a mano
+  @@map("promo_codes")
+}
+
+model PromoCodeRedemption {
+  id              String   @id @db.Uuid
+  orderId         String   @unique(map: "uq_promo_code_redemptions_order") @map("order_id") @db.Uuid
+  promoCodeId     String   @map("promo_code_id") @db.Uuid
+  codeSnapshot    String   @map("code_snapshot") @db.VarChar
+  discountApplied Int      @map("discount_applied")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  order     Order     @relation(fields: [orderId], references: [id])
+  promoCode PromoCode @relation(fields: [promoCodeId], references: [id])
+
+  @@index([promoCodeId], map: "idx_promo_code_redemptions_promo_code_id")
+  @@map("promo_code_redemptions")
+}
+
+model StockNotification {
+  id           String             @id @db.Uuid
+  userId       String             @map("user_id") @db.Uuid
+  skuId        String             @map("sku_id") @db.Uuid
+  restockCycle Int                @map("restock_cycle")
+  status       NotificationStatus @default(PENDING)
+  sentAt       DateTime?          @map("sent_at") @db.Timestamptz
+  createdAt    DateTime           @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime           @updatedAt @map("updated_at") @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id])
+  sku  Sku  @relation(fields: [skuId], references: [id])
+
+  @@unique([userId, skuId, restockCycle], map: "uq_stock_notifications_user_sku_cycle")
+  @@map("stock_notifications")
+}
