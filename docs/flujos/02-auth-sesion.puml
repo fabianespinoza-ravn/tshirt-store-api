@@ -1,0 +1,60 @@
+@startuml
+!theme plain
+title Auth 2 de 3 · Sesión: entrar, rotar y salir
+autonumber
+skinparam responseMessageBelowArrow true
+
+actor "Usuario" as U
+participant "Frontend" as F
+participant "API NestJS" as A
+database "PostgreSQL" as DB
+
+== Iniciar sesión ==
+U -> F : Correo y contraseña
+F -> A : POST /auth/sign-in
+activate A
+alt Cuerpo inválido
+  A --> F : 400 BadRequest
+else Credenciales incorrectas
+  A --> F : 401 Unauthorized
+  note right of A : El mismo 401 para correo inexistente\ny para contraseña errónea
+else Cuenta sin verificar
+  A --> F : 403 EmailNotVerified
+  F -> U : Ofrece reenviar el enlace de verificación
+else Demasiados intentos
+  A --> F : 429 TooManyRequests
+  note right of A : El límite es por dirección de red, no por cuenta:\nlimitar por cuenta deja que cualquiera\nbloquee a un usuario cuyo correo conoce
+else Correcto
+  A -> DB : Abre una familia de refresh
+  A --> F : 200 Session con accessToken\n+ Set-Cookie refresh httpOnly
+  note right of A : El refresh token nunca va en el cuerpo.\nEl access token sí, para la cabecera Authorization
+end
+deactivate A
+
+== Rotar la sesión ==
+F -> A : POST /auth/refresh\n(solo la cookie; sin Authorization)
+note right of F : Sin cabecera Authorization no es lo mismo\nque pública: la cookie es la credencial.\nfetch omite cookies salvo credentials include
+activate A
+alt Cookie válida
+  A -> DB : Rota el token y mantiene la familia
+  A --> F : 200 Session + Set-Cookie de reemplazo
+else Cookie ausente, caducada o revocada
+  A --> F : 401 Unauthorized
+  F -> U : Vuelve a iniciar sesión
+end
+deactivate A
+
+== Cerrar sesión ==
+U -> F : Cerrar sesión
+F -> A : POST /auth/sign-out\nAuthorization + cookie
+note right of A : Hacen falta las dos credenciales:\nel access token dice quién llama\ny la cookie dice qué familia revocar
+activate A
+alt Ambas presentes y válidas
+  A -> DB : Revoca la familia entera
+  A --> F : 204 y limpia la cookie
+else Falta o falla alguna
+  A --> F : 401 Unauthorized
+end
+deactivate A
+
+@enduml

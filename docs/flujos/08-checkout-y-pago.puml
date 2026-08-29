@@ -1,0 +1,101 @@
+@startuml
+!theme plain
+title Checkout y pago · Cliente, frontend, backend y Stripe
+autonumber
+skinparam responseMessageBelowArrow true
+
+actor "Cliente" as U
+participant "Frontend" as F
+participant "API NestJS" as A
+database "PostgreSQL" as DB
+queue "Redis / BullMQ" as Q
+participant "Worker" as W
+participant "Stripe" as S
+participant "SMTP" as M
+
+== Crear el pedido ==
+U -> F : Pulsa Pagar
+F -> A : POST /orders\nAuthorization: Bearer + promoCode opcional
+activate A
+alt No es cliente
+  A --> F : 403 Forbidden
+else No hay carrito activo o está vacío
+  A --> F : 409 CheckoutConflict
+else Las unidades ya no están disponibles
+  A --> F : 409 CheckoutConflict
+else Un pedido pendiente propio retiene el stock
+  A --> F : 409 CheckoutConflict con expiresAt
+  note right of A : No es un agotado: el remedio es pagar\nel pedido pendiente o esperar a que caduque
+else El cupón no aplica
+  A --> F : 409 CheckoutConflict
+  note right of A : Otro cupón, más carrito, o el total\ndescontado por encima del mínimo
+else Aceptado
+  A -> DB : Reserva stock, retiene un uso del cupón\ny crea el pedido PENDING con expiresAt
+  A -> S : Crea el Payment Intent
+  alt Stripe responde
+    S --> A : clientSecret
+    A -> DB : Cierra el carrito activo
+    A --> F : 201 CheckoutOrder con orderId y clientSecret
+    note right of F : El front vacía el badge del carrito con el 201,\nsin volver a leer GET /cart
+  else Stripe agota el tiempo
+    A --> F : 500 InternalError
+    note right of DB #ffe0e0 : El pedido queda PENDING **sin intento de pago**.\nLo recoge el barrido periódico
+  end
+end
+deactivate A
+
+== Pagar, sin tocar el backend ==
+F -> U : Monta el Payment Element con el clientSecret
+U -> S : Confirma tarjeta o el segundo método
+note over F, S : Los datos de la tarjeta nunca pasan por la API.\nEso es lo que mantiene el alcance de PCI donde está
+S --> F : Resultado de la confirmación
+
+== La liquidación, que es asíncrona ==
+S -> A : POST /webhooks/stripe\nStripe-Signature sobre el cuerpo crudo
+activate A
+alt La firma no verifica
+  A --> S : 400
+  note right of A : Stripe reintenta hasta tres días. Un evento legítimo\nrechazado por un secreto mal configurado\naterriza solo en cuanto se arregla
+else Firma correcta
+  A -> DB : INSERT en webhook_events (stripe_event_id UNIQUE)
+  alt El id ya existía
+    A --> S : 200
+    note right of DB : La idempotencia vive en la restricción de la base,\nno en un if del servicio
+  else Evento nuevo
+    A -> Q : Encola la liquidación
+    A --> S : 200
+    note right of A #ffe0e0 : 200 es **acuse**, no liquidación.\nEl pedido puede leerse PENDING\nunos instantes después de cobrarse
+  end
+end
+deactivate A
+
+Q -> W : Entrega el job
+activate W
+alt El pedido sigue PENDING
+  W -> DB : PAID, consume la reserva\ny descuenta el stock de verdad
+  W -> Q : Encola el correo de confirmación
+else El pedido ya no está PENDING
+  W -> S : refund
+  W -> DB : Registra el reembolso; el pedido acaba CANCELLED
+  note right of W : El pago queda registrado como succeeded.\nEl stock nunca baja de cero
+end
+deactivate W
+Q -> W : Job de correo
+W -> M : Confirmación de compra
+
+F -> A : GET /orders/ID
+A --> F : 200 PAID
+
+== El barrido, que también tiene origen ==
+loop Job repeatable que el worker registra en BullMQ al arrancar
+  W -> DB : Pedidos PENDING pasados de expiresAt
+  W -> S : cancel del Payment Intent
+  W -> DB : Libera el stock y devuelve el uso del cupón
+end
+note over W, S #ffe0e0
+  Cancelar en Stripe **antes** de soltar el stock. Al revés, un pago
+  que entre en esa ventana deja cobrado un pedido cuyas unidades
+  ya se vendieron a otro.
+end note
+
+@enduml

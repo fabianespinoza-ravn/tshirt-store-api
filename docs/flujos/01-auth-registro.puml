@@ -1,0 +1,71 @@
+@startuml
+!theme plain
+title Auth 1 de 3 · Registro y verificación de correo
+autonumber
+skinparam responseMessageBelowArrow true
+
+actor  "Visitante"    as U
+participant "Frontend" as F
+participant "API NestJS" as A
+database "PostgreSQL" as DB
+queue "Redis / BullMQ" as Q
+participant "Worker" as W
+participant "SMTP" as M
+
+U -> F : Rellena el formulario de registro
+F -> A : POST /auth/sign-up
+activate A
+
+alt Cuerpo inválido
+  A --> F : 400 BadRequest
+  note right of A : El ValidationPipe con whitelist rechaza\nantes de que el servicio se entere
+else Límite por dirección superado
+  A --> F : 429 TooManyRequests
+  note right of A : El límite es por dirección de correo:\nesta ruta manda correo a una dirección\nque elige quien llama
+else Aceptado
+  A -> DB : Busca la cuenta por correo
+  alt La dirección no tiene cuenta
+    A -> DB : Crea usuario sin verificar\ny credencial de un solo uso
+    A -> Q : Encola el enlace de verificación
+  else Tiene cuenta sin verificar
+    A -> DB : Reemplaza la credencial pendiente\ny la contraseña
+    A -> Q : Encola el enlace de verificación
+    note right of DB : Así vuelve a entrar quien nunca confirmó\ny además olvidó su contraseña
+  else Tiene cuenta ya verificada
+    A -> Q : Encola un recordatorio de inicio de sesión
+    note right of A : No se crea nada. La respuesta es idéntica\nen los tres casos: esta ruta no revela\nqué direcciones están registradas
+  end
+  A --> F : 201 VerificationPending
+  deactivate A
+  F -> U : Te hemos enviado un correo
+end
+
+Q -> W : Entrega el job
+W -> M : Envía el correo
+
+... el visitante abre su bandeja ...
+
+U -> F : Pulsa el enlace del correo
+F -> A : POST /auth/email-verifications/confirm
+note right of F : El token viaja en el cuerpo, no en la URL:\nlas URL acaban en logs y en la cabecera Referer
+activate A
+alt Token válido
+  A -> DB : Verifica el correo y consume el token
+  A --> F : 204
+  F -> U : Cuenta activada
+else Token inexistente, caducado o ya usado
+  A --> F : 404 EmailVerificationTokenNotFound
+  F -> U : Ofrece reenviar el enlace
+end
+deactivate A
+
+group Reenvío del enlace
+  U -> F : Pide otro enlace
+  F -> A : POST /auth/email-verifications
+  A -> DB : Invalida los enlaces anteriores
+  A -> Q : Encola el nuevo, si la cuenta es elegible
+  A --> F : 202
+  note right of A : 202 exista o no la cuenta,\npor la misma razón que sign-up
+end
+
+@enduml

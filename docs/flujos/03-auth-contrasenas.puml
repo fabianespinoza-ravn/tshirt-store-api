@@ -1,0 +1,76 @@
+@startuml
+!theme plain
+title Auth 3 de 3 · Contraseñas: olvido, restablecimiento y cambio
+autonumber
+skinparam responseMessageBelowArrow true
+
+actor "Usuario" as U
+participant "Frontend" as F
+participant "API NestJS" as A
+database "PostgreSQL" as DB
+queue "Redis / BullMQ" as Q
+participant "Worker" as W
+participant "SMTP" as M
+
+== He olvidado mi contraseña ==
+U -> F : Introduce su correo
+F -> A : POST /auth/forgot-password
+activate A
+alt Correo mal formado
+  A --> F : 400 BadRequest
+else Límite por dirección superado
+  A --> F : 429 TooManyRequests
+else Aceptado
+  A -> DB : Busca la cuenta
+  alt La cuenta es elegible
+    A -> Q : Encola el correo de restablecimiento
+  else No existe o no es elegible
+    note right of A : No se encola nada
+  end
+  A --> F : 202
+  note right of A : 202 en los dos casos.\nUn 404 aquí convertiría la ruta\nen un buscador de correos registrados
+end
+deactivate A
+Q -> W : Entrega el job
+W -> M : Envía el enlace
+
+... el usuario abre el correo ...
+
+== Restablecer con el token ==
+U -> F : Abre el enlace y escribe la nueva contraseña
+F -> A : POST /auth/reset-password\ntoken + newPassword
+activate A
+alt Token válido y contraseña de 12 o más
+  A -> DB : Cambia la contraseña
+  A -> DB : Revoca **todas** las familias de refresh
+  note right of DB : Las sesiones abiertas antes del cambio\ndejan de funcionar. Es el punto:\nsi te robaron la cuenta, se corta el acceso
+  A --> F : 204
+  F -> U : Ya puede iniciar sesión
+else Contraseña corta o cuerpo inválido
+  A --> F : 400 BadRequest
+else Token inexistente, caducado o ya consumido
+  A --> F : 404 NotFound
+else Demasiados intentos
+  A --> F : 429 TooManyRequests
+end
+deactivate A
+
+== Cambiarla estando dentro ==
+U -> F : Contraseña actual y nueva
+F -> A : PATCH /auth/password\nAuthorization: Bearer
+activate A
+alt Sin token o token inválido
+  A --> F : 401 Unauthorized
+else La actual no coincide o la nueva es corta
+  A --> F : 400 BadRequest
+else Correcto
+  A -> DB : Cambia la contraseña y revoca las familias
+  A -> Q : Encola el aviso obligatorio por correo
+  A --> F : 204
+end
+deactivate A
+Q -> W : Entrega el job
+W -> M : Avisa de que la contraseña cambió
+note over M : El aviso no es cortesía: es cómo se entera\nel dueño de una cuenta comprometida
+
+@enduml
