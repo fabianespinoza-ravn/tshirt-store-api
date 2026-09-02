@@ -1,0 +1,58 @@
+name: Claude review
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+# Sólo comenta. No escribe en la rama, así que no hay commits suyos en el
+# historial: `contents` va en lectura a propósito.
+permissions:
+  contents: read
+  pull-requests: write
+  id-token: write
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+
+      - uses: anthropics/claude-code-action@v1
+        with:
+          # Token de suscripción, no clave de API: los reviews no se facturan
+          # aparte. Se renueva con `claude setup-token`.
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            REPO: ${{ github.repository }}
+            PR NUMBER: ${{ github.event.pull_request.number }}
+
+            Review this pull request. The branch is already checked out.
+
+            This is a NestJS + Prisma REST API. Weigh these above style:
+
+            - Authorization. Every CASL rule and guard change: can a CLIENT
+              reach another user's row? Read the authorization matrix in the
+              repository before judging a rule.
+            - Error handling. Unhandled errors must not leak their message to
+              the client; the problem-details filter is the only place that
+              shapes a response.
+            - Money and stock. Order state transitions, payment webhooks and
+              stock decrements: look for race conditions and for a path that
+              charges twice or oversells.
+            - Data exposure. No secret, token or connection string in code,
+              logs or fixtures.
+            - Tests. New behaviour without a test is a finding.
+
+            Report only what you would block a merge on. Say nothing when the
+            diff is fine — an empty review is a valid outcome, and noise on
+            every pull request is how a reviewer gets ignored.
+
+            Use `gh pr comment` for top-level feedback.
+            Use `mcp__github_inline_comment__create_inline_comment` (with
+            `confirmed: true`) for specific lines.
+            Only post GitHub comments - don't submit review text as messages.
+
+          claude_args: |
+            --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*)"
