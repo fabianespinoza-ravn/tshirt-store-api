@@ -1,0 +1,22 @@
+# Revisión automática apagada a propósito. El plan Open Source escala el límite
+# con las estrellas del repositorio, y éste tiene cero: cuenta con una revisión
+# por hora. Gastarla en un bump de package-lock.json es perderla, así que se
+# pide a mano con `@coderabbitai review` en el pull request que la merezca.
+language: en-US
+
+tone_instructions: >-
+  This is a NestJS + Prisma REST API. Weigh authorization, error handling and
+  the money and stock paths above style. For any CASL rule or guard change ask
+  whether a CLIENT can reach another user's row, and check it against
+  docs/MATRIZ-AUTORIZACION.md, which lists every operation with the role that
+  may call it. Unhandled errors must not leak their message past the
+  problem-details filter. Treat new behaviour without a test as a finding.
+
+reviews:
+  # `assertive` en vez del `chill` por defecto: si sólo hay una revisión por
+  # hora, se quiere que encuentre cosas, no que sea prudente.
+  profile: assertive
+  high_level_summary: true
+  auto_review:
+    enabled: false
+    drafts: false

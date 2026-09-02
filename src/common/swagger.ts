@@ -1,8 +1,33 @@
-import type { INestApplication } from '@nestjs/common';
+import { applyDecorators, type INestApplication } from '@nestjs/common';
 import type { ConfigService } from '@nestjs/config';
-import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { ApiResponse, DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import type { ProblemKind } from './problem/problem.catalog';
 
 export const SWAGGER_PATH = 'api/v1/docs';
+
+/**
+ * Declara en el documento las respuestas de error de una operación a partir
+ * del catálogo, en vez de repetir el código y el texto en cada endpoint. Los
+ * problemas se agrupan por estado porque OpenAPI admite una sola respuesta por
+ * código: 403 puede ser falta de permiso o correo sin verificar, y las dos
+ * tienen que aparecer bajo el mismo 403.
+ */
+export function ApiProblems(...kinds: ProblemKind[]) {
+  const titlesByStatus = new Map<number, string[]>();
+
+  for (const kind of kinds) {
+    titlesByStatus.set(kind.status, [
+      ...(titlesByStatus.get(kind.status) ?? []),
+      kind.title,
+    ]);
+  }
+
+  return applyDecorators(
+    ...[...titlesByStatus].map(([status, titles]) =>
+      ApiResponse({ status, description: titles.join(' · ') }),
+    ),
+  );
+}
 
 // La fuente de verdad es info.version en W2-API/openapi.yaml: servir el documento con otra versión es una divergencia con el entregable, no un detalle.
 const CONTRACT_VERSION = '1.0.2';
