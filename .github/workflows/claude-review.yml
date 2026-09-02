@@ -15,11 +15,15 @@ jobs:
   review:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      # Este workflow es el único que maneja una credencial, así que sus
+      # acciones van clavadas al commit y no a una etiqueta móvil: quien
+      # controle el contenido de `v1` controlaría el token. Los SHA son los que
+      # hoy hay detrás de checkout@v7 y de claude-code-action@v1.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 1
 
-      - uses: anthropics/claude-code-action@v1
+      - uses: anthropics/claude-code-action@8251c103ac8c1d761882c86aba1412c7f583c844 # v1
         with:
           # Token de suscripción, no clave de API: los reviews no se facturan
           # aparte. Se renueva con `claude setup-token`.
