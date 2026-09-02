@@ -24,6 +24,15 @@ updates:
         update-types:
           - minor
           - patch
+    # Los majors no entran solos. NestJS 12 y Prisma 7 en plena semana 4 son un
+    # refactor, no una actualización: se deciden a mano cuando la entrega esté
+    # cerrada. Los parches y minors siguen llegando, que es donde viven los
+    # arreglos de seguridad.
+    ignore:
+      - dependency-name: '*'
+        update-types:
+          - version-update:semver-major
+
     commit-message:
       prefix: chore
       include: scope
