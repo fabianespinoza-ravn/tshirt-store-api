@@ -9,7 +9,14 @@ import {
   Res,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiCookieAuth,
+  ApiSecurity,
+  ApiOperation,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 import {
   CurrentUser,
@@ -18,6 +25,8 @@ import {
 import { Public } from '../common/decorators/public.decorator';
 import { RateLimited } from '../common/decorators/rate-limited.decorator';
 import { parseDuration } from '../common/ids';
+import { Problems } from '../common/problem/problem.catalog';
+import { ApiProblems } from '../common/swagger';
 import { NodeEnv } from '../config/env.validation';
 import { AuthService, type SessionResult } from './auth.service';
 import {
@@ -45,6 +54,21 @@ export class AuthController {
 
   @Public()
   @RateLimited(5, 60_000)
+  @ApiOperation({
+    summary: 'Register an account and send its verification email',
+    description:
+      'The response is the same whether or not the address already has an account: telling them apart would disclose who is registered.',
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Verification pending',
+    type: VerificationPendingDto,
+  })
+  @ApiProblems(
+    Problems.validation,
+    Problems.rateLimited,
+    Problems.internalError,
+  )
   @Post('sign-up')
   @HttpCode(HttpStatus.CREATED)
   async signUp(@Body() dto: SignUpDto): Promise<VerificationPendingDto> {
@@ -55,6 +79,21 @@ export class AuthController {
 
   @Public()
   @RateLimited(10, 60_000)
+  @ApiOperation({
+    summary: 'Exchange credentials for an access token and a refresh cookie',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Session started',
+    type: SessionDto,
+  })
+  @ApiProblems(
+    Problems.validation,
+    Problems.unauthorized,
+    Problems.emailNotVerified,
+    Problems.rateLimited,
+    Problems.internalError,
+  )
   @Post('sign-in')
   @HttpCode(HttpStatus.OK)
   async signIn(
@@ -66,6 +105,18 @@ export class AuthController {
   }
 
   @Public()
+  @ApiCookieAuth('cookieAuth')
+  @ApiOperation({
+    summary: 'Rotate the session from the refresh cookie',
+    description:
+      'The credential is the cookie, not the Authorization header, which is why the route carries no bearer requirement.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Session rotated',
+    type: SessionDto,
+  })
+  @ApiProblems(Problems.unauthorized, Problems.internalError)
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
   async refresh(
@@ -78,6 +129,13 @@ export class AuthController {
     return this.respondWithSession(session, response);
   }
 
+  // Un solo requisito con los dos esquemas, no dos requisitos: separados, el
+  // array de seguridad se lee como "bearer O cookie", y aquí la matriz exige
+  // los dos a la vez.
+  @ApiSecurity({ bearerAuth: [], cookieAuth: [] })
+  @ApiOperation({ summary: 'Revoke the refresh token and clear its cookie' })
+  @ApiResponse({ status: 204, description: 'Session ended' })
+  @ApiProblems(Problems.unauthorized, Problems.internalError)
   @Post('sign-out')
   @HttpCode(HttpStatus.NO_CONTENT)
   async signOut(
@@ -90,6 +148,19 @@ export class AuthController {
 
   @Public()
   @RateLimited(5, 60_000)
+  @ApiOperation({
+    summary: 'Send a password reset link',
+    description: 'Accepted whether or not the address exists.',
+  })
+  @ApiResponse({
+    status: 202,
+    description: 'Reset link sent if the address exists',
+  })
+  @ApiProblems(
+    Problems.validation,
+    Problems.rateLimited,
+    Problems.internalError,
+  )
   @Post('forgot-password')
   @HttpCode(HttpStatus.ACCEPTED)
   async forgotPassword(@Body() dto: EmailOnlyDto): Promise<void> {
@@ -98,6 +169,14 @@ export class AuthController {
 
   @Public()
   @RateLimited(5, 60_000)
+  @ApiOperation({ summary: 'Set a new password from a reset token' })
+  @ApiResponse({ status: 204, description: 'Password changed' })
+  @ApiProblems(
+    Problems.validation,
+    Problems.notFound,
+    Problems.rateLimited,
+    Problems.internalError,
+  )
   @Post('reset-password')
   @HttpCode(HttpStatus.NO_CONTENT)
   async resetPassword(@Body() dto: ResetPasswordDto): Promise<void> {
@@ -106,6 +185,16 @@ export class AuthController {
 
   @Public()
   @RateLimited(5, 60_000)
+  @ApiOperation({ summary: 'Resend the verification email' })
+  @ApiResponse({
+    status: 202,
+    description: 'Verification email sent if the address needs one',
+  })
+  @ApiProblems(
+    Problems.validation,
+    Problems.rateLimited,
+    Problems.internalError,
+  )
   @Post('email-verifications')
   @HttpCode(HttpStatus.ACCEPTED)
   async resendVerification(@Body() dto: EmailOnlyDto): Promise<void> {
@@ -113,6 +202,15 @@ export class AuthController {
   }
 
   @Public()
+  @ApiOperation({
+    summary: 'Confirm an email address from its verification token',
+  })
+  @ApiResponse({ status: 204, description: 'Address verified' })
+  @ApiProblems(
+    Problems.validation,
+    Problems.emailVerificationTokenNotFound,
+    Problems.internalError,
+  )
   @Post('email-verifications/confirm')
   @HttpCode(HttpStatus.NO_CONTENT)
   async confirmVerification(
@@ -121,6 +219,17 @@ export class AuthController {
     await this.auth.confirmEmailVerification(dto.token);
   }
 
+  @ApiBearerAuth('bearerAuth')
+  @ApiOperation({
+    summary: 'Change the password of the authenticated account',
+    description: 'The account is notified by email.',
+  })
+  @ApiResponse({ status: 204, description: 'Password changed' })
+  @ApiProblems(
+    Problems.validation,
+    Problems.unauthorized,
+    Problems.internalError,
+  )
   @Patch('password')
   @HttpCode(HttpStatus.NO_CONTENT)
   async changePassword(

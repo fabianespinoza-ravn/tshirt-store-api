@@ -94,6 +94,14 @@
       "!**/*.module.ts"
     ],
     "coverageDirectory": "../coverage",
+    "coverageThreshold": {
+      "global": {
+        "statements": 75,
+        "branches": 65,
+        "functions": 63,
+        "lines": 74
+      }
+    },
     "testEnvironment": "node"
   }
 }

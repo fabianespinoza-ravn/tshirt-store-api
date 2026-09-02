@@ -1,0 +1,21 @@
+# Revisión automática apagada a propósito. El plan Open Source escala el límite
+# con las estrellas del repositorio, y éste tiene cero: cuenta con una revisión
+# por hora. Gastarla en un bump de package-lock.json es perderla, así que se
+# pide a mano con `@coderabbitai review` en el pull request que la merezca.
+language: en-US
+
+# El esquema rechaza este campo por encima de 250 caracteres, y un fichero
+# rechazado no aplica nada: la revisión automática seguiría encendida.
+tone_instructions: >-
+  Weigh authorization, error handling, money and stock above style. For CASL or
+  guard changes, ask whether a CLIENT reaches another user's row and check
+  docs/MATRIZ-AUTORIZACION.md. New behaviour without a test is a finding.
+
+reviews:
+  # `assertive` en vez del `chill` por defecto: si sólo hay una revisión por
+  # hora, se quiere que encuentre cosas, no que sea prudente.
+  profile: assertive
+  high_level_summary: true
+  auto_review:
+    enabled: false
+    drafts: false
