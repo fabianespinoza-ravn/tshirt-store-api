@@ -1,0 +1,37 @@
+version: 2
+
+updates:
+  # Las dependencias de la aplicación. Agrupadas para que una semana normal sea
+  # un solo PR de parches y no quince.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      nestjs:
+        patterns:
+          - '@nestjs/*'
+      prisma:
+        patterns:
+          - prisma
+          - '@prisma/*'
+      types:
+        patterns:
+          - '@types/*'
+      dev-minor-and-patch:
+        dependency-type: development
+        update-types:
+          - minor
+          - patch
+    commit-message:
+      prefix: chore
+      include: scope
+
+  # Las propias acciones del pipeline envejecen igual que el código.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: ci

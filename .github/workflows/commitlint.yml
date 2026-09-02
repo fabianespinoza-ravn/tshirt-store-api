@@ -1,0 +1,14 @@
+name: Commit messages
+
+on: pull_request
+
+jobs:
+  commitlint:
+    runs-on: ubuntu-latest
+    steps:
+      # Sin el historial completo no hay rango de commits que revisar.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: wagoid/commitlint-github-action@v6
