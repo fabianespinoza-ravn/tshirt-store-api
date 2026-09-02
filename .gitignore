@@ -9,3 +9,8 @@ coverage/
 
 *.log
 .DS_Store
+
+# Notas de planificación y borradores en la raíz. La documentación del
+# proyecto vive en docs/, que sí se versiona.
+/*.md
+!/README.md
