@@ -4,13 +4,12 @@
 # pide a mano con `@coderabbitai review` en el pull request que la merezca.
 language: en-US
 
+# El esquema rechaza este campo por encima de 250 caracteres, y un fichero
+# rechazado no aplica nada: la revisión automática seguiría encendida.
 tone_instructions: >-
-  This is a NestJS + Prisma REST API. Weigh authorization, error handling and
-  the money and stock paths above style. For any CASL rule or guard change ask
-  whether a CLIENT can reach another user's row, and check it against
-  docs/MATRIZ-AUTORIZACION.md, which lists every operation with the role that
-  may call it. Unhandled errors must not leak their message past the
-  problem-details filter. Treat new behaviour without a test as a finding.
+  Weigh authorization, error handling, money and stock above style. For CASL or
+  guard changes, ask whether a CLIENT reaches another user's row and check
+  docs/MATRIZ-AUTORIZACION.md. New behaviour without a test is a finding.
 
 reviews:
   # `assertive` en vez del `chill` por defecto: si sólo hay una revisión por

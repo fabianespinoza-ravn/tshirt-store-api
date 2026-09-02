@@ -12,6 +12,7 @@ import { ConfigService } from '@nestjs/config';
 import {
   ApiBearerAuth,
   ApiCookieAuth,
+  ApiSecurity,
   ApiOperation,
   ApiResponse,
   ApiTags,
@@ -128,8 +129,10 @@ export class AuthController {
     return this.respondWithSession(session, response);
   }
 
-  @ApiBearerAuth('bearerAuth')
-  @ApiCookieAuth('cookieAuth')
+  // Un solo requisito con los dos esquemas, no dos requisitos: separados, el
+  // array de seguridad se lee como "bearer O cookie", y aquí la matriz exige
+  // los dos a la vez.
+  @ApiSecurity({ bearerAuth: [], cookieAuth: [] })
   @ApiOperation({ summary: 'Revoke the refresh token and clear its cookie' })
   @ApiResponse({ status: 204, description: 'Session ended' })
   @ApiProblems(Problems.unauthorized, Problems.internalError)
