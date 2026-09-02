@@ -37,7 +37,7 @@ describe('SkusService errors', () => {
     h.prisma.sku.findFirst.mockResolvedValue({
       ...sku,
       product: { images: [] },
-    });
+    } as never);
 
     await expect(h.service.update(sku.id, { stock: 2 })).rejects.toMatchObject({
       kind: Problems.conflict,
@@ -49,7 +49,7 @@ describe('SkusService errors', () => {
     h.prisma.sku.findFirst.mockResolvedValue({
       ...sku,
       product: { images: [] },
-    });
+    } as never);
     h.prisma.sku.update.mockResolvedValue({ ...sku, stock: 3 });
 
     await expect(h.service.update(sku.id, { stock: 3 })).resolves.toMatchObject(
@@ -65,7 +65,7 @@ describe('SkusService errors', () => {
     h.prisma.sku.findFirst.mockResolvedValue({
       ...sku,
       product: { images: [{ id: 'image-1' }] },
-    });
+    } as never);
     h.prisma.sku.update.mockResolvedValue(sku);
 
     await h.service.update(sku.id, { price: 3000 });

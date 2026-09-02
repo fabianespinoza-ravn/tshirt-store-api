@@ -2,7 +2,6 @@ import { Problems } from '../common/problem/problem.catalog';
 import { ProblemException } from '../common/problem/problem.exception';
 import { buildService, type ServiceHarness } from '../testing/build-service';
 import { aFullProduct, aMulterFile } from '../testing/factories';
-import { aMulterFile } from '../testing/factories';
 import { resetPrismaMock } from '../testing/prisma.mock';
 import { ImagesService } from './images.service';
 import { ProductsService } from './products.service';

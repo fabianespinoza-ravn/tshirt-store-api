@@ -74,7 +74,7 @@ describe('ProductsService projections', () => {
     h.prisma.product.findFirst.mockResolvedValue(product);
 
     const result = await h.service.getOne(product.id, true);
-    const manager = result as Record<string, unknown>;
+    const manager = result as unknown as Record<string, unknown>;
     const sku = (manager.skus as Record<string, unknown>[])[0];
 
     expect(keysOf(manager)).toEqual(MANAGER_PRODUCT_KEYS);
@@ -91,7 +91,7 @@ describe('ProductsService projections', () => {
     h.prisma.product.findFirst.mockResolvedValue(product);
 
     const result = await h.service.getOne(product.id, false);
-    const detail = result as Record<string, unknown>;
+    const detail = result as unknown as Record<string, unknown>;
     const sku = (detail.skus as Record<string, unknown>[])[0];
 
     // El conjunto exacto cubre lo que `not.toHaveProperty` no puede: un campo
@@ -107,7 +107,10 @@ describe('ProductsService projections', () => {
 
     const result = await h.service.getOne(product.id, false);
     const sku = (
-      (result as Record<string, unknown>).skus as Record<string, unknown>[]
+      (result as unknown as Record<string, unknown>).skus as Record<
+        string,
+        unknown
+      >[]
     )[0];
 
     expect(sku.available).toBe(5);
@@ -292,7 +295,7 @@ describe('ProductsService writes', () => {
     });
 
     const enlaces = h.prisma.productCategory.createMany.mock.calls[0][0]
-      .data as { categoryId: string; productId: string }[];
+      ?.data as { categoryId: string; productId: string }[];
     expect(enlaces).toHaveLength(2);
     expect(enlaces.map((e) => e.categoryId)).toEqual(['cat-1', 'cat-2']);
     expect(new Set(enlaces.map((e) => e.productId)).size).toBe(1);
@@ -345,7 +348,7 @@ describe('ProductsService writes', () => {
       where: { productId: product.id },
     });
     const enlaces = h.prisma.productCategory.createMany.mock.calls[0][0]
-      .data as { categoryId: string }[];
+      ?.data as { categoryId: string }[];
     expect(enlaces.map((e) => e.categoryId)).toEqual(['cat-nueva']);
   });
 
