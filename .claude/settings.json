@@ -12,5 +12,18 @@
       "Bash(git diff:*)",
       "Bash(git log:*)"
     ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "file=$(jq -r '.tool_input.file_path // empty'); if [ -n \"$file\" ] && [ \"${file##*.}\" = \"ts\" ]; then npx prettier --write \"$file\" && npx eslint --fix \"$file\"; fi"
+          }
+        ]
+      }
+    ]
   }
 }
