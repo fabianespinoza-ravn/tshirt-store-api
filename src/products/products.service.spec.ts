@@ -204,7 +204,8 @@ describe('ProductsService list', () => {
   /**
    * `products.name` is NOT unique in the model, so ordering by name alone
    * leaves the order undefined between homonyms, and paginating can repeat
-   * or skip a row. Breaking the tie with id is finding 25's fix.
+   * or skip a row. Breaking the tie with id is finding 25's fix in
+   * docs/DESIGN-ATTACK.md.
    */
   it('breaks the name ordering tie with the id', async () => {
     h.prisma.product.findMany.mockResolvedValue([]);
