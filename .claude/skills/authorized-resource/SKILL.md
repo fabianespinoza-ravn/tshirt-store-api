@@ -16,9 +16,11 @@ not this file for the details.
 2. **CASL rule**, in `src/auth/casl/app-ability.factory.ts`. Add the subject
    to `AppSubjectName` / `AppSubjects` if it's new. Look up the resource's row
    in `docs/AUTHORIZATION-MATRIX.md` first: if the matrix marks it
-   CLIENT-owned (cart, orders, ...), the rule needs an owner condition — and
-   remember `PoliciesGuard` only enforces unconditional rules, so an owner
-   condition only does anything once the service applies it (see step 3).
+   CLIENT-owned (cart, orders, ...), the rule needs an owner condition, and
+   that condition is the only thing that scopes the row. `PoliciesGuard`
+   accepts a conditional rule and gates by role alone, so an unconditional
+   rule on an owned subject means "every row" once the service applies it
+   (step 3), and a service that applies nothing means the same.
 
 3. **Service**, with tests. Row-level scoping happens here: fold the CASL
    condition into the Prisma call (`accessibleBy(ability, action).ofType(...)`

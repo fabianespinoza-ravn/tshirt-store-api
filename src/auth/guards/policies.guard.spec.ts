@@ -50,24 +50,34 @@ describe('PoliciesGuard', () => {
     }
   });
 
-  it('does not treat a conditional ownership rule as a role-only grant', () => {
+  /**
+   * A guard whose ability carries one conditional rule and nothing else,
+   * which is the shape every CLIENT-owned resource now has.
+   */
+  const withConditionalRule = () => {
     const { can, build } = new AbilityBuilder<AppAbility>(createPrismaAbility);
     can('update', 'Order', { userId: 'ana' });
-    const conditionalFactory = {
-      createForUser: () => build(),
-    } as AppAbilityFactory;
-    const conditionalGuard = new PoliciesGuard(
-      new Reflector(),
-      conditionalFactory,
-    );
+    return new PoliciesGuard(new Reflector(), { createForUser: () => build() });
+  };
 
-    expect(() =>
-      conditionalGuard.canActivate(
-        contextFor(
-          UserRole.CLIENT,
-          ProtectedHandler.prototype.updateOrder,
-        ) as never,
-      ),
-    ).toThrow(ProblemException);
-  });
+  const updateOrderAsClient = () =>
+    contextFor(UserRole.CLIENT, ProtectedHandler.prototype.updateOrder);
+
+  /**
+   * This branch reverses what the guard did until the cart landed: a
+   * conditional rule used to fail the check, so a route whose rule carried
+   * an owner condition answered 403 to everyone. The row scope moved to the
+   * services. The harness above is ready; the assertions are the student's,
+   * per CLAUDE.md, because the change under test is the assistant's.
+   */
+  it.todo(
+    'lets a conditional ownership rule through the role gate, leaving the row scope to the service',
+  );
+  it.todo(
+    'still refuses a subject the ability grants no rule for, conditional or otherwise',
+  );
+
+  // Keeps the harness referenced while the two cases have no body.
+  void withConditionalRule;
+  void updateOrderAsClient;
 });

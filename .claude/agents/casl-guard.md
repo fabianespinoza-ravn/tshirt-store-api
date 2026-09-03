@@ -19,11 +19,14 @@ Read `src/auth/casl/app-ability.factory.ts` and
 `src/auth/guards/policies.guard.ts` before reviewing anything, so you don't
 reason about a model this codebase doesn't use.
 
-- `PoliciesGuard` checks **role only**. Its `hasRoleOnlyPermission` requires an
-  unconditional CASL rule (`rule.conditions === undefined`) — a rule with
-  conditions (e.g. an owner scope) does **not** satisfy the guard by itself.
-  The guard's job is narrow: reject the wrong role. It cannot and does not
-  reject the right role reading someone else's row.
+- `PoliciesGuard` checks **role only**. Its `hasPermission` is
+  `ability.can(action, subject)` and nothing more, so a rule that carries an
+  owner condition satisfies the guard: the guard holds a subject type, never
+  the row. The guard's job is narrow: reject the wrong role. It cannot and
+  does not reject the right role reading someone else's row — and since it
+  stopped requiring an unconditional rule, a service that omits the row
+  scope no longer fails closed with a 403. It returns the other row. That
+  makes the check below the only thing standing there.
 - Row-level scoping is therefore the service's job, not the guard's. A
   service that needs owner scoping must fold it into the Prisma query itself
   — typically `accessibleBy(ability, action).ofType('Subject')` merged into
@@ -31,6 +34,14 @@ reason about a model this codebase doesn't use.
   `where: { cart: { userId: user.id } }` condition reachable from the
   authenticated user. `CartItem` has no owner column of its own — ownership
   climbs through `Cart`, per `docs/AUTHORIZATION-MATRIX.md`.
+- In `@casl/prisma` 2.0.2, `accessibleBy(ability, action)` exposes only
+  `.ofType('Subject')`. The v1 spelling `accessibleBy(ability, action).Cart`
+  is `undefined` on this version, and an `undefined` Prisma `where` matches
+  every row: treat it as a finding wherever it appears. `ofType` returns
+  `{ OR: [] }` (matches nothing) when no rule applies, the rule's condition
+  when a conditional rule applies, and `{}` (matches **everything**) when
+  the applicable rule is unconditional — so an unconditional rule on an
+  owned subject is itself a finding.
 - A `@CheckPolicies({ action, subject })` decorator alone only proves the
   caller's **role** may perform that action on that subject type in general.
   It proves nothing about the specific row being fetched, updated, or

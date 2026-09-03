@@ -13,10 +13,11 @@
 // prisma/backfill-live-columns.ts — a new non-defaulted column arrives NULL
 // on every existing row. A
 // partial-unique invariant is expressed as a nullable column plus a plain
-// @@unique instead of raw SQL; see User.liveEmail and
-// EmailVerificationToken.liveUserId for the pattern. The same pattern still
-// needs applying to Cart, PaymentLink, Payment and PromoCode once each has
-// service code, and to the order sweep's partial index alongside Order —
+// @@unique instead of raw SQL; see User.liveEmail,
+// EmailVerificationToken.liveUserId and Cart.activeUserId for the pattern.
+// The same pattern still needs applying to PaymentLink, Payment and
+// PromoCode once each has service code, and to the order sweep's partial
+// index alongside Order —
 // a CHECK constraint, meanwhile, has no schema.prisma equivalent at all and
 // moves to application-level validation instead.
 
@@ -290,16 +291,21 @@ model Sku {
 // ─── cart_and_interaction ───────────────────────────────────────────────────
 
 model Cart {
-  id        String     @id @db.Uuid
-  userId    String     @map("user_id") @db.Uuid
-  status    CartStatus @default(ACTIVE)
-  createdAt DateTime   @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt DateTime   @updatedAt @map("updated_at") @db.Timestamptz
+  id     String     @id @db.Uuid
+  userId String     @map("user_id") @db.Uuid
+  status CartStatus @default(ACTIVE)
+  // Same nullable-column pattern as User.liveEmail, replacing
+  // `uq_carts_user_active_partial`: mirrors `userId` while the cart is
+  // ACTIVE, null once it is CHECKED_OUT, so a user has at most one active
+  // cart. Every write that changes `status` must set this in the same
+  // statement — checkout, when it lands, is the first one that will.
+  activeUserId String?  @unique(map: "uq_carts_user_active") @map("active_user_id") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
   user  User       @relation(fields: [userId], references: [id])
   items CartItem[]
 
-  // uq_carts_user_active_partial: UNIQUE (user_id) WHERE status = 'ACTIVE' → pending, see the header
   @@map("carts")
 }
 

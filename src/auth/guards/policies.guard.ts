@@ -30,7 +30,7 @@ export class PoliciesGuard implements CanActivate {
     if (
       requirements.length === 0 ||
       !requirements.every(({ action, subject }) =>
-        this.hasRoleOnlyPermission(ability, action, subject),
+        this.hasPermission(ability, action, subject),
       )
     ) {
       throw new ProblemException(
@@ -42,20 +42,31 @@ export class PoliciesGuard implements CanActivate {
     return true;
   }
 
-  // Authorizes by role only: a CASL rule with conditions needs the actual
-  // row, applied in the services with accessibleBy(...).ofType(...);
-  // ability.can(...) isn't redundant because it's the only thing that
-  // catches an unconditional cannot that rulesFor alone wouldn't reflect.
-  private hasRoleOnlyPermission(
+  /**
+   * Authorizes by role, and by role alone. A rule that carries an ownership
+   * condition satisfies this gate as well: the condition cannot be judged
+   * here, because the guard holds a subject *type* and not the row, so it
+   * is applied where the row is fetched, as
+   * `accessibleBy(ability, action).ofType('Subject')` folded into the
+   * service's Prisma `where`.
+   *
+   * The consequence has to be said plainly, because it is the whole risk of
+   * this design. Before the cart, a conditional rule failed this check and
+   * the route answered 403; a service that forgot to scope its query was
+   * therefore unreachable. Now such a route is reachable, and a service
+   * that forgets answers 200 with another client's row. The compensating
+   * controls are the unit test asserting the `where` the service sends to
+   * Prisma, and the `casl-guard` agent over the diff. There is nothing
+   * else.
+   *
+   * `can()` still does real work: it denies a role the ability grants no
+   * rule for, and it respects an explicit `cannot`.
+   */
+  private hasPermission(
     ability: ReturnType<AppAbilityFactory['createForUser']>,
     action: PolicyRequirement['action'],
     subject: PolicyRequirement['subject'],
   ): boolean {
-    return (
-      ability.can(action, subject) &&
-      ability
-        .rulesFor(action, subject)
-        .some((rule) => !rule.inverted && rule.conditions === undefined)
-    );
+    return ability.can(action, subject);
   }
 }
