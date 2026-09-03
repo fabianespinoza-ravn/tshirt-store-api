@@ -10,7 +10,11 @@ coverage/
 *.log
 .DS_Store
 
+# Personal to this machine, never shared.
+.claude/settings.local.json
+
 # Notas de planificación y borradores en la raíz. La documentación del
 # proyecto vive en docs/, que sí se versiona.
 /*.md
 !/README.md
+!/CLAUDE.md
