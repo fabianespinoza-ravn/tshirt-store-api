@@ -42,7 +42,7 @@ describe('AuthService', () => {
 
   describe('signUp', () => {
     it('creates the account in GUEST with no credential in users', async () => {
-      h.prisma.user.findFirst.mockResolvedValue(null);
+      h.prisma.user.findUnique.mockResolvedValue(null);
       h.prisma.user.create.mockResolvedValue(anUnverifiedUser());
 
       await h.service.signUp('new@example.test', PLAIN);
@@ -68,7 +68,7 @@ describe('AuthService', () => {
      * responses are identical.
      */
     it('writes nothing and sends a reminder for an already verified address', async () => {
-      h.prisma.user.findFirst.mockResolvedValue(aUser());
+      h.prisma.user.findUnique.mockResolvedValue(aUser());
 
       await h.service.signUp('maria@example.test', PLAIN);
 
@@ -81,12 +81,12 @@ describe('AuthService', () => {
     });
 
     /**
-     * The partial unique index on `email_verification_tokens` allows only one
-     * live token per user, so reissuing forces the previous one to be
-     * consumed first. Without that, the INSERT collides with the index.
+     * `liveUserId` allows only one live token per user, so reissuing forces
+     * the previous one to be consumed — and its slot cleared — first.
+     * Without that, the INSERT below collides with the unique constraint.
      */
     it('consumes the live token before issuing a new one', async () => {
-      h.prisma.user.findFirst.mockResolvedValue(anUnverifiedUser());
+      h.prisma.user.findUnique.mockResolvedValue(anUnverifiedUser());
 
       await h.service.signUp('unverified@example.test', PLAIN);
 
@@ -106,7 +106,7 @@ describe('AuthService', () => {
      */
     it('replaces the pending credential with the newly supplied one', async () => {
       const user = anUnverifiedUser();
-      h.prisma.user.findFirst.mockResolvedValue(user);
+      h.prisma.user.findUnique.mockResolvedValue(user);
 
       await h.service.signUp(user.email, 'a-new-long-password');
 
@@ -150,6 +150,7 @@ describe('AuthService', () => {
         data: {
           consumedAt: expect.any(Date) as Date,
           pendingPasswordHash: null,
+          liveUserId: null,
         },
       });
     });
@@ -179,7 +180,7 @@ describe('AuthService', () => {
       aUser({ passwordHash: await passwords.hash(PLAIN), ...overrides });
 
     it('opens a session for a verified account with the right password', async () => {
-      h.prisma.user.findFirst.mockResolvedValue(await withCredential());
+      h.prisma.user.findUnique.mockResolvedValue(await withCredential());
       h.tokens.signAccessToken.mockReturnValue('jwt');
       h.tokens.startFamily.mockResolvedValue({
         token: 'refresh',
@@ -192,7 +193,7 @@ describe('AuthService', () => {
     });
 
     it('returns 401 for a wrong password', async () => {
-      h.prisma.user.findFirst.mockResolvedValue(await withCredential());
+      h.prisma.user.findUnique.mockResolvedValue(await withCredential());
 
       await expect(
         h.service.signIn('ana@example.test', 'another-long-password'),
@@ -200,7 +201,7 @@ describe('AuthService', () => {
     });
 
     it('returns 401 for an address with no account', async () => {
-      h.prisma.user.findFirst.mockResolvedValue(null);
+      h.prisma.user.findUnique.mockResolvedValue(null);
 
       await expect(
         h.service.signIn('nobody@example.test', PLAIN),
@@ -216,8 +217,8 @@ describe('AuthService', () => {
      */
     it('returns 401, never 403, when the password is wrong on an unverified account', async () => {
       const user = anUnverifiedUser();
-      h.prisma.user.findFirst.mockResolvedValue(user);
-      h.prisma.emailVerificationToken.findFirst.mockResolvedValue({
+      h.prisma.user.findUnique.mockResolvedValue(user);
+      h.prisma.emailVerificationToken.findUnique.mockResolvedValue({
         pendingPasswordHash: await passwords.hash(PLAIN),
       } as never);
 
@@ -228,8 +229,8 @@ describe('AuthService', () => {
 
     it('returns 403 only when the password is right and the email is unverified', async () => {
       const user = anUnverifiedUser();
-      h.prisma.user.findFirst.mockResolvedValue(user);
-      h.prisma.emailVerificationToken.findFirst.mockResolvedValue({
+      h.prisma.user.findUnique.mockResolvedValue(user);
+      h.prisma.emailVerificationToken.findUnique.mockResolvedValue({
         pendingPasswordHash: await passwords.hash(PLAIN),
       } as never);
 
@@ -240,7 +241,7 @@ describe('AuthService', () => {
 
     /** The ERD's three guards, deliberately not merged. */
     it('refuses a verified account that is not ACTIVE', async () => {
-      h.prisma.user.findFirst.mockResolvedValue(
+      h.prisma.user.findUnique.mockResolvedValue(
         await withCredential({ state: UserState.GUEST }),
       );
 
@@ -250,18 +251,18 @@ describe('AuthService', () => {
     });
 
     /**
-     * `email` isn't unique in Prisma because the model's unique index is
-     * partial: `UNIQUE (email) WHERE deleted_at IS NULL`. Forgetting the
-     * `deletedAt: null` would return a deleted account as if it were live.
+     * The lookup is by `liveEmail`, not `email`: that column is null on any
+     * soft-deleted row, so a match can never be a deleted account — no
+     * separate `deletedAt` filter is needed to exclude one.
      */
-    it('scopes the lookup to accounts that are not deleted', async () => {
-      h.prisma.user.findFirst.mockResolvedValue(null);
+    it('looks accounts up by liveEmail, so a deleted account can never match', async () => {
+      h.prisma.user.findUnique.mockResolvedValue(null);
 
       await expect(
         h.service.signIn('ana@example.test', PLAIN),
       ).rejects.toMatchObject({ kind: Problems.unauthorized });
-      expect(h.prisma.user.findFirst).toHaveBeenCalledWith({
-        where: { email: 'ana@example.test', deletedAt: null },
+      expect(h.prisma.user.findUnique).toHaveBeenCalledWith({
+        where: { liveEmail: 'ana@example.test' },
       });
     });
   });
@@ -271,7 +272,7 @@ describe('AuthService', () => {
   describe('forgotPassword', () => {
     it('issues a reset token for an eligible account', async () => {
       const user = aUser();
-      h.prisma.user.findFirst.mockResolvedValue(user);
+      h.prisma.user.findUnique.mockResolvedValue(user);
 
       await h.service.forgotPassword(user.email);
 
@@ -289,7 +290,7 @@ describe('AuthService', () => {
     ])(
       'writes nothing and sends nothing for an address that is %s',
       async (_case, user) => {
-        h.prisma.user.findFirst.mockResolvedValue(user);
+        h.prisma.user.findUnique.mockResolvedValue(user);
 
         await expect(
           h.service.forgotPassword('whoever@example.test'),

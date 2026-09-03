@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { UserRole, UserState, type Prisma, type User } from '@prisma/client';
+import { UserRole, UserState, type User } from '@prisma/client';
 import { newId } from '../common/ids';
 import { loadOrThrow } from '../common/load-or-throw';
 import { Problems } from '../common/problem/problem.catalog';
@@ -11,10 +11,6 @@ import { TokenService, type IssuedRefreshToken } from './token.service';
 
 const VERIFICATION_TTL_MS = 24 * 60 * 60 * 1000;
 const RESET_TTL_MS = 60 * 60 * 1000;
-
-// A live user: not soft-deleted. Same shared-fragment pattern as
-// ProductsService.NOT_DELETED, applied here to the User model.
-const NOT_DELETED: Prisma.UserWhereInput = { deletedAt: null };
 
 export interface SessionResult {
   accessToken: string;
@@ -31,11 +27,10 @@ export class AuthService {
     private readonly mail: MailService,
   ) {}
 
-  // email isn't unique to Prisma because the model's index is partial
-  // (UNIQUE WHERE deleted_at IS NULL); the condition has to be repeated here
-  // or a deleted account would come back as if it were live.
+  // `liveEmail` is null on any soft-deleted row, so a lookup by it can never
+  // return a deleted account — no separate `deletedAt` filter needed.
   private findLiveByEmail(email: string) {
-    return this.prisma.user.findFirst({ where: { email, ...NOT_DELETED } });
+    return this.prisma.user.findUnique({ where: { liveEmail: email } });
   }
 
   // ------------------------------------------------------------- registration
@@ -64,19 +59,20 @@ export class AuthService {
             data: {
               id: newId(),
               email,
+              liveEmail: email,
               role: UserRole.CLIENT,
               state: UserState.GUEST,
             },
           })
         ).id;
 
-      // The partial unique index allows only one live token per user, so the
-      // previous one is consumed before issuing the new one. Without this
-      // the INSERT collides.
+      // `liveUserId` allows only one live token per user, so the previous
+      // one is consumed — and its slot cleared — before issuing the new
+      // one. Without clearing it the INSERT below collides.
       if (existing) {
         await tx.emailVerificationToken.updateMany({
           where: { userId, consumedAt: null },
-          data: { consumedAt: new Date() },
+          data: { consumedAt: new Date(), liveUserId: null },
         });
       }
 
@@ -84,6 +80,7 @@ export class AuthService {
         data: {
           id: newId(),
           userId,
+          liveUserId: userId,
           tokenHash: this.tokens.oneTimeDigest(token),
           pendingPasswordHash,
           expiresAt: new Date(Date.now() + VERIFICATION_TTL_MS),
@@ -120,7 +117,11 @@ export class AuthService {
       }),
       this.prisma.emailVerificationToken.update({
         where: { id: row.id },
-        data: { consumedAt: new Date(), pendingPasswordHash: null },
+        data: {
+          consumedAt: new Date(),
+          pendingPasswordHash: null,
+          liveUserId: null,
+        },
       }),
     ]);
   }
@@ -131,8 +132,8 @@ export class AuthService {
     const user = await this.findLiveByEmail(email);
     if (!user || user.emailVerifiedAt) return;
 
-    const live = await this.prisma.emailVerificationToken.findFirst({
-      where: { userId: user.id, consumedAt: null },
+    const live = await this.prisma.emailVerificationToken.findUnique({
+      where: { liveUserId: user.id },
     });
     if (!live?.pendingPasswordHash) return;
 
@@ -141,12 +142,13 @@ export class AuthService {
     await this.prisma.$transaction([
       this.prisma.emailVerificationToken.update({
         where: { id: live.id },
-        data: { consumedAt: new Date() },
+        data: { consumedAt: new Date(), liveUserId: null },
       }),
       this.prisma.emailVerificationToken.create({
         data: {
           id: newId(),
           userId: user.id,
+          liveUserId: user.id,
           tokenHash: this.tokens.oneTimeDigest(token),
           pendingPasswordHash: live.pendingPasswordHash,
           expiresAt: new Date(Date.now() + VERIFICATION_TTL_MS),
@@ -175,8 +177,8 @@ export class AuthService {
       const ok = await this.passwords.verify(user.passwordHash, password);
       if (!ok) throw this.invalidCredentials();
     } else {
-      const pending = await this.prisma.emailVerificationToken.findFirst({
-        where: { userId: user.id, consumedAt: null },
+      const pending = await this.prisma.emailVerificationToken.findUnique({
+        where: { liveUserId: user.id },
         select: { pendingPasswordHash: true },
       });
 

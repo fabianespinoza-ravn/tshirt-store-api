@@ -117,6 +117,15 @@ model User {
   state           UserState  @default(ACTIVE)
   emailVerifiedAt DateTime?  @map("email_verified_at") @db.Timestamptz
   deletedAt       DateTime?  @map("deleted_at") @db.Timestamptz
+  // Mirrors `email`, null instead of a value whenever `deletedAt` is set.
+  // Postgres never treats two NULLs as a conflict in a unique index, so a
+  // plain `@unique` on a nullable column excludes only one live row per
+  // email — the same guarantee `uq_users_email_live_partial` used to give
+  // as a hand-written partial-index migration, expressed natively here
+  // instead. No code path clears `deletedAt` today; the first one that does
+  // must null this out in the same write, or a soft-deleted row keeps the
+  // email address reserved forever.
+  liveEmail       String?    @unique(map: "uq_users_email_live") @map("live_email") @db.VarChar
   createdAt       DateTime   @default(now()) @map("created_at") @db.Timestamptz
   updatedAt       DateTime   @updatedAt @map("updated_at") @db.Timestamptz
 
@@ -170,6 +179,11 @@ model EmailVerificationToken {
   pendingPasswordHash String?   @map("pending_password_hash") @db.VarChar
   expiresAt           DateTime  @map("expires_at") @db.Timestamptz
   consumedAt          DateTime? @map("consumed_at") @db.Timestamptz
+  // Same nullable-column pattern as User.liveEmail, replacing
+  // `uq_email_verification_tokens_live_partial`: mirrors `userId`, null once
+  // `consumedAt` is set, so at most one live token per user. Every write
+  // that sets or clears `consumedAt` must set this in the same statement.
+  liveUserId          String?   @unique(map: "uq_email_verification_tokens_live") @map("live_user_id") @db.Uuid
   createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz
 
   user User @relation(fields: [userId], references: [id])
