@@ -23,7 +23,14 @@
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
-    "prisma:studio": "prisma studio"
+    "prisma:studio": "prisma studio",
+    "precommit": "lint-staged"
+  },
+  "lint-staged": {
+    "*.ts": [
+      "eslint --fix",
+      "prettier --write"
+    ]
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1121.0",
@@ -66,6 +73,7 @@
     "globals": "^17.0.0",
     "jest": "^30.5.0",
     "jest-mock-extended": "^4.0.1",
+    "lint-staged": "^17.4.1",
     "prettier": "^3.4.2",
     "prisma": "6.19.3",
     "source-map-support": "^0.5.21",
