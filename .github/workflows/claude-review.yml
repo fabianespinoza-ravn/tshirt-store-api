@@ -49,6 +49,9 @@ jobs:
             - Data exposure. No secret, token or connection string in code,
               logs or fixtures.
             - Tests. New behaviour without a test is a finding.
+            - Docs. When the diff changes a directory layout, a script, an
+              environment variable or a command that `README.md` or `docs/`
+              describes, the sentence that now lies is a finding.
 
             Report only what you would block a merge on. Say nothing when the
             diff is fine — an empty review is a valid outcome, and noise on

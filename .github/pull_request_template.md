@@ -14,6 +14,7 @@
 - [ ] Authorization changes are reflected in the authorization matrix
 - [ ] Prisma schema changes ship with their migration
 - [ ] Public API changes are reflected in the OpenAPI decorators
+- [ ] `README.md` and `docs/` still describe what this diff changes: layout, scripts, env vars
 
 ## How it was verified
 
