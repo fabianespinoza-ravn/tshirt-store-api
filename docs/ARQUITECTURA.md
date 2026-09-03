@@ -73,15 +73,39 @@ flowchart TB
 
 ## Queue
 
-BullMQ rides on the Redis that is already part of the runtime, and it gives Nest
-retries, priorities and delayed jobs without introducing a broker for a single
-service. The two retry policies are deliberately different. Mail gets three
-attempts with exponential backoff and then lands in a dead-letter queue that is
-monitored. Payment settlement retries with backoff until it resolves and raises
-an alert instead, because there is no number of attempts after which losing a
-payment becomes acceptable. Redis earns its place twice: the rate-limit counters
-live there as well, because an in-process limiter multiplies its own limit by the
-number of API instances behind the load balancer.
+The size of the service is not the argument for BullMQ; two requirements that an
+event emitter cannot meet are. Mail alone would not justify it — a resend costs
+nothing and nothing else is waiting on it, so an emitter would be enough for that
+job by itself.
+
+**The expired-order sweep needs elapsed time, not an event.** An emitter only
+runs when something happens — a checkout, a webhook. Nothing happens when Stripe
+never answers; the order just sits `PENDING` past its `expires_at` with no event
+to react to. Something has to poll the clock instead, and that is what BullMQ's
+repeatable job does: on a schedule, not on a trigger, it finds every order past
+`expires_at`, cancels the Stripe intent and releases the stock.
+
+**Payment settlement has to survive a process restart.** An in-process emitter
+keeps its listeners and their state in memory. A deploy, a crash or an OOM kill
+between "Stripe confirmed the charge" and "the order moved to `PAID`" would drop
+that handler on the floor, leaving an order `PENDING` with money already taken.
+BullMQ persists the job in Redis before the handler runs, so a restart re-delivers
+it instead of losing it. Its retry policy reflects that stakes: settlement retries
+with backoff until it resolves and raises an alert instead of giving up, because
+no number of attempts makes losing a payment acceptable. Mail's stakes are lower,
+so it gets three attempts with backoff and then a monitored dead-letter queue.
+
+The rejected alternative is `@nestjs/schedule` for the sweep plus a transactional
+outbox for settlement: an `@Interval` job in place of the repeatable job, and an
+`outbox` table written in the same transaction as the payment update, drained by
+a poller, in place of a persisted job. It removes the Redis dependency, and it is
+a legitimate design. Switching to it needs two things to be true: the team is
+willing to build and operate the outbox poller and its own retry and backoff by
+hand — what BullMQ gives for free today — and nothing else in the system still
+wants a job runtime once that happens. Neither holds yet, so BullMQ stays. Redis
+earns its place twice: the rate-limit counters live there as well, because an
+in-process limiter multiplies its own limit by the number of API instances behind
+the load balancer.
 
 The API verifies the webhook signature, records the event and acknowledges it;
 the worker is what moves the order afterwards, so an order can still read
