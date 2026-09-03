@@ -23,3 +23,11 @@ codebase; see `docs/ARQUITECTURA.md` for the production architecture and
 - Coverage cannot drop below the thresholds in `package.json`'s `jest.coverageThreshold`
   (statements 75, branches 65, functions 63, lines 74). Raise the floor when
   coverage improves; never lower it to make a PR pass.
+
+## Other conventions
+
+- `src/common/filters/problem-details.filter.ts` is the only place an error
+  response is shaped; no other code formats one.
+- Run `/preflight` before considering a change done.
+- The user's global `pre-commit` hook should run `npm run precommit --if-present`
+  from the repository root.
