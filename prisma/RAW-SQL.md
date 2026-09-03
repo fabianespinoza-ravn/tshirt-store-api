@@ -1,28 +1,29 @@
-# Lo que Prisma no puede expresar
+# What Prisma cannot express
 
-`schema.prisma` es una traducción del ERD de la Semana 1, pero **tres clases de objeto no
-tienen sintaxis en Prisma** y hay que escribirlas a mano dentro de una migración.
+`schema.prisma` is a translation of the Week 1 ERD, but **three classes of object have
+no syntax in Prisma** and have to be written by hand inside a migration.
 
-Cómo se hace: se genera la migración vacía y se edita antes de aplicarla.
+How it's done: generate the empty migration and edit it before applying it.
 
 ```bash
 npx prisma migrate dev --create-only --name partial_indexes_and_checks
-# edita el .sql generado, añade lo de abajo, y luego:
+# edit the generated .sql, add what's below, and then:
 npx prisma migrate dev
 ```
 
-Si esto no se hace, **el esquema compila y el modelo pierde sus garantías en silencio**: los
-únicos parciales pasan a comportarse como únicos totales o a no existir, y ninguna de las
-invariantes de los CHECK se cumple.
+If this isn't done, **the schema compiles and the model silently loses its guarantees**:
+the partial uniques start behaving like full uniques or stop existing altogether, and none of
+the CHECK invariants hold.
 
 ---
 
-## 1. Los seis índices únicos parciales
+## 1. The six partial unique indexes
 
-El ERD los declara con el prefijo `uq_` y el sufijo `_partial`, y su predicado vive en la nota
-de cada tabla. Ninguno es expresable con `@@unique`, porque Prisma no admite predicado.
+The ERD declares them with the `uq_` prefix and `_partial` suffix, and their predicate lives
+in each table's note. None is expressible with `@@unique`, because Prisma doesn't support a
+predicate.
 
-| Nombre | Tabla | Definición |
+| Name | Table | Definition |
 |---|---|---|
 | `uq_users_email_live_partial` | `users` | `UNIQUE (email) WHERE deleted_at IS NULL` |
 | `uq_email_verification_tokens_live_partial` | `email_verification_tokens` | `UNIQUE (user_id) WHERE consumed_at IS NULL` |
@@ -31,22 +32,22 @@ de cada tabla. Ninguno es expresable con `@@unique`, porque Prisma no admite pre
 | `uq_payment_links_sku_active_partial` | `payment_links` | `UNIQUE (sku_id) WHERE is_active` |
 | `uq_promo_codes_code_live_partial` | `promo_codes` | `UNIQUE (code) WHERE deleted_at IS NULL` |
 
-Cada uno sostiene una decisión del modelo. `uq_carts_user_active_partial` es lo que garantiza un
-solo carrito activo por usuario; `uq_payment_links_sku_active_partial` es lo que hace segura la
-creación *get-or-create* bajo concurrencia; `uq_payments_order_succeeded_partial` es un pago
-liquidado por pedido.
+Each one backs a decision in the model. `uq_carts_user_active_partial` is what guarantees a
+single active cart per user; `uq_payment_links_sku_active_partial` is what makes the
+*get-or-create* creation safe under concurrency; `uq_payments_order_succeeded_partial` is one
+settled payment per order.
 
-## 2. El índice parcial de la barrida
+## 2. The sweep's partial index
 
-| Nombre | Tabla | Definición |
+| Name | Table | Definition |
 |---|---|---|
 | `idx_orders_pending_expires_partial` | `orders` | `(expires_at) WHERE status = 'PENDING'` |
 
-No es único. Es el índice que usa la barrida que caduca reservas.
+It isn't unique. It's the index the sweep that expires reservations uses.
 
-## 3. Los CHECK
+## 3. The CHECK constraints
 
-Copiados de las notas del ERD, que son la fuente de verdad.
+Copied from the ERD's notes, which are the source of truth.
 
 **`users`**
 - `password_hash IS NOT NULL OR email_verified_at IS NULL`
@@ -74,7 +75,7 @@ Copiados de las notas del ERD, que son la fuente de verdad.
 - `discount_value <= 100 WHEN type = 'PERCENTAGE'`
 - `usage_count >= 0`, `usage_reserved >= 0`, `usage_limit >= 0`
 - `usage_count + usage_reserved <= usage_limit`
-- `minimum_purchase_amount >= 0` cuando no es nulo
+- `minimum_purchase_amount >= 0` when not null
 - `expires_at > created_at`
 
 **`stock_notifications`**
@@ -82,13 +83,13 @@ Copiados de las notas del ERD, que son la fuente de verdad.
 
 ---
 
-## Dos cosas que conviene comprobar al aplicar
+## Two things worth checking when applying
 
-**Los UUID los genera la aplicación, no la base.** La cabecera del ERD lo dice: *"Todos los UUID
-se generan como UUIDv7 en Prisma, no mediante un default SQL."* Por eso ningún `id` lleva
-`@default` en el esquema. Si un `INSERT` falla por id nulo, falta el generador en la aplicación,
-no un default en la migración.
+**The application generates the UUIDs, not the database.** The ERD's header says so: *"All
+UUIDs are generated as UUIDv7 in Prisma, not via a SQL default."* That's why no `id` carries
+`@default` in the schema. If an `INSERT` fails on a null id, the generator is missing from the
+application, not a default from the migration.
 
-**La FK compuesta de `skus` ya está en el esquema.** `image` referencia
-`ProductImage(id, productId)`, que es lo que impide que una variante apunte a la imagen de otro
-producto. Esa sí la expresa Prisma, gracias al `@@unique([id, productId])` de `product_images`.
+**`skus`'s composite FK is already in the schema.** `image` references
+`ProductImage(id, productId)`, which is what stops a variant from pointing at another product's
+image. Prisma does express that one, thanks to `product_images`'s `@@unique([id, productId])`.

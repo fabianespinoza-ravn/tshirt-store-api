@@ -4,8 +4,8 @@ on:
   pull_request:
     types: [opened, synchronize]
 
-# Sólo comenta. No escribe en la rama, así que no hay commits suyos en el
-# historial: `contents` va en lectura a propósito.
+# It only comments. It never writes to the branch, so there are no commits
+# of its own in the history: `contents` is read-only on purpose.
 permissions:
   contents: read
   pull-requests: write
@@ -15,18 +15,18 @@ jobs:
   review:
     runs-on: ubuntu-latest
     steps:
-      # Este workflow es el único que maneja una credencial, así que sus
-      # acciones van clavadas al commit y no a una etiqueta móvil: quien
-      # controle el contenido de `v1` controlaría el token. Los SHA son los que
-      # hoy hay detrás de checkout@v7 y de claude-code-action@v1.
+      # This workflow is the only one that handles a credential, so its
+      # actions are pinned to the commit and not to a moving tag: whoever
+      # controls what `v1` points to would control the token. The SHAs are
+      # what's behind checkout@v7 and claude-code-action@v1 today.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 1
 
       - uses: anthropics/claude-code-action@8251c103ac8c1d761882c86aba1412c7f583c844 # v1
         with:
-          # Token de suscripción, no clave de API: los reviews no se facturan
-          # aparte. Se renueva con `claude setup-token`.
+          # Subscription token, not an API key: reviews aren't billed
+          # separately. Renew it with `claude setup-token`.
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           prompt: |
             REPO: ${{ github.repository }}

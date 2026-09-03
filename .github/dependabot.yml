@@ -1,8 +1,8 @@
 version: 2
 
 updates:
-  # Las dependencias de la aplicación. Agrupadas para que una semana normal sea
-  # un solo PR de parches y no quince.
+  # The application's dependencies. Grouped so a normal week is one patch PR
+  # and not fifteen.
   - package-ecosystem: npm
     directory: /
     schedule:
@@ -24,10 +24,10 @@ updates:
         update-types:
           - minor
           - patch
-    # Los majors no entran solos. NestJS 12 y Prisma 7 en plena semana 4 son un
-    # refactor, no una actualización: se deciden a mano cuando la entrega esté
-    # cerrada. Los parches y minors siguen llegando, que es donde viven los
-    # arreglos de seguridad.
+    # Majors don't land on their own. NestJS 12 and Prisma 7 in the middle of
+    # week 4 are a refactor, not an update: they get decided by hand once the
+    # submission is closed. Patches and minors keep coming through, which is
+    # where the security fixes live.
     ignore:
       - dependency-name: '*'
         update-types:
@@ -37,7 +37,7 @@ updates:
       prefix: chore
       include: scope
 
-  # Las propias acciones del pipeline envejecen igual que el código.
+  # The pipeline's own actions age just like the code does.
   - package-ecosystem: github-actions
     directory: /
     schedule:

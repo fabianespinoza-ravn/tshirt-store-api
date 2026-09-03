@@ -1,49 +1,47 @@
-# Matriz de autorización
+# Authorization matrix
 
-Extraída de `W2-API/openapi.yaml` en `1.0.1`, las 38 operaciones, sin excepciones. **Esto no es un
-modelo de autorización**: es tu contrato reordenado por quién puede hacer qué, que es la materia
-prima de la que sale la ability. El modelo lo escribes tú.
-
-La columna de códigos es literal, la de rol sale de la descripción de cada operación.
+Extracted from `W2-API/openapi.yaml` at `1.0.1`, all 38 operations, no exceptions. **This is not
+an authorization model**: it is your contract reordered by who can do what, which is the raw
+material the ability is built from. You write the model.
 
 ---
 
-## Las tres zonas
+## The three zones
 
-| Zona | Cuántas | Qué implica |
+| Zone | How many | What it implies |
 |---|---|---|
-| **Pública** | 10 | `security: []`. El guard global tiene que dejarlas pasar, y ese es el uso de `@Public()` |
-| **Autenticación opcional** | 1 | `getProduct`. Acepta anónimo y ensancha la respuesta para manager |
-| **Autenticada** | 27 | Token obligatorio. 23 declaran 403; las otras 4 merecen mirarse |
+| **Public** | 10 | `security: []`. The global guard has to let them through, and that is what `@Public()` is for |
+| **Optional authentication** | 1 | `getProduct`. Accepts anonymous and widens the response for a manager |
+| **Authenticated** | 27 | Token required. 23 declare 403; the other 4 are worth a closer look |
 
 ---
 
-## Autenticación
+## Authentication
 
-| Operación | Ruta | Quién | Códigos |
+| Operation | Route | Who | Codes |
 |---|---|---|---|
-| `signUp` | `POST /auth/sign-up` | público | 201 400 429 500 |
-| `signIn` | `POST /auth/sign-in` | público | 200 400 401 403 429 500 |
-| `forgotPassword` | `POST /auth/forgot-password` | público | 202 400 429 500 |
-| `resetPassword` | `POST /auth/reset-password` | público | 204 400 404 429 500 |
-| `resendEmailVerification` | `POST /auth/email-verifications` | público | 202 400 429 500 |
-| `confirmEmailVerification` | `POST /auth/email-verifications/confirm` | público | 204 400 404 500 |
-| `refreshSession` | `POST /auth/refresh` | cookie de refresco | 200 401 500 |
-| `signOut` | `POST /auth/sign-out` | **bearer + cookie**, los dos | 204 401 500 |
-| `changePassword` | `PATCH /auth/password` | cualquier autenticado | 204 400 401 500 |
+| `signUp` | `POST /auth/sign-up` | public | 201 400 429 500 |
+| `signIn` | `POST /auth/sign-in` | public | 200 400 401 403 429 500 |
+| `forgotPassword` | `POST /auth/forgot-password` | public | 202 400 429 500 |
+| `resetPassword` | `POST /auth/reset-password` | public | 204 400 404 429 500 |
+| `resendEmailVerification` | `POST /auth/email-verifications` | public | 202 400 429 500 |
+| `confirmEmailVerification` | `POST /auth/email-verifications/confirm` | public | 204 400 404 500 |
+| `refreshSession` | `POST /auth/refresh` | refresh cookie | 200 401 500 |
+| `signOut` | `POST /auth/sign-out` | **bearer + cookie**, both | 204 401 500 |
+| `changePassword` | `PATCH /auth/password` | any authenticated user | 204 400 401 500 |
 
-El 403 de `signIn` no es de rol: es `EmailNotVerified`. No lo mezcles con los demás.
+The 403 on `signIn` is not about role: it's `EmailNotVerified`. Don't lump it in with the rest.
 
-## Catálogo
+## Catalog
 
-| Operación | Ruta | Quién | Códigos |
+| Operation | Route | Who | Codes |
 |---|---|---|---|
-| `listCategories` | `GET /categories` | público | 200 400 500 |
+| `listCategories` | `GET /categories` | public | 200 400 500 |
 | `createCategory` | `POST /categories` | MANAGER | 201 400 401 403 409 500 |
 | `updateCategory` | `PATCH /categories/{categoryId}` | MANAGER | 200 400 401 403 404 409 500 |
 | `deleteCategory` | `DELETE /categories/{categoryId}` | MANAGER | 204 401 403 404 409 500 |
-| `listProducts` | `GET /products` | público | 200 400 500 |
-| `getProduct` | `GET /products/{productId}` | **anónimo o autenticado** | 200 401 404 500 |
+| `listProducts` | `GET /products` | public | 200 400 500 |
+| `getProduct` | `GET /products/{productId}` | **anonymous or authenticated** | 200 401\* 404 500 |
 | `createProduct` | `POST /products` | MANAGER | 201 400 401 403 404 500 |
 | `updateProduct` | `PATCH /products/{productId}` | MANAGER | 200 400 401 403 404 500 |
 | `deleteProduct` | `DELETE /products/{productId}` | MANAGER | 204 401 403 404 409 500 |
@@ -53,43 +51,48 @@ El 403 de `signIn` no es de rol: es `EmailNotVerified`. No lo mezcles con los de
 | `updateSku` | `PATCH /skus/{skuId}` | MANAGER | 200 400 401 403 404 409 500 |
 | `setProductLike` | `PUT /products/{productId}/like` | **CLIENT** | 200 400 401 403 404 500 |
 
-## Carrito
+\* Declared in the contract but unreachable here: `getProduct` is `@Public()`, and
+`JwtAuthGuard` only tries to attach a token when one is presented on a public route
+(`src/auth/guards/jwt-auth.guard.ts:31-34`) — an invalid or expired token is silently
+ignored instead of rejected, so this operation never actually returns 401.
 
-Las cuatro son **CLIENT only**, y las cuatro declaran 403.
+## Cart
 
-| Operación | Ruta | Códigos |
+All four are **CLIENT only**, and all four declare 403.
+
+| Operation | Route | Codes |
 |---|---|---|
 | `getCart` | `GET /cart` | 200 401 403 500 |
 | `addCartItem` | `POST /cart/items` | 200 201 400 401 403 404 409 500 |
 | `updateCartItem` | `PATCH /cart/items/{cartItemId}` | 200 400 401 403 404 409 500 |
 | `removeCartItem` | `DELETE /cart/items/{cartItemId}` | 200 401 403 404 500 |
 
-## Pedidos
+## Orders
 
-| Operación | Ruta | Quién | Códigos |
+| Operation | Route | Who | Codes |
 |---|---|---|---|
-| `listOrders` | `GET /orders` | CLIENT propios · MANAGER todos · DELIVERY su alcance | 200 400 401 403 500 |
+| `listOrders` | `GET /orders` | CLIENT their own · MANAGER all · DELIVERY within scope | 200 400 401 403 500 |
 | `checkout` | `POST /orders` | **CLIENT** | 201 400 401 403 409 500 |
-| `getOrder` | `GET /orders/{orderId}` | CLIENT propios · MANAGER todos · DELIVERY su alcance | 200 401 **404** 500 |
-| `updateOrderStatus` | `PATCH /orders/{orderId}/status` | MANAGER · CLIENT · DELIVERY, cada uno con destinos distintos | 200 400 401 **403** **404** 409 500 |
-| `getGuestOrder` | `GET /guest-orders/{orderId}` | público, la URL es la credencial | 200 404 500 |
+| `getOrder` | `GET /orders/{orderId}` | CLIENT their own · MANAGER all · DELIVERY within scope | 200 401 **404** 500 |
+| `updateOrderStatus` | `PATCH /orders/{orderId}/status` | MANAGER · CLIENT · DELIVERY, each with different destinations | 200 400 401 **403** **404** 409 500 |
+| `getGuestOrder` | `GET /guest-orders/{orderId}` | public, the URL is the credential | 200 404 500 |
 
-El alcance de DELIVERY: cualquier pedido **SHIPPED**, más los **DELIVERED** que entregó él.
+DELIVERY's scope: any **SHIPPED** order, plus the **DELIVERED** ones they delivered.
 
-Los destinos permitidos en `updateOrderStatus`:
+The destinations allowed in `updateOrderStatus`:
 
-| Rol | Destino | Desde |
+| Role | Destination | From |
 |---|---|---|
-| MANAGER | `PROCESSING`, luego `SHIPPED` | `PAID` |
-| CLIENT | `CANCELLED` | propio y no enviado |
+| MANAGER | `PROCESSING`, then `SHIPPED` | `PAID` |
+| CLIENT | `CANCELLED` | own and not yet shipped |
 | DELIVERY | `DELIVERED` | `SHIPPED` |
 
-## Enlaces de pago, webhooks y promociones
+## Payment links, webhooks and promotions
 
-| Operación | Ruta | Quién | Códigos |
+| Operation | Route | Who | Codes |
 |---|---|---|---|
 | `createPaymentLink` | `POST /payment-links` | MANAGER | 200 201 400 401 403 404 500 |
-| `receiveStripeEvent` | `POST /webhooks/stripe` | Stripe, por firma | 200 400 500 |
+| `receiveStripeEvent` | `POST /webhooks/stripe` | Stripe, by signature | 200 400 500 |
 | `listPromoCodes` | `GET /promo-codes` | MANAGER | 200 400 401 403 500 |
 | `createPromoCode` | `POST /promo-codes` | MANAGER | 201 400 401 403 409 500 |
 | `updatePromoCode` | `PATCH /promo-codes/{promoCodeId}` | MANAGER | 200 400 401 403 404 409 500 |
@@ -97,60 +100,61 @@ Los destinos permitidos en `updateOrderStatus`:
 
 ---
 
-# Las cuatro filas que rompen el patrón
+# The four rows that break the pattern
 
-Son las que hay que mirar dos veces, y salen de contar códigos, no de opinar.
+These are the ones worth a second look, and they come from counting codes, not from opinion.
 
-**1. `getOrder` es la única ruta con alcance por rol que NO declara 403.** Las otras tres sin 403
-(`signOut`, `refreshSession`, `changePassword`) no lo necesitan porque cualquier rol autenticado
-puede hacerlas. En `getOrder` la ausencia es deliberada: un pedido ajeno da **404**, para que el
-código no sirva para enumerar identificadores.
+**1. `getOrder` is the only role-scoped route that does NOT declare 403.** The other three without
+403 (`signOut`, `refreshSession`, `changePassword`) don't need it because any authenticated role can
+call them. In `getOrder` the absence is deliberate: someone else's order returns **404**, so the
+status code can't be used to enumerate identifiers.
 
-**2. `updateOrderStatus` declara 403 y 404 sobre el mismo recurso.** 403 por rol equivocado, 409 por
-transición inválida, 404 por pedido ajeno. Es la única operación del contrato que necesita las tres
-respuestas distintas, y es donde se esconde el fallo del que avisa el programa.
+**2. `updateOrderStatus` declares 403 and 404 on the same resource.** 403 for the wrong role, 409
+for an invalid transition, 404 for someone else's order. It's the only operation in the contract
+that needs all three distinct responses, and it's where the failure the program warns about hides.
 
-**3. `getProduct` acepta anónimo y no declara 403.** Un producto inactivo es 404 para el cliente y
-200 para el manager. **La visibilidad no es un permiso aquí, es una condición sobre la fila.**
+**3. `getProduct` accepts anonymous and does not declare 403.** An inactive product is 404 for a
+client and 200 for a manager. **Visibility is not a permission here, it's a condition on the row.**
 
-**4. `setProductLike` es CLIENT only y un manager recibe 403.** Junto con las cuatro del carrito y
-`checkout`, son las seis operaciones que un `can('manage', 'all')` para MANAGER rompería en
-silencio.
-
----
-
-# Lo que esta tabla te plantea
-
-No son respuestas. Son las decisiones que la matriz deja a la vista.
-
-**Los sujetos que aparecen.** `Category`, `Product`, `ProductImage`, `Sku`, `ProductLike`, `Cart`,
-`CartItem`, `Order`, `PaymentLink`, `PromoCode`. Diez, y ninguno es `User`: no hay operación que
-lea o escriba otro usuario.
-
-**Dónde la propiedad no está donde parece.** `CartItem` no tiene dueño: lo tiene su `Cart`. Toda
-condición sobre una línea de carrito tiene que subir un nivel, y si `@casl/prisma` de la versión que
-instales no admite condiciones sobre relaciones, eso cambia la forma del módulo entero.
-
-**Si `update` y `cancel` son acciones distintas.** En `updateOrderStatus` los tres roles hacen cosas
-distintas sobre el mismo recurso. Con acciones separadas el 403 por rol sale solo de la ability; con
-una sola acción y condiciones, tienes que producirlo tú.
-
-**Qué parte del alcance de DELIVERY es condición y qué parte es estado.** *"Cualquier SHIPPED"* es
-una condición sobre la fila. *"Los DELIVERED que entregó él"* es una condición sobre `deliveredById`.
-Las dos traducen a un `where`, así que las dos pueden vivir en la ability.
-
-**Las seis operaciones client-only.** Están arriba con el 403 declarado. Enuméralas en positivo.
+**4. `setProductLike` is CLIENT only and a manager gets 403.** Together with the four cart
+operations and `checkout`, these are the six operations that a `can('manage', 'all')` for MANAGER
+would silently break.
 
 ---
 
-# Lo que NO va en la ability
+# What this table puts in front of you
 
-- **`getGuestOrder`.** La credencial es poseer la URL, no un rol. Modelarlo como ability obliga a
-  inventar un sujeto que no existe.
-- **`receiveStripeEvent`.** La autoriza una firma HMAC.
-- **La transición de estado.** `PAID → PROCESSING → SHIPPED` es una máquina de estados y devuelve
-  409. Quién puede intentar qué destino sí es autorización y devuelve 403.
-- **La proyección por rol.** Que un manager vea `stock` y `reserved` es serialización. Los permisos
-  por campo de CASL sólo restringen, y aquí hace falta añadir.
-- **La visibilidad del catálogo.** Activo y no borrado es una condición sobre la fila, no un permiso
-  de rol, y por eso `getProduct` devuelve 404 y no 403.
+These are not answers. They are the decisions the matrix leaves in plain sight.
+
+**The subjects that appear.** `Category`, `Product`, `ProductImage`, `Sku`, `ProductLike`, `Cart`,
+`CartItem`, `Order`, `PaymentLink`, `PromoCode`. Ten, and none is `User`: no operation reads or
+writes another user.
+
+**Where ownership isn't where it looks.** `CartItem` has no owner of its own: its `Cart` does. Any
+condition on a cart line has to climb one level, and if the `@casl/prisma` version you install
+doesn't support conditions on relations, that changes the shape of the whole module.
+
+**Whether `update` and `cancel` are distinct actions.** In `updateOrderStatus` the three roles do
+different things to the same resource. With separate actions, the role-based 403 falls out of the
+ability for free; with a single action and conditions, you have to produce it yourself.
+
+**Which part of DELIVERY's scope is a condition and which is state.** *"Any SHIPPED"* is a
+condition on the row. *"The DELIVERED ones they delivered"* is a condition on `deliveredById`. Both
+translate to a `where`, so both can live in the ability.
+
+**The six client-only operations.** They're above with 403 declared. Enumerate them in the
+positive.
+
+---
+
+# What does NOT go in the ability
+
+- **`getGuestOrder`.** The credential is possessing the URL, not a role. Modeling it as an ability
+  forces you to invent a subject that doesn't exist.
+- **`receiveStripeEvent`.** An HMAC signature authorizes it.
+- **The state transition.** `PAID → PROCESSING → SHIPPED` is a state machine and returns 409. Who
+  can attempt which destination is authorization, and that does return 403.
+- **The per-role projection.** A manager seeing `stock` and `reserved` is serialization. CASL's
+  field-level permissions only restrict, and here you need to add.
+- **Catalog visibility.** Active and not deleted is a condition on the row, not a role permission,
+  and that's why `getProduct` returns 404 and not 403.
