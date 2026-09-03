@@ -24,18 +24,16 @@ import { PoliciesGuard } from '../auth/guards/policies.guard';
 import { Problems } from '../common/problem/problem.catalog';
 import { ApiProblems } from '../common/swagger';
 import { MAX_IMAGE_BYTES } from '../storage/storage.service';
+import type { ImageView } from '../catalog/product.mappers';
 import { ImagesService } from './images.service';
-import type { ImageView } from './product.mappers';
 
 // Alias to shorten the signatures: every route id is validated as a UUID.
 const uuid = ParseUUIDPipe;
 
 @ApiTags('Catalog')
 @Controller()
-export class CatalogController {
+export class ImagesController {
   constructor(private readonly images: ImagesService) {}
-
-  // --------------------------------------------------------------- images
 
   @UseGuards(PoliciesGuard)
   @CheckPolicies({ action: 'create', subject: 'ProductImage' })

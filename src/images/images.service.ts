@@ -9,7 +9,7 @@ import {
   StorageService,
   detectImageType,
 } from '../storage/storage.service';
-import type { ImageView } from './product.mappers';
+import type { ImageView } from '../catalog/product.mappers';
 import { ProductsService } from '../products/products.service';
 
 @Injectable()

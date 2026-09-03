@@ -2,12 +2,12 @@ import { Module } from '@nestjs/common';
 import { AppAbilityFactory } from '../auth/casl/app-ability.factory';
 import { PoliciesGuard } from '../auth/guards/policies.guard';
 import { ProductsModule } from '../products/products.module';
-import { CatalogController } from './catalog.controller';
+import { ImagesController } from './images.controller';
 import { ImagesService } from './images.service';
 
 @Module({
   imports: [ProductsModule],
-  controllers: [CatalogController],
+  controllers: [ImagesController],
   providers: [ImagesService, AppAbilityFactory, PoliciesGuard],
 })
-export class CatalogModule {}
+export class ImagesModule {}
