@@ -74,7 +74,7 @@ in.
 ## What's worth covering
 
 This isn't a closed list; it comes from the contract and from
-`MATRIZ-AUTORIZACION.md`.
+`AUTHORIZATION-MATRIX.md`.
 
 **`auth.service.ts`** — 322 lines at zero, half of the remaining work.
 

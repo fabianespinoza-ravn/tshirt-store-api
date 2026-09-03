@@ -1,0 +1,101 @@
+@startuml
+!theme plain
+title Checkout and payment · Customer, frontend, backend and Stripe
+autonumber
+skinparam responseMessageBelowArrow true
+
+actor "Customer" as U
+participant "Frontend" as F
+participant "NestJS API" as A
+database "PostgreSQL" as DB
+queue "Redis / BullMQ" as Q
+participant "Worker" as W
+participant "Stripe" as S
+participant "SMTP" as M
+
+== Create the order ==
+U -> F : Taps Pay
+F -> A : POST /orders\nAuthorization: Bearer + optional promoCode
+activate A
+alt Not a customer
+  A --> F : 403 Forbidden
+else No active cart or it's empty
+  A --> F : 409 CheckoutConflict
+else The units are no longer available
+  A --> F : 409 CheckoutConflict
+else A pending order of their own is holding the stock
+  A --> F : 409 CheckoutConflict with expiresAt
+  note right of A : It's not an out-of-stock: the remedy is to pay\nthe pending order or wait for it to expire
+else The coupon doesn't apply
+  A --> F : 409 CheckoutConflict
+  note right of A : A different coupon, more cart, or the discounted\ntotal below the minimum
+else Accepted
+  A -> DB : Reserves stock, holds one coupon use\nand creates the PENDING order with expiresAt
+  A -> S : Creates the Payment Intent
+  alt Stripe responds
+    S --> A : clientSecret
+    A -> DB : Closes the active cart
+    A --> F : 201 CheckoutOrder with orderId and clientSecret
+    note right of F : The front clears the cart badge on the 201,\nwithout re-reading GET /cart
+  else Stripe times out
+    A --> F : 500 InternalError
+    note right of DB #ffe0e0 : The order stays PENDING **with no payment attempt**.\nThe periodic sweep picks it up
+  end
+end
+deactivate A
+
+== Pay, without touching the backend ==
+F -> U : Mounts the Payment Element with the clientSecret
+U -> S : Confirms the card or the second method
+note over F, S : Card data never passes through the API.\nThat's what keeps the PCI scope where it is
+S --> F : Confirmation result
+
+== Settlement, which is asynchronous ==
+S -> A : POST /webhooks/stripe\nStripe-Signature over the raw body
+activate A
+alt Signature doesn't verify
+  A --> S : 400
+  note right of A : Stripe retries for up to three days. A legitimate\nevent rejected by a misconfigured secret\nlands as soon as it's fixed
+else Correct signature
+  A -> DB : INSERT into webhook_events (stripe_event_id UNIQUE)
+  alt The id already existed
+    A --> S : 200
+    note right of DB : Idempotency lives in the database constraint,\nnot in a service-level if
+  else New event
+    A -> Q : Queues the settlement
+    A --> S : 200
+    note right of A #ffe0e0 : 200 is an **acknowledgment**, not settlement.\nThe order may still read PENDING\na moment after being charged
+  end
+end
+deactivate A
+
+Q -> W : Delivers the job
+activate W
+alt The order is still PENDING
+  W -> DB : PAID, consumes the reservation\nand decrements the real stock
+  W -> Q : Queues the confirmation email
+else The order is no longer PENDING
+  W -> S : refund
+  W -> DB : Records the refund; the order ends up CANCELLED
+  note right of W : The payment stays recorded as succeeded.\nStock never drops below zero
+end
+deactivate W
+Q -> W : Email job
+W -> M : Purchase confirmation
+
+F -> A : GET /orders/ID
+A --> F : 200 PAID
+
+== The sweep, which also has an origin ==
+loop Repeatable job the worker registers in BullMQ on startup
+  W -> DB : PENDING orders past their expiresAt
+  W -> S : cancel the Payment Intent
+  W -> DB : Releases the stock and returns the coupon use
+end
+note over W, S #ffe0e0
+  Cancel in Stripe **before** releasing the stock. The other way
+  around, a payment landing in that window leaves a paid order
+  whose units have already been sold to someone else.
+end note
+
+@enduml

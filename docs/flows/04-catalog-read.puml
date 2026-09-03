@@ -1,0 +1,49 @@
+@startuml
+!theme plain
+title Catalog 1 of 3 · Public reads and role-based projection
+autonumber
+skinparam responseMessageBelowArrow true
+
+actor "Visitor or customer" as U
+actor "Manager" as MG
+participant "Frontend" as F
+participant "NestJS API" as A
+database "PostgreSQL" as DB
+
+== Listings ==
+U -> F : Opens the store
+F -> A : GET /categories
+A -> DB : Categories
+A --> F : 200
+F -> A : GET /products?filters and pagination
+note right of F : Without Authorization the route responds the same,\nbut not with the same content
+A -> DB : Active products
+A --> F : 200 PaginatedProducts
+
+== The detail, and the trap ==
+F -> A : GET /products/ID
+activate A
+alt Doesn't exist or is disabled for the caller
+  A --> F : 404 NotFound
+else Visible
+  alt Caller is a manager
+    A --> F : 200 ManagerProduct **with stock**
+  else Public or customer
+    A --> F : 200 Product **without stock**
+  end
+end
+deactivate A
+note over A, DB #ffe0e0
+  The contract declares the two shapes with **anyOf**, and anyOf
+  validates if **any** branch validates. A manager response missing
+  a field falls through the public branch, and a customer response
+  that includes stock also passes. The contract can't detect it in
+  either direction: that's why the tests assert the **exact** set
+  of keys, not the absence of three fields.
+end note
+
+MG -> F : Opens the panel
+F -> A : GET /products\nAuthorization: manager Bearer
+A --> F : 200 with stock and disabled products
+
+@enduml

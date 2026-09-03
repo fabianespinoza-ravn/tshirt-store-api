@@ -118,7 +118,7 @@ describe('SkusService image ownership', () => {
         color: Color.RED,
         price: 1999,
         stock: 1,
-        imageId: 'imagen-de-otro-producto',
+        imageId: 'image-of-another-product',
       }),
     ).rejects.toMatchObject({ kind: Problems.notFound });
     expect(h.prisma.sku.create).not.toHaveBeenCalled();
@@ -128,11 +128,11 @@ describe('SkusService image ownership', () => {
     const sku = aSku('product-1');
     h.prisma.sku.findFirst.mockResolvedValue({
       ...sku,
-      product: { images: [{ id: 'imagen-propia' }] },
+      product: { images: [{ id: 'own-image' }] },
     } as never);
 
     await expect(
-      h.service.update(sku.id, { imageId: 'imagen-de-otro-producto' }),
+      h.service.update(sku.id, { imageId: 'image-of-another-product' }),
     ).rejects.toMatchObject({ kind: Problems.notFound });
     expect(h.prisma.sku.update).not.toHaveBeenCalled();
   });

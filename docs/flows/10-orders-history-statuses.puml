@@ -1,0 +1,82 @@
+@startuml
+!theme plain
+title Orders · History, detail and status lifecycle
+autonumber
+skinparam responseMessageBelowArrow true
+
+actor "Customer" as U
+actor "Manager" as MG
+actor "Courier" as D
+participant "NestJS API" as A
+database "PostgreSQL" as DB
+participant "Stripe" as S
+
+== History: three reads of the same route ==
+alt Caller is a customer
+  U -> A : GET /orders with filters
+  A -> DB : Only their own
+  A --> U : PaginatedOrders
+else Caller is a manager
+  MG -> A : GET /orders?customerId=...
+  A --> MG : PaginatedManagerOrders, with the buyer in each row
+else Caller is a courier
+  D -> A : GET /orders?status=SHIPPED
+  A --> D : Their delivery queue
+  D -> A : GET /orders?status=DELIVERED
+  A --> D : Only what they delivered
+end
+note right of A : Without a status parameter the listing omits FAILED,\nand an explicit list is honored as-is.\nOrdered by createdAt desc then by id,\nso pagination stays stable
+
+== Detail ==
+U -> A : GET /orders/ID
+activate A
+alt Out of the caller's scope
+  A --> U : 404 NotFound
+  note right of A #ffe0e0 : 404 and **never** 403: a 403 would confirm that id\nexists, and the code could be used to enumerate\nother people's orders
+else Within scope
+  alt Manager
+    A --> MG : 200 ManagerOrderDetail
+  else The buyer
+    A --> U : 200 OrderDetail
+  end
+end
+deactivate A
+
+== Advance or cancel ==
+U -> A : PATCH /orders/ID/status
+activate A
+alt Manager
+  alt PAID to PROCESSING, or PROCESSING to SHIPPED
+    A -> DB : Advances
+    A --> MG : 200 ManagerOrderDetail
+  else Status skip
+    A --> MG : 409 Conflict
+  end
+else Customer, and only CANCELLED on their own order
+  alt Hasn't shipped yet
+    alt Was paid
+      A -> S : refund
+      A -> DB : Returns the units and decrements the coupon use
+      note right of DB : The payment stays recorded as succeeded.\nCancelling doesn't erase that it was charged
+    else Wasn't paid
+      A -> DB : Releases both holds, no refund
+    end
+    A --> U : 200 OrderDetail
+  else Already shipped
+    A --> U : 409 Conflict
+  end
+else Courier
+  alt SHIPPED to DELIVERED
+    A -> DB : Records the delivery
+    A --> D : 200
+    note right of A : Their next GET will return 404:\nthe order has left their scope
+  else Another courier already recorded it
+    A --> D : 409 Conflict
+  end
+else The role can't request that status
+  A --> U : 403 Forbidden
+  note right of A : The enum can't express which values each role\nmay request: wrong role is 403,\nwrong transition is 409
+end
+deactivate A
+
+@enduml

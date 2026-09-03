@@ -37,7 +37,7 @@ jobs:
             This is a NestJS + Prisma REST API. Weigh these above style:
 
             - Authorization. Every CASL rule and guard change: can a CLIENT
-              reach another user's row? Read `docs/MATRIZ-AUTORIZACION.md`
+              reach another user's row? Read `docs/AUTHORIZATION-MATRIX.md`
               before judging a rule: it lists every operation of the contract
               with the role that may call it.
             - Error handling. Unhandled errors must not leak their message to

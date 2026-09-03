@@ -1,0 +1,60 @@
+@startuml
+!theme plain
+title Auth 2 of 3 · Session: sign in, rotate and sign out
+autonumber
+skinparam responseMessageBelowArrow true
+
+actor "User" as U
+participant "Frontend" as F
+participant "NestJS API" as A
+database "PostgreSQL" as DB
+
+== Sign in ==
+U -> F : Email and password
+F -> A : POST /auth/sign-in
+activate A
+alt Invalid body
+  A --> F : 400 BadRequest
+else Wrong credentials
+  A --> F : 401 Unauthorized
+  note right of A : The same 401 for a nonexistent email\nand for a wrong password
+else Unverified account
+  A --> F : 403 EmailNotVerified
+  F -> U : Offers to resend the verification link
+else Too many attempts
+  A --> F : 429 TooManyRequests
+  note right of A : The limit is per network address, not per account:\nlimiting per account would let anyone\nlock out a user whose email they know
+else Success
+  A -> DB : Opens a refresh family
+  A --> F : 200 Session with accessToken\n+ Set-Cookie refresh httpOnly
+  note right of A : The refresh token never goes in the body.\nThe access token does, for the Authorization header
+end
+deactivate A
+
+== Rotate the session ==
+F -> A : POST /auth/refresh\n(cookie only; no Authorization)
+note right of F : No Authorization header doesn't mean public:\nthe cookie is the credential.\nfetch omits cookies unless credentials include
+activate A
+alt Valid cookie
+  A -> DB : Rotates the token and keeps the family
+  A --> F : 200 Session + Set-Cookie replacement
+else Cookie missing, expired or revoked
+  A --> F : 401 Unauthorized
+  F -> U : Signs in again
+end
+deactivate A
+
+== Sign out ==
+U -> F : Sign out
+F -> A : POST /auth/sign-out\nAuthorization + cookie
+note right of A : Both credentials are required:\nthe access token says who is calling\nand the cookie says which family to revoke
+activate A
+alt Both present and valid
+  A -> DB : Revokes the entire family
+  A --> F : 204 and clears the cookie
+else Either is missing or fails
+  A --> F : 401 Unauthorized
+end
+deactivate A
+
+@enduml

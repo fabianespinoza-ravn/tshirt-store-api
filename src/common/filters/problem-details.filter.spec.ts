@@ -17,7 +17,7 @@ import { ProblemDetailsFilter } from './problem-details.filter';
 describe('ProblemDetailsFilter', () => {
   const filter = new ProblemDetailsFilter();
 
-  const catchIt = (error: unknown, url = '/api/v1/recurso') => {
+  const catchIt = (error: unknown, url = '/api/v1/resource') => {
     const { host, recorded } = anArgumentsHost({ url });
     filter.catch(error, host);
     return recorded;
@@ -62,9 +62,9 @@ describe('ProblemDetailsFilter', () => {
   });
 
   it('keeps a plain string message as the detail', () => {
-    const recorded = catchIt(new ForbiddenException('no puedes'));
+    const recorded = catchIt(new ForbiddenException('you cannot'));
 
-    expect(recorded.body?.detail).toBe('no puedes');
+    expect(recorded.body?.detail).toBe('you cannot');
   });
 
   it('maps each HTTP status to the problem type the contract declares', () => {
@@ -105,13 +105,13 @@ describe('ProblemDetailsFilter', () => {
    */
   it('hides the message of an unhandled error behind a generic 500', () => {
     const recorded = catchIt(
-      new Error('connect ECONNREFUSED 10.0.0.7:5432 password=secreto'),
+      new Error('connect ECONNREFUSED 10.0.0.7:5432 password=secret'),
     );
 
     expect(recorded.status).toBe(500);
     expect(recorded.body?.type).toBe(Problems.internalError.type);
     expect(JSON.stringify(recorded.body)).not.toContain('ECONNREFUSED');
-    expect(JSON.stringify(recorded.body)).not.toContain('secreto');
+    expect(JSON.stringify(recorded.body)).not.toContain('secret');
   });
 
   /**

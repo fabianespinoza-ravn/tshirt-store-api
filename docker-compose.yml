@@ -7,40 +7,40 @@ services:
       POSTGRES_USER: tshirt
       POSTGRES_PASSWORD: tshirt
       POSTGRES_DB: tshirt_store
-    # Puerto del host desplazado: 5432 lo ocupa otro Postgres de esta máquina que
-    # arranca solo con Docker Desktop. Dentro del contenedor sigue siendo 5432.
+    # Host port shifted: 5432 is taken by another Postgres on this machine that
+    # starts automatically with Docker Desktop. Inside the container it's still 5432.
     ports:
-      - "5433:5432"
+      - '5433:5432'
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U tshirt -d tshirt_store"]
+      test: ['CMD-SHELL', 'pg_isready -U tshirt -d tshirt_store']
       interval: 5s
       timeout: 3s
       retries: 10
 
-  # La cola de F8 corre sobre este Redis. BullMQ es el default que nombra el
-  # programa para esta aplicación, y va sobre el Redis que ya está en el stack.
+  # The F8 queue runs on this Redis. BullMQ is the default the program names
+  # for this application, and it runs on the Redis already in the stack.
   redis:
     image: redis:7-alpine
     container_name: tshirt-store-redis
     restart: unless-stopped
-    # Desplazado por el mismo motivo que Postgres: hay un redis-db en la máquina
-    # con 6379 reservado.
+    # Shifted for the same reason as Postgres: there's a redis-db on the machine
+    # with 6379 reserved.
     ports:
-      - "6380:6379"
+      - '6380:6379'
     volumes:
       - redisdata:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ['CMD', 'redis-cli', 'ping']
       interval: 5s
       timeout: 3s
       retries: 10
 
-  # S3 en local. MinIO habla el protocolo de S3, así que el código usa el SDK de
-  # AWS sin cambios y en producción sólo se quita el endpoint. El enunciado exige
-  # S3 y esto no lo sustituye: lo emula para desarrollo y para los tests e2e de
-  # la semana 4, que corren contra un almacén real en vez de contra un mock.
+  # S3 locally. MinIO speaks the S3 protocol, so the code uses the AWS SDK
+  # unchanged and production just drops the endpoint. The assignment requires
+  # S3 and this doesn't replace it: it emulates it for development and for the
+  # week 4 e2e tests, which run against a real store instead of a mock.
   minio:
     image: minio/minio:latest
     container_name: tshirt-store-s3
@@ -50,30 +50,30 @@ services:
       MINIO_ROOT_USER: tshirt
       MINIO_ROOT_PASSWORD: tshirt-local-dev
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - '9000:9000'
+      - '9001:9001'
     volumes:
       - miniodata:/data
     healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
+      test: ['CMD', 'mc', 'ready', 'local']
       interval: 5s
       timeout: 3s
       retries: 10
 
-  # MinIO no crea buckets solo. Este contenedor corre una vez, crea el bucket y
-  # termina; `restart: no` es lo que impide que quede reintentando.
+  # MinIO doesn't create buckets on its own. This container runs once, creates
+  # the bucket and exits; `restart: no` is what stops it from retrying forever.
   minio-init:
     image: minio/mc:latest
     container_name: tshirt-store-s3-init
     depends_on:
       minio:
         condition: service_healthy
-    restart: "no"
+    restart: 'no'
     entrypoint: >-
       /bin/sh -c "
       mc alias set local http://minio:9000 tshirt tshirt-local-dev &&
       mc mb --ignore-existing local/tshirt-store-images &&
-      echo 'bucket tshirt-store-images listo'
+      echo 'bucket tshirt-store-images ready'
       "
 
 volumes:

@@ -1,0 +1,57 @@
+@startuml
+!theme plain
+title Catalog 3 of 3 · Like and low-stock notification
+autonumber
+skinparam responseMessageBelowArrow true
+
+actor "Customer" as U
+actor "Manager" as MG
+participant "Frontend" as F
+participant "NestJS API" as A
+database "PostgreSQL" as DB
+queue "Redis / BullMQ" as Q
+participant "Worker" as W
+participant "SMTP" as M
+
+== Liking a product ==
+U -> F : Taps the heart
+F -> A : PUT /products/ID/like\nliked true
+activate A
+alt No token
+  A --> F : 401 Unauthorized
+else Caller is a manager or courier
+  A --> F : 403 Forbidden
+  note right of A : A manager can't like a product:\nthis isn't a bookmark, it's a subscription
+else The product doesn't exist
+  A --> F : 404 NotFound
+else Success
+  A -> DB : Registers the subscription
+  A --> F : 200 liked true
+end
+deactivate A
+
+== What triggers the notice ==
+MG -> F : Restocks or corrects stock
+F -> A : PATCH /skus/ID
+A -> DB : Updates the stock
+note right of A : A sale triggers it too:\nany write that leaves the variant\nat the low-stock threshold
+
+alt The variant drops to the low-stock threshold
+  A -> Q : Queues the low-stock notification
+  Q -> W : Delivers the job
+  W -> DB : Product subscribers
+  note right of W : Only to whoever has **never** paid for that product.\nWhoever already bought it doesn't need the notice
+  loop for each recipient
+    W -> M : Sends the notice with the specific variant
+  end
+else Still above the threshold
+  note right of A : Nothing is queued
+end
+
+note over Q, W
+  Three attempts with backoff and then the failed queue.
+  Losing a stock notice is recoverable; that's why
+  this queue doesn't have the payment-settlement policy.
+end note
+
+@enduml

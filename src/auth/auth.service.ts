@@ -38,7 +38,7 @@ export class AuthService {
     return this.prisma.user.findFirst({ where: { email, ...NOT_DELETED } });
   }
 
-  // ---------------------------------------------------------------- registro
+  // ------------------------------------------------------------- registration
 
   // Responds the same whether or not the address exists, so as not to be an
   // oracle of which emails are registered; if the account exists but isn't

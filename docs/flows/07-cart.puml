@@ -1,0 +1,61 @@
+@startuml
+!theme plain
+title Cart · The four operations and their conflicts
+autonumber
+skinparam responseMessageBelowArrow true
+
+actor "Customer" as U
+participant "Frontend" as F
+participant "NestJS API" as A
+database "PostgreSQL" as DB
+
+note over A : Cart is exclusive to the customer role.\nManager and courier get 403 on all four
+
+U -> F : Opens the cart
+F -> A : GET /cart
+A -> DB : Active cart
+A --> F : 200 Cart
+note right of A : An empty cart is empty items and a zero subtotal,\nnot a 404: the active cart always exists
+
+== Add ==
+U -> F : Adds a size
+F -> A : POST /cart/items\nskuId + quantity
+activate A
+alt The SKU doesn't exist or its product is deactivated
+  A --> F : 404 NotFound
+else The quantity exceeds what's available
+  A --> F : 409 Conflict
+else The line would exceed 99
+  A --> F : 409 Conflict
+  note right of A : The two conflicts are told apart by the remedy:\nwaiting helps the first and never the second
+else That SKU was already in the cart
+  A -> DB : Adds to the existing line
+  A --> F : 200 full Cart
+  note right of DB : A second line for the same SKU is never created
+else New line
+  A -> DB : Creates the line
+  A --> F : 201 full Cart
+end
+deactivate A
+
+== Change and remove ==
+F -> A : PATCH /cart/items/ID\nquantity
+alt Exceeds what's available
+  A --> F : 409 Conflict
+else
+  A --> F : 200 full Cart
+end
+F -> A : DELETE /cart/items/ID
+A --> F : 200 full Cart
+
+note over F, A #ffe0e0
+  All three mutations return the **entire** cart, so the
+  front never needs a second call to refresh the subtotal.
+  The trade-off: cartItemId travels bare in the route. If the
+  service doesn't check that the line belongs to the caller's
+  cart, that's a textbook BOLA.
+end note
+
+note over A : The cart doesn't reserve stock.\nReserving is checkout's job
+
+@enduml

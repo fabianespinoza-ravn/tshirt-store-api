@@ -74,10 +74,10 @@ export default tseslint.config(
     },
   },
   {
-    // `expect(mock.metodo).not.toHaveBeenCalled()` dispara unbound-method, que
-    // aquí es un falso positivo: lo que se pasa es un espía de Jest, no un
-    // método de clase que vaya a invocarse con el `this` equivocado. La propia
-    // documentación de typescript-eslint recomienda apagarlo en los tests.
+    // `expect(mock.method).not.toHaveBeenCalled()` triggers unbound-method, which
+    // is a false positive here: what's passed is a Jest spy, not a class method
+    // that would get invoked with the wrong `this`. typescript-eslint's own
+    // documentation recommends turning it off in tests.
     files: ['**/*.spec.ts'],
     rules: {
       '@typescript-eslint/unbound-method': 'off',
