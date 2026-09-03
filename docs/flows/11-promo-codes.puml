@@ -1,57 +1,57 @@
 @startuml
 !theme plain
-title Cupones · Gestión del manager y validación del cliente
+title Promo codes · Manager management and customer validation
 autonumber
 skinparam responseMessageBelowArrow true
 
 actor "Manager" as MG
-actor "Cliente" as U
+actor "Customer" as U
 participant "Frontend" as F
-participant "API NestJS" as A
+participant "NestJS API" as A
 database "PostgreSQL" as DB
 
-== Gestión ==
-MG -> F : Crea un cupón
+== Management ==
+MG -> F : Creates a promo code
 F -> A : POST /promo-codes
 activate A
-alt No es manager
+alt Not a manager
   A --> F : 403 Forbidden
-else El código ya existe
+else The code already exists
   A --> F : 409 Conflict
-else Correcto
-  A -> DB : Inserta con su descuento, vigencia y tope de usos
+else Success
+  A -> DB : Inserts with its discount, validity window and usage cap
   A --> F : 201
 end
 deactivate A
 F -> A : GET /promo-codes
-A --> F : 200, incluidos los caducados y agotados
+A --> F : 200, including expired and exhausted ones
 F -> A : PATCH /promo-codes/ID
-note right of A : Se ajusta vigencia o tope. El código en sí\nno se reescribe: ya está en manos de gente
+note right of A : Validity window or cap gets adjusted. The code itself\nisn't rewritten: it's already in people's hands
 
-== Validación antes de pagar ==
-U -> F : Escribe el cupón en el carrito
-F -> A : POST /promo-codes/validate\ncode + el carrito actual
+== Validation before paying ==
+U -> F : Enters the promo code in the cart
+F -> A : POST /promo-codes/validate\ncode + the current cart
 activate A
-alt No existe, caducó o se agotó
-  A --> F : 404 o 409
-  F -> U : Ese cupón no sirve
-else El carrito no llega al mínimo
+alt Doesn't exist, expired or exhausted
+  A --> F : 404 or 409
+  F -> U : That code doesn't work
+else The cart doesn't reach the minimum
   A --> F : 409 Conflict
-else El total descontado quedaría bajo el mínimo cobrable
+else The discounted total would fall below the chargeable minimum
   A --> F : 409 Conflict
-  note right of A : Stripe no cobra por debajo de su mínimo.\nMejor decirlo aquí que fallar en el checkout
-else Aplica
-  A --> F : 200 con el descuento y el total resultante
-  F -> U : Muestra el total con descuento
+  note right of A : Stripe won't charge below its minimum.\nBetter to say so here than fail at checkout
+else Applies
+  A --> F : 200 with the discount and the resulting total
+  F -> U : Shows the discounted total
 end
 deactivate A
 
 note over F, A #ffe0e0
-  Validar **no** retiene nada. La retención de un uso ocurre en
-  POST /orders, junto con la del stock, y se libera cuando el pedido
-  se paga, se cancela o caduca. Entre la validación y el checkout el
-  último uso puede habérselo llevado otro: por eso el checkout vuelve
-  a comprobarlo y puede responder 409 por el cupón.
+  Validating holds **nothing**. A usage is held in
+  POST /orders, alongside the stock hold, and is released when the
+  order is paid, cancelled or expires. Between validation and
+  checkout the last use may have been taken by someone else: that's
+  why checkout re-checks it and may respond 409 for the coupon.
 end note
 
 @enduml

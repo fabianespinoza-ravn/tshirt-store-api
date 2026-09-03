@@ -1,57 +1,57 @@
 @startuml
 !theme plain
-title Catálogo 3 de 3 · Like y notificación de stock escaso
+title Catalog 3 of 3 · Like and low-stock notification
 autonumber
 skinparam responseMessageBelowArrow true
 
-actor "Cliente" as U
+actor "Customer" as U
 actor "Manager" as MG
 participant "Frontend" as F
-participant "API NestJS" as A
+participant "NestJS API" as A
 database "PostgreSQL" as DB
 queue "Redis / BullMQ" as Q
 participant "Worker" as W
 participant "SMTP" as M
 
-== Darle a me gusta ==
-U -> F : Pulsa el corazón
+== Liking a product ==
+U -> F : Taps the heart
 F -> A : PUT /products/ID/like\nliked true
 activate A
-alt Sin token
+alt No token
   A --> F : 401 Unauthorized
-else Quien llama es manager o repartidor
+else Caller is a manager or courier
   A --> F : 403 Forbidden
-  note right of A : Un manager no puede dar likes:\nesto no es un marcador, es una suscripción
-else El producto no existe
+  note right of A : A manager can't like a product:\nthis isn't a bookmark, it's a subscription
+else The product doesn't exist
   A --> F : 404 NotFound
-else Correcto
-  A -> DB : Registra la suscripción
+else Success
+  A -> DB : Registers the subscription
   A --> F : 200 liked true
 end
 deactivate A
 
-== Lo que dispara el aviso ==
-MG -> F : Repone o corrige stock
+== What triggers the notice ==
+MG -> F : Restocks or corrects stock
 F -> A : PATCH /skus/ID
-A -> DB : Actualiza el stock
-note right of A : También lo dispara una venta:\ncualquier escritura que deje la variante\nen el umbral de escasez
+A -> DB : Updates the stock
+note right of A : A sale triggers it too:\nany write that leaves the variant\nat the low-stock threshold
 
-alt La variante cae al umbral de escasez
-  A -> Q : Encola la notificación de stock escaso
-  Q -> W : Entrega el job
-  W -> DB : Suscriptores del producto
-  note right of W : Solo a quien **nunca** ha pagado ese producto.\nQuien ya lo compró no necesita el aviso
-  loop por cada destinatario
-    W -> M : Envía el aviso con la variante concreta
+alt The variant drops to the low-stock threshold
+  A -> Q : Queues the low-stock notification
+  Q -> W : Delivers the job
+  W -> DB : Product subscribers
+  note right of W : Only to whoever has **never** paid for that product.\nWhoever already bought it doesn't need the notice
+  loop for each recipient
+    W -> M : Sends the notice with the specific variant
   end
-else Sigue por encima del umbral
-  note right of A : No se encola nada
+else Still above the threshold
+  note right of A : Nothing is queued
 end
 
 note over Q, W
-  Tres intentos con backoff y a la cola de fallidos.
-  Perder un aviso de stock es recuperable; por eso
-  esta cola no tiene la política de la liquidación de pagos.
+  Three attempts with backoff and then the failed queue.
+  Losing a stock notice is recoverable; that's why
+  this queue doesn't have the payment-settlement policy.
 end note
 
 @enduml

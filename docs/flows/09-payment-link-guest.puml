@@ -1,79 +1,79 @@
 @startuml
 !theme plain
-title Enlace de pago · Venta a alguien que no tiene cuenta
+title Payment link · Selling to someone without an account
 autonumber
 skinparam responseMessageBelowArrow true
 
 actor "Manager" as MG
-actor "Comprador sin cuenta" as G
+actor "Buyer without an account" as G
 participant "Frontend" as F
-participant "API NestJS" as A
+participant "NestJS API" as A
 database "PostgreSQL" as DB
 queue "Redis / BullMQ" as Q
 participant "Worker" as W
 participant "Stripe" as S
 participant "SMTP" as M
 
-== Obtener el enlace ==
-MG -> F : Quiere un enlace para una talla
+== Getting the link ==
+MG -> F : Wants a link for a size
 F -> A : POST /payment-links\nskuId
 activate A
-alt No es manager
+alt Not a manager
   A --> F : 403 Forbidden
-else El SKU no existe o su producto está de baja
+else The SKU doesn't exist or its product is deactivated
   A --> F : 404 NotFound
-else Ya hay un enlace activo
-  A --> F : 200 PaymentLink, el mismo de siempre
-else No hay ninguno activo
-  A -> S : Crea el Payment Link con recogida de dirección de envío
-  note right of S #ffe0e0 : Sin la dirección, el webhook no puede rellenar\nlas columnas de destino, que son NOT NULL:\nse cobra al cliente y no se registra el pedido
+else There's already an active link
+  A --> F : 200 PaymentLink, the same one as always
+else None active
+  A -> S : Creates the Payment Link with shipping address collection
+  note right of S #ffe0e0 : Without the address, the webhook can't fill\nthe destination columns, which are NOT NULL:\nthe customer is charged and the order never gets recorded
   S --> A : URL
-  A -> DB : Guarda el enlace
+  A -> DB : Stores the link
   A --> F : 201 PaymentLink
 end
 deactivate A
-note over A : Un enlace vende **un** SKU, **una** unidad, y es reutilizable.\nCambiar el precio o quedarse a cero lo desactiva; el reemplazo\nse crea perezosamente, y ese 201 en vez de 200 es cómo el manager\nse entera de que el que repartió ha dejado de funcionar
+note over A : A link sells **one** SKU, **one** unit, and is reusable.\nChanging the price or hitting zero deactivates it; the replacement\nis created lazily, and that 201 instead of 200 is how the manager\nfinds out the one they were handing out has stopped working
 
-MG -> G : Le pasa la URL
-G -> S : Paga y rellena su dirección
+MG -> G : Passes them the URL
+G -> S : Pays and fills in their address
 S -> A : POST /webhooks/stripe
 
 activate A
-A -> DB : INSERT en webhook_events (UNIQUE)
-A -> Q : Encola la liquidación
+A -> DB : INSERT into webhook_events (UNIQUE)
+A -> Q : Queues the settlement
 A --> S : 200
 deactivate A
 
-Q -> W : Entrega el job
+Q -> W : Delivers the job
 activate W
-alt Queda una unidad **libre**
-  W -> DB : Crea o reutiliza el usuario GUEST por su correo
-  W -> DB : Crea el pedido pagado y descuenta el stock
-  W -> Q : Encola el correo con el enlace al pedido
-else No queda unidad libre
+alt A **free** unit remains
+  W -> DB : Creates or reuses the GUEST user by their email
+  W -> DB : Creates the paid order and decrements the stock
+  W -> Q : Queues the email with the order link
+else No free unit remains
   W -> S : refund
   note right of W #ffe0e0
-    Libre, no meramente presente: las unidades retenidas
-    por un checkout pendiente no cuentan. Un pago por
-    enlace sano puede acabar reembolsado por eso, y es
-    el intercambio deliberado: reembolsar es reversible,
-    vender de más a quien ya reservó no lo es.
+    Free, not merely present: units held by a
+    pending checkout don't count. A payment through a
+    healthy link can still end up refunded because of this,
+    and it's the deliberate trade-off: refunding is reversible,
+    overselling to someone who already reserved is not.
   end note
 end
 deactivate W
-W -> M : Envía el correo
+W -> M : Sends the email
 
-== Leer el pedido sin tener cuenta ==
-G -> F : Abre el enlace del correo
+== Reading the order without an account ==
+G -> F : Opens the link from the email
 F -> A : GET /guest-orders/ID
 activate A
-alt El dueño sigue siendo GUEST
+alt The owner is still GUEST
   A --> F : 200 OrderDetail
-  note right of A #ffe0e0 : Poseer la URL **es** la credencial. Por eso este\nesquema no tiene customer: el correo del comprador\nno puede llegar a quien tenga el enlace
-else El dueño ya verificó una cuenta
+  note right of A #ffe0e0 : Possessing the URL **is** the credential. That's why this\nscheme has no customer: the buyer's email\ncan't reach whoever holds the link
+else The owner has since verified an account
   A --> F : 404 NotFound
-  F -> G : Inicia sesión para verlo
-  note right of A : GUEST no se vuelve a entrar nunca, así que\nun enlace no puede revivir. El pedido pasa\na su historial autenticado
+  F -> G : Sign in to view it
+  note right of A : GUEST never signs in again, so\na link can't come back to life. The order moves\ninto their authenticated history
 end
 deactivate A
 

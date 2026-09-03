@@ -1,85 +1,85 @@
 @startuml
 !theme plain
-title Catálogo 2 de 3 · Gestión: producto, imágenes y variantes
+title Catalog 2 of 3 · Management: product, images and variants
 autonumber
 skinparam responseMessageBelowArrow true
 
 actor "Manager" as MG
 participant "Frontend" as F
-participant "API NestJS" as A
+participant "NestJS API" as A
 database "PostgreSQL" as DB
 participant "S3" as S3
 
-note over A : Todas estas rutas pasan por el mismo tamiz:\nJwtAuthGuard, después CASL, después ValidationPipe.\nUn cliente autenticado recibe 403, no 401
+note over A : All these routes go through the same sieve:\nJwtAuthGuard, then CASL, then ValidationPipe.\nAn authenticated customer gets 403, not 401
 
-== Categorías ==
-MG -> F : Crea una categoría
+== Categories ==
+MG -> F : Creates a category
 F -> A : POST /categories
-alt Nombre duplicado
+alt Duplicate name
   A --> F : 409 Conflict
-else Correcto
-  A -> DB : Inserta
+else Success
+  A -> DB : Inserts
   A --> F : 201
 end
 F -> A : PATCH /categories/ID
 F -> A : DELETE /categories/ID
-alt Todavía tiene productos
+alt Still has products
   A --> F : 409 Conflict
 else
   A --> F : 204
 end
 
-== Producto ==
-MG -> F : Crea un producto
+== Product ==
+MG -> F : Creates a product
 F -> A : POST /products
-A -> DB : Inserta el producto
-A --> F : 201 con Location
+A -> DB : Inserts the product
+A --> F : 201 with Location
 
-== Imágenes ==
-MG -> F : Sube una foto
+== Images ==
+MG -> F : Uploads a photo
 F -> A : POST /products/ID/images\nmultipart/form-data
 activate A
-alt Tipo no admitido
+alt Unsupported type
   A --> F : 415 UnsupportedMediaType
-  note right of A : Solo jpeg, png y webp
-else Pasa de 5 MB
+  note right of A : Only jpeg, png and webp
+else Exceeds 5 MB
   A --> F : 413 PayloadTooLarge
-  note right of A : El techo se declara en el contrato\npara que el front rechace el archivo\nantes de subirlo
-else Correcto
-  A -> S3 : Guarda el binario
-  A -> DB : Guarda la fila con su UUIDv7
+  note right of A : The ceiling is declared in the contract\nso the front can reject the file\nbefore uploading it
+else Success
+  A -> S3 : Stores the binary
+  A -> DB : Stores the row with its UUIDv7
   A --> F : 201 ProductImage
-  note right of DB : La primera imagen por orden de UUIDv7\nes la portada del catálogo
+  note right of DB : The first image by UUIDv7 order\nis the catalog cover
 end
 deactivate A
 
 F -> A : DELETE /products/ID/images/IMG
-alt Un SKU todavía la referencia
+alt A SKU still references it
   A --> F : 409 Conflict
-else Es la última de un producto activo
+else It's the last image of an active product
   A --> F : 409 Conflict
-  note right of A : Un producto activo no puede quedarse sin imagen.\nSube el reemplazo antes, o deshabilita el producto
-else Correcto
-  A -> DB : Borra la fila
+  note right of A : An active product can't be left without an image.\nUpload the replacement first, or disable the product
+else Success
+  A -> DB : Deletes the row
   A --> F : 204
 end
 
-== Variantes ==
-MG -> F : Añade una talla
+== Variants ==
+MG -> F : Adds a size
 F -> A : POST /products/ID/skus
-alt Combinación de atributos repetida
+alt Duplicate attribute combination
   A --> F : 409 Conflict
-else Correcto
-  A -> DB : Inserta el SKU con su stock
+else Success
+  A -> DB : Inserts the SKU with its stock
   A --> F : 201
 end
 F -> A : PATCH /skus/ID
-note right of A : Cambiar el precio de un SKU desactiva\nsu enlace de pago activo: un enlace\nno puede vender a un precio viejo
+note right of A : Changing a SKU's price deactivates\nits active payment link: a link\ncan't sell at a stale price
 
-== Baja ==
+== Deactivation ==
 F -> A : DELETE /products/ID
-A -> DB : Baja lógica
+A -> DB : Soft delete
 A --> F : 204
-note right of DB : Lógica, no física: los pedidos históricos\nsiguen apuntando al producto
+note right of DB : Soft, not hard: historical orders\nstill point at the product
 
 @enduml

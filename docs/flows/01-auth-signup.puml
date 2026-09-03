@@ -1,71 +1,71 @@
 @startuml
 !theme plain
-title Auth 1 de 3 · Registro y verificación de correo
+title Auth 1 of 3 · Sign-up and email verification
 autonumber
 skinparam responseMessageBelowArrow true
 
-actor  "Visitante"    as U
+actor  "Visitor"    as U
 participant "Frontend" as F
-participant "API NestJS" as A
+participant "NestJS API" as A
 database "PostgreSQL" as DB
 queue "Redis / BullMQ" as Q
 participant "Worker" as W
 participant "SMTP" as M
 
-U -> F : Rellena el formulario de registro
+U -> F : Fills in the sign-up form
 F -> A : POST /auth/sign-up
 activate A
 
-alt Cuerpo inválido
+alt Invalid body
   A --> F : 400 BadRequest
-  note right of A : El ValidationPipe con whitelist rechaza\nantes de que el servicio se entere
-else Límite por dirección superado
+  note right of A : The whitelist ValidationPipe rejects it\nbefore the service ever sees it
+else Per-address limit exceeded
   A --> F : 429 TooManyRequests
-  note right of A : El límite es por dirección de correo:\nesta ruta manda correo a una dirección\nque elige quien llama
-else Aceptado
-  A -> DB : Busca la cuenta por correo
-  alt La dirección no tiene cuenta
-    A -> DB : Crea usuario sin verificar\ny credencial de un solo uso
-    A -> Q : Encola el enlace de verificación
-  else Tiene cuenta sin verificar
-    A -> DB : Reemplaza la credencial pendiente\ny la contraseña
-    A -> Q : Encola el enlace de verificación
-    note right of DB : Así vuelve a entrar quien nunca confirmó\ny además olvidó su contraseña
-  else Tiene cuenta ya verificada
-    A -> Q : Encola un recordatorio de inicio de sesión
-    note right of A : No se crea nada. La respuesta es idéntica\nen los tres casos: esta ruta no revela\nqué direcciones están registradas
+  note right of A : The limit is per email address:\nthis route sends mail to an address\nchosen by the caller
+else Accepted
+  A -> DB : Looks up the account by email
+  alt The address has no account
+    A -> DB : Creates an unverified user\nand a one-time credential
+    A -> Q : Queues the verification link
+  else Has an unverified account
+    A -> DB : Replaces the pending credential\nand the password
+    A -> Q : Queues the verification link
+    note right of DB : This is how someone who never confirmed\nand also forgot their password gets back in
+  else Has an already verified account
+    A -> Q : Queues a sign-in reminder
+    note right of A : Nothing is created. The response is identical\nin all three cases: this route never reveals\nwhich addresses are registered
   end
   A --> F : 201 VerificationPending
   deactivate A
-  F -> U : Te hemos enviado un correo
+  F -> U : We've sent you an email
 end
 
-Q -> W : Entrega el job
-W -> M : Envía el correo
+Q -> W : Delivers the job
+W -> M : Sends the email
 
-... el visitante abre su bandeja ...
+... the visitor opens their inbox ...
 
-U -> F : Pulsa el enlace del correo
+U -> F : Clicks the link in the email
 F -> A : POST /auth/email-verifications/confirm
-note right of F : El token viaja en el cuerpo, no en la URL:\nlas URL acaban en logs y en la cabecera Referer
+note right of F : The token travels in the body, not the URL:\nURLs end up in logs and in the Referer header
 activate A
-alt Token válido
-  A -> DB : Verifica el correo y consume el token
+alt Valid token
+  A -> DB : Verifies the email and consumes the token
   A --> F : 204
-  F -> U : Cuenta activada
-else Token inexistente, caducado o ya usado
+  F -> U : Account activated
+else Token missing, expired or already used
   A --> F : 404 EmailVerificationTokenNotFound
-  F -> U : Ofrece reenviar el enlace
+  F -> U : Offers to resend the link
 end
 deactivate A
 
-group Reenvío del enlace
-  U -> F : Pide otro enlace
+group Resending the link
+  U -> F : Asks for another link
   F -> A : POST /auth/email-verifications
-  A -> DB : Invalida los enlaces anteriores
-  A -> Q : Encola el nuevo, si la cuenta es elegible
+  A -> DB : Invalidates previous links
+  A -> Q : Queues the new one, if the account is eligible
   A --> F : 202
-  note right of A : 202 exista o no la cuenta,\npor la misma razón que sign-up
+  note right of A : 202 whether or not the account exists,\nfor the same reason as sign-up
 end
 
 @enduml

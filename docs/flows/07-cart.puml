@@ -1,61 +1,61 @@
 @startuml
 !theme plain
-title Carrito · Las cuatro operaciones y sus conflictos
+title Cart · The four operations and their conflicts
 autonumber
 skinparam responseMessageBelowArrow true
 
-actor "Cliente" as U
+actor "Customer" as U
 participant "Frontend" as F
-participant "API NestJS" as A
+participant "NestJS API" as A
 database "PostgreSQL" as DB
 
-note over A : Carrito es exclusivo del rol cliente.\nManager y repartidor reciben 403 en las cuatro
+note over A : Cart is exclusive to the customer role.\nManager and courier get 403 on all four
 
-U -> F : Abre el carrito
+U -> F : Opens the cart
 F -> A : GET /cart
-A -> DB : Carrito activo
+A -> DB : Active cart
 A --> F : 200 Cart
-note right of A : Un carrito vacío es items vacío y subtotal cero,\nno un 404: el carrito activo siempre existe
+note right of A : An empty cart is empty items and a zero subtotal,\nnot a 404: the active cart always exists
 
-== Añadir ==
-U -> F : Añade una talla
+== Add ==
+U -> F : Adds a size
 F -> A : POST /cart/items\nskuId + quantity
 activate A
-alt El SKU no existe o su producto está de baja
+alt The SKU doesn't exist or its product is deactivated
   A --> F : 404 NotFound
-else La cantidad supera lo disponible
+else The quantity exceeds what's available
   A --> F : 409 Conflict
-else La línea pasaría de 99
+else The line would exceed 99
   A --> F : 409 Conflict
-  note right of A : Los dos conflictos se distinguen por el remedio:\nesperar sirve para el primero y nunca para el segundo
-else Ese SKU ya estaba en el carrito
-  A -> DB : Suma a la línea existente
-  A --> F : 200 Cart completo
-  note right of DB : No se crea una segunda línea del mismo SKU
-else Línea nueva
-  A -> DB : Crea la línea
-  A --> F : 201 Cart completo
+  note right of A : The two conflicts are told apart by the remedy:\nwaiting helps the first and never the second
+else That SKU was already in the cart
+  A -> DB : Adds to the existing line
+  A --> F : 200 full Cart
+  note right of DB : A second line for the same SKU is never created
+else New line
+  A -> DB : Creates the line
+  A --> F : 201 full Cart
 end
 deactivate A
 
-== Cambiar y quitar ==
+== Change and remove ==
 F -> A : PATCH /cart/items/ID\nquantity
-alt Supera lo disponible
+alt Exceeds what's available
   A --> F : 409 Conflict
 else
-  A --> F : 200 Cart completo
+  A --> F : 200 full Cart
 end
 F -> A : DELETE /cart/items/ID
-A --> F : 200 Cart completo
+A --> F : 200 full Cart
 
 note over F, A #ffe0e0
-  Las tres mutaciones devuelven el carrito **entero**, así que el
-  front nunca necesita una segunda llamada para refrescar el subtotal.
-  El riesgo a cambio: cartItemId viaja desnudo en la ruta. Si el
-  servicio no comprueba que esa línea pertenece al carrito de quien
-  llama, es un BOLA de manual.
+  All three mutations return the **entire** cart, so the
+  front never needs a second call to refresh the subtotal.
+  The trade-off: cartItemId travels bare in the route. If the
+  service doesn't check that the line belongs to the caller's
+  cart, that's a textbook BOLA.
 end note
 
-note over A : El carrito no reserva stock.\nReservar es cosa del checkout
+note over A : The cart doesn't reserve stock.\nReserving is checkout's job
 
 @enduml

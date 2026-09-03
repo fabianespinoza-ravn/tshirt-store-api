@@ -1,58 +1,58 @@
 @startuml
 !theme plain
-title Auth 2 de 3 · Sesión: entrar, rotar y salir
+title Auth 2 of 3 · Session: sign in, rotate and sign out
 autonumber
 skinparam responseMessageBelowArrow true
 
-actor "Usuario" as U
+actor "User" as U
 participant "Frontend" as F
-participant "API NestJS" as A
+participant "NestJS API" as A
 database "PostgreSQL" as DB
 
-== Iniciar sesión ==
-U -> F : Correo y contraseña
+== Sign in ==
+U -> F : Email and password
 F -> A : POST /auth/sign-in
 activate A
-alt Cuerpo inválido
+alt Invalid body
   A --> F : 400 BadRequest
-else Credenciales incorrectas
+else Wrong credentials
   A --> F : 401 Unauthorized
-  note right of A : El mismo 401 para correo inexistente\ny para contraseña errónea
-else Cuenta sin verificar
+  note right of A : The same 401 for a nonexistent email\nand for a wrong password
+else Unverified account
   A --> F : 403 EmailNotVerified
-  F -> U : Ofrece reenviar el enlace de verificación
-else Demasiados intentos
+  F -> U : Offers to resend the verification link
+else Too many attempts
   A --> F : 429 TooManyRequests
-  note right of A : El límite es por dirección de red, no por cuenta:\nlimitar por cuenta deja que cualquiera\nbloquee a un usuario cuyo correo conoce
-else Correcto
-  A -> DB : Abre una familia de refresh
-  A --> F : 200 Session con accessToken\n+ Set-Cookie refresh httpOnly
-  note right of A : El refresh token nunca va en el cuerpo.\nEl access token sí, para la cabecera Authorization
+  note right of A : The limit is per network address, not per account:\nlimiting per account would let anyone\nlock out a user whose email they know
+else Success
+  A -> DB : Opens a refresh family
+  A --> F : 200 Session with accessToken\n+ Set-Cookie refresh httpOnly
+  note right of A : The refresh token never goes in the body.\nThe access token does, for the Authorization header
 end
 deactivate A
 
-== Rotar la sesión ==
-F -> A : POST /auth/refresh\n(solo la cookie; sin Authorization)
-note right of F : Sin cabecera Authorization no es lo mismo\nque pública: la cookie es la credencial.\nfetch omite cookies salvo credentials include
+== Rotate the session ==
+F -> A : POST /auth/refresh\n(cookie only; no Authorization)
+note right of F : No Authorization header doesn't mean public:\nthe cookie is the credential.\nfetch omits cookies unless credentials include
 activate A
-alt Cookie válida
-  A -> DB : Rota el token y mantiene la familia
-  A --> F : 200 Session + Set-Cookie de reemplazo
-else Cookie ausente, caducada o revocada
+alt Valid cookie
+  A -> DB : Rotates the token and keeps the family
+  A --> F : 200 Session + Set-Cookie replacement
+else Cookie missing, expired or revoked
   A --> F : 401 Unauthorized
-  F -> U : Vuelve a iniciar sesión
+  F -> U : Signs in again
 end
 deactivate A
 
-== Cerrar sesión ==
-U -> F : Cerrar sesión
+== Sign out ==
+U -> F : Sign out
 F -> A : POST /auth/sign-out\nAuthorization + cookie
-note right of A : Hacen falta las dos credenciales:\nel access token dice quién llama\ny la cookie dice qué familia revocar
+note right of A : Both credentials are required:\nthe access token says who is calling\nand the cookie says which family to revoke
 activate A
-alt Ambas presentes y válidas
-  A -> DB : Revoca la familia entera
-  A --> F : 204 y limpia la cookie
-else Falta o falla alguna
+alt Both present and valid
+  A -> DB : Revokes the entire family
+  A --> F : 204 and clears the cookie
+else Either is missing or fails
   A --> F : 401 Unauthorized
 end
 deactivate A
