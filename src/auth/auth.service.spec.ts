@@ -180,13 +180,84 @@ describe('AuthService', () => {
   // one), so the assertions are left for the student to write, not generated
   // alongside the code they'd be verifying.
   describe('resendEmailVerification', () => {
-    it.todo('does nothing for an email with no live account');
-    it.todo('does nothing for an already-verified account');
-    it.todo('does nothing when the account has no live token to reissue');
-    it.todo('does nothing when the live token carries no pendingPasswordHash');
-    it.todo(
-      'consumes the old token, clearing its liveUserId, and issues a new one carrying the same pendingPasswordHash with liveUserId set to the user',
-    );
+    it('does nothing for an email with no live account', async () => {
+      h.prisma.user.findUnique.mockResolvedValue(null);
+
+      await h.service.resendEmailVerification('nobody@example.test');
+
+      expect(h.prisma.emailVerificationToken.update).not.toHaveBeenCalled();
+      expect(h.prisma.emailVerificationToken.create).not.toHaveBeenCalled();
+      expect(h.mail.sendVerificationLink).not.toHaveBeenCalled();
+    });
+
+    it('does nothing for an already-verified account', async () => {
+      const user = aUser({ emailVerifiedAt: new Date() });
+      h.prisma.user.findUnique.mockResolvedValue(user);
+
+      await h.service.resendEmailVerification(user.email);
+
+      expect(h.prisma.emailVerificationToken.update).not.toHaveBeenCalled();
+      expect(h.prisma.emailVerificationToken.create).not.toHaveBeenCalled();
+      expect(h.mail.sendVerificationLink).not.toHaveBeenCalled();
+    });
+
+    it('does nothing when the account has no live token to reissue', async () => {
+      const user = anUnverifiedUser();
+      h.prisma.user.findUnique.mockResolvedValue(user);
+      h.prisma.emailVerificationToken.findUnique.mockResolvedValue(null);
+
+      await h.service.resendEmailVerification(user.email);
+
+      expect(h.prisma.emailVerificationToken.update).not.toHaveBeenCalled();
+      expect(h.prisma.emailVerificationToken.create).not.toHaveBeenCalled();
+      expect(h.mail.sendVerificationLink).not.toHaveBeenCalled();
+    });
+
+    it('does nothing when the live token carries no pendingPasswordHash', async () => {
+      const user = anUnverifiedUser();
+      h.prisma.user.findUnique.mockResolvedValue(user);
+      h.prisma.emailVerificationToken.findUnique.mockResolvedValue(
+        aOneTimeToken(user.id, { pendingPasswordHash: null }),
+      );
+
+      await h.service.resendEmailVerification(user.email);
+
+      expect(h.prisma.emailVerificationToken.update).not.toHaveBeenCalled();
+      expect(h.prisma.emailVerificationToken.create).not.toHaveBeenCalled();
+      expect(h.mail.sendVerificationLink).not.toHaveBeenCalled();
+    });
+
+    it('consumes the old token, clearing its liveUserId, and issues a new one carrying the same pendingPasswordHash with liveUserId set to the user', async () => {
+      const user = anUnverifiedUser();
+      const pendingPasswordHash = '$argon2id$pending-to-carry-over';
+      const liveToken = aOneTimeToken(user.id, { pendingPasswordHash });
+      h.prisma.user.findUnique.mockResolvedValue(user);
+      h.prisma.emailVerificationToken.findUnique.mockResolvedValue(liveToken);
+
+      await h.service.resendEmailVerification(user.email);
+
+      expect(h.prisma.emailVerificationToken.update).toHaveBeenCalledWith({
+        where: { id: liveToken.id },
+        data: {
+          consumedAt: expect.any(Date) as Date,
+          liveUserId: null,
+        },
+      });
+      expect(h.prisma.emailVerificationToken.create).toHaveBeenCalledWith({
+        data: {
+          id: expect.any(String) as string,
+          userId: user.id,
+          liveUserId: user.id,
+          tokenHash: 'token-hash',
+          pendingPasswordHash,
+          expiresAt: expect.any(Date) as Date,
+        },
+      });
+      expect(h.mail.sendVerificationLink).toHaveBeenCalledWith(
+        user.email,
+        'plain-token',
+      );
+    });
   });
 
   // ------------------------------------------------------------------ signIn
