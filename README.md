@@ -19,7 +19,7 @@ the OpenAPI contract designed in the previous weeks of the Ravn NodeJS program.
 ### Deployment
 
 - **One container image, two entrypoints.** Shared build and pipeline, but each process scales on its own signal: request latency for the API, queue depth for the worker.
-- **`prisma db push` runs once as a release step**, never on boot, so instances never race to sync the schema. No migration history is kept — a destructive change fails the deploy instead of applying silently.
+- **The schema syncs once as a release step**, never on boot, so instances never race to sync it. No migration history is kept: `prisma migrate diff` plans the SQL, the step refuses a plan that drops or narrows anything unless one deploy is explicitly allowed to, and `prisma db execute` applies it as one transaction.
 - **Expand and contract.** The compatible change ships first and the old shape is dropped in a later release — a rollback is just redeploying the previous tag from the registry, and there's no migration history to roll back through either way. The `live_email`/`live_user_id` change is the one exception: nothing had been deployed yet, so it ships in a single release.
 - **Pooling is a constraint, not a detail.** Prisma pools inside each Node process, so there is no shared pooler and open connections grow with the number of processes, not with traffic.
 - **The pool size is pinned on the database URL**, not left to Prisma's CPU-derived default, which reads the host's cores rather than the container's quota. The ceiling is PostgreSQL's `max_connections`, and it has to hold during a rolling deploy, when old and new instances are briefly up at once.
@@ -47,7 +47,7 @@ sequence diagrams for every flow live in [`docs/flows/`](docs/flows/).
 | Catalog | Categories, products, SKUs and images, with S3-backed storage |
 | Cart, orders, payments | Designed in the contract, not yet implemented |
 
-Unit tests: **16 suites, 130 tests**, plus five `it.todo` stubs for `resendEmailVerification` whose assertions are still pending.
+Unit tests: **16 suites, 135 tests**.
 
 ## Requirements
 
@@ -60,7 +60,7 @@ Unit tests: **16 suites, 130 tests**, plus five `it.todo` stubs for `resendEmail
 npm install
 cp .env.example .env          # fill in the values
 docker compose up -d          # PostgreSQL, Redis, MinIO
-npm run prisma:sync           # db push, then the backfill (a no-op on a fresh database)
+npm run prisma:sync           # plan, guard and apply the schema, then the backfill
 npm run start:dev
 ```
 

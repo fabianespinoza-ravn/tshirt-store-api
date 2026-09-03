@@ -1,6 +1,7 @@
 # Render blueprint. Matches the deployment section of docs/ARQUITECTURA.md:
-# one container image, two processes under different entrypoints, and
-# `prisma db push` as a pre-deploy step that runs once, never on boot.
+# one container image, two processes under different entrypoints, and a
+# schema sync (prisma/sync-schema.ts) as a pre-deploy step that runs once,
+# never on boot.
 #
 # The image itself (./Dockerfile) ships with the worker's bootstrap file
 # (dist/worker) once that entrypoint lands in src/ — this blueprint declares
@@ -75,17 +76,18 @@ services:
     dockerCommand: node dist/main
     # Runs once, before the rollout replaces instances. Never on boot, so
     # instances never race to sync the schema — see the Deployment section
-    # of docs/ARQUITECTURA.md. No migration history is kept: the database
-    # is synced directly to schema.prisma on every deploy.
-    # No `--accept-data-loss` on the push: its absence is what makes this
-    # safe in a non-interactive pipeline, so a destructive change fails the
-    # deploy instead of silently applying. The backfill after it fills the
-    # live_email/live_user_id columns a plain push leaves NULL on existing
-    # rows — see prisma/backfill-live-columns.ts. Both need `ts-node` (a
+    # of docs/ARQUITECTURA.md. No migration history is kept: the step plans
+    # the SQL from schema.prisma with `prisma migrate diff`, refuses a plan
+    # that drops or narrows anything unless ALLOW_DESTRUCTIVE_SCHEMA_CHANGE=1
+    # is set in the environment for that one deploy, and applies it as one
+    # transaction with `prisma db execute` — see prisma/sync-schema.ts. It
+    # never prompts, so it never needs `--accept-data-loss`. The backfill
+    # after it fills the live_email/live_user_id columns on rows that predate
+    # them — see prisma/backfill-live-columns.ts. Both need `ts-node` (a
     # devDependency) present at deploy time; the Dockerfile that runs this
     # doesn't exist yet, and that's a constraint on how it's written.
-    # Schema and the code that reads it ship together this once: nothing is
-    # deployed yet to expand around — see the Deployment section.
+    # Schema and the code that reads it shipped together this once: nothing
+    # was deployed yet to expand around — see the Deployment section.
     preDeployCommand: npm run prisma:sync
     envVars:
       - fromGroup: tshirt-store-config
