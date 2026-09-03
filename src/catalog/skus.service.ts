@@ -29,9 +29,10 @@ export class SkusService {
       );
     }
 
-    // La FK compuesta (image_id, product_id) impide en la base que una variante
-    // apunte a la imagen de otro producto. Comprobarlo aquí sirve para que el
-    // caller reciba un 404 explicado en vez de un error de integridad.
+    // The composite FK (image_id, product_id) stops a variant at the
+    // database level from pointing at another product's image. Checking it
+    // here lets the caller get an explained 404 instead of an integrity
+    // error.
     if (dto.imageId) this.mustOwnImage(product.images, dto.imageId);
 
     const sku = await this.prisma.sku.create({
@@ -49,7 +50,9 @@ export class SkusService {
     return toManagerSku(sku, await this.imageViewOf(sku.imageId));
   }
 
-  // Una variante no tiene DELETE: se retira poniendo su stock a cero; el mínimo son las unidades ya reservadas, y por eso `reserved` se publica en vez de descubrirse a base de 409.
+  // A variant has no DELETE: it's retired by setting its stock to zero; the
+  // floor is the units already reserved, which is why `reserved` is
+  // published instead of being discovered through a string of 409s.
   async update(skuId: string, dto: UpdateSkuDto): Promise<ManagerSkuView> {
     const sku = await this.prisma.sku.findFirst({
       where: { id: skuId, product: NOT_DELETED },
@@ -72,9 +75,9 @@ export class SkusService {
 
     if (dto.imageId) this.mustOwnImage(sku.product.images, dto.imageId);
 
-    // `undefined` significa "no lo toques" y `null` significa "quítala". La
-    // distinción es la vuelta atrás para un manager que enganchó la foto
-    // equivocada, y no puede depender de que exista otra imagen.
+    // `undefined` means "don't touch it" and `null` means "remove it". The
+    // distinction is the way back for a manager who attached the wrong
+    // photo, and it can't depend on another image existing.
     const updated = await this.prisma.sku.update({
       where: { id: skuId },
       data: {
@@ -84,10 +87,10 @@ export class SkusService {
       },
     });
 
-    // PENDIENTE (Semana 4): un cambio de precio desactiva el Payment Link activo
-    // de este SKU, y una venta que lo deje a cero también. Es una llamada
-    // saliente a Stripe dentro de una petición de manager, y qué pasa si Stripe
-    // no responde sigue sin decidirse. Hallazgo 9 de ATAQUE-DISENO.md.
+    // PENDING (Week 4): a price change deactivates this SKU's active Payment
+    // Link, and a sale that leaves it at zero does too. That's an outbound
+    // call to Stripe inside a manager request, and what happens if Stripe
+    // doesn't respond is still undecided. Finding 9 of ATAQUE-DISENO.md.
 
     return toManagerSku(updated, await this.imageViewOf(updated.imageId));
   }

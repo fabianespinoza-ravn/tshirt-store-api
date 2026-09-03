@@ -2,7 +2,8 @@ import { createParamDecorator, type ExecutionContext } from '@nestjs/common';
 import type { UserRole } from '@prisma/client';
 import type { Request } from 'express';
 
-// Lo que el guard JWT deja en la petición; se mantiene mínimo para que nada de aquí acabe en una respuesta por descuido.
+// What the JWT guard leaves on the request; kept minimal so nothing here
+// ends up in a response by accident.
 export interface AuthenticatedUser {
   id: string;
   email: string;
@@ -11,7 +12,9 @@ export interface AuthenticatedUser {
 
 export type RequestWithUser = Request & { user?: AuthenticatedUser };
 
-// Devuelve undefined en una ruta @Public() sin token (p. ej. GET /products/{productId}): la autenticación es opcional y la proyección de manager depende de si hay usuario.
+// Returns undefined on a @Public() route with no token (e.g. GET
+// /products/{productId}): authentication is optional there, and the manager
+// projection depends on whether there's a user.
 export const CurrentUser = createParamDecorator(
   (
     property: keyof AuthenticatedUser | undefined,

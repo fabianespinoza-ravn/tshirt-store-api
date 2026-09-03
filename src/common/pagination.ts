@@ -1,7 +1,8 @@
 import { Type } from 'class-transformer';
 import { IsInt, IsOptional, Max, Min } from 'class-validator';
 
-// Límites del contrato: limit entre 1 y 100 (20 por defecto), offset hasta un millón para que una petición absurda sea un 400 y no un escaneo secuencial de la tabla.
+// Contract limits: limit between 1 and 100 (20 by default), offset up to a
+// million so an absurd request is a 400 and not a sequential table scan.
 export class PaginationQueryDto {
   @IsOptional()
   @Type(() => Number)
@@ -29,7 +30,8 @@ export interface Paginated<T> {
   meta: PaginationMeta;
 }
 
-// total exige un COUNT(*) con los mismos filtros que la página, así que toda colección paginada cuesta dos consultas.
+// total requires a COUNT(*) with the same filters as the page, so every
+// paginated collection costs two queries.
 export function paginate<T>(
   data: T[],
   total: number,

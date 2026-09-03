@@ -3,7 +3,10 @@ import type { PrismaService } from '../prisma/prisma.service';
 
 export type PrismaMock = DeepMockProxy<PrismaService>;
 
-// Mock profundo de PrismaService con $transaction ya resuelto para sus dos formas (array de promesas, o callback interactivo con `tx`); el callback recibe el propio mock, así que tx.user.create y prisma.user.create son la misma función espía.
+// Deep mock of PrismaService with $transaction already resolved for both of
+// its shapes (an array of promises, or an interactive callback with `tx`);
+// the callback receives the mock itself, so tx.user.create and
+// prisma.user.create are the same spy function.
 export function createPrismaMock(): PrismaMock {
   const prisma = mockDeep<PrismaService>();
 
@@ -17,7 +20,8 @@ export function createPrismaMock(): PrismaMock {
   return prisma;
 }
 
-// Devuelve el mock a su estado inicial y vuelve a cablear $transaction; llamarlo en beforeEach evita que el resultado de la suite dependa del orden de los tests.
+// Returns the mock to its initial state and rewires $transaction; calling it
+// in beforeEach keeps the suite's outcome from depending on test order.
 export function resetPrismaMock(prisma: PrismaMock): void {
   mockReset(prisma);
   prisma.$transaction.mockImplementation((arg: unknown) => {

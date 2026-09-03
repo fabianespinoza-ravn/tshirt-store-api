@@ -1,111 +1,115 @@
-# Andamiaje de tests
+# Test scaffolding
 
-Aquí no hay ni una aserción, y es a propósito: el programa prohíbe que un modelo
-escriba las pruebas del código que él mismo generó, porque afirmaría el
-comportamiento que produjo, errores incluidos. Esto son las piezas para que
-escribir las tuyas cueste poco.
+There isn't a single assertion here, and that's on purpose: the program
+forbids a model from writing the tests for code it generated itself, because
+it would just be asserting the behaviour it produced, bugs included. These
+are the pieces that make writing your own cheap.
 
-**Nada de esto se compila al `dist` ni cuenta para la cobertura.**
+**None of this compiles into `dist` or counts toward coverage.**
 
-## Qué hay
+## What's here
 
-| Fichero | Para qué |
+| File | What for |
 |---|---|
-| `build-service.ts` | Compila cualquier servicio con sus dependencias sustituidas |
-| `prisma.mock.ts` | Mock profundo de `PrismaService` con las **dos** formas de `$transaction` |
-| `factories.ts` | Constructores de filas válidas según el modelo, con sobreescritura |
-| `http.ts` | `ArgumentsHost` y `ExecutionContext` falsos, con grabadora de respuesta |
+| `build-service.ts` | Compiles any service with its dependencies replaced |
+| `prisma.mock.ts` | Deep mock of `PrismaService` with **both** shapes of `$transaction` |
+| `factories.ts` | Builders for valid rows per the model, with overrides |
+| `http.ts` | Fake `ArgumentsHost` and `ExecutionContext`, with a response recorder |
 
 ## `buildService`
 
-Sustituye `PrismaService`, `StorageService`, `MailService`, `JwtService`,
-`TokenService` y `ConfigService`. Deja **reales** `PasswordService`, porque es
-puro y hashear de verdad es lo que hace creíble un test de `signIn`, y
-`ProductsService`, porque `SkusService` e `ImagesService` dependen de él.
+Replaces `PrismaService`, `StorageService`, `MailService`, `JwtService`,
+`TokenService` and `ConfigService`. Keeps `PasswordService` **real**, because
+it's pure and hashing for real is what makes a `signIn` test believable, and
+`ProductsService`, because `SkusService` and `ImagesService` depend on it.
 
-El objetivo se registra **después** de los dobles, así que
-`buildService(TokenService)` recibe el real y no su mock. Comprobado.
+The target is registered **after** the doubles, so `buildService(TokenService)`
+gets the real one and not its mock. Verified.
 
 ```ts
 const h = await buildService(CategoriesService);
 resetPrismaMock(h.prisma);
 
 h.prisma.category.findUnique.mockResolvedValue(aCategory({ name: 'Tees' }));
-// aquí van tus aserciones
+// your assertions go here
 ```
 
-Devuelve `{ service, prisma, storage, mail, tokens, jwt, config }`. `config` es
-un objeto normal: escribir en él cambia lo que ve el servicio.
+Returns `{ service, prisma, storage, mail, tokens, jwt, config }`. `config` is
+a plain object: writing to it changes what the service sees.
 
-Los siete objetivos que hacen falta montan sin providers extra:
+The seven targets that are needed mount with no extra providers:
 `AuthService`, `TokenService`, `PasswordService`, `CategoriesService`,
 `ProductsService`, `SkusService`, `ImagesService`.
 
-## Factorías
+## Factories
 
 `aUser` · `anUnverifiedUser` · `aManager` · `aCategory` · `aProduct` · `anImage` ·
 `aSku` · `aFullProduct` · `aMulterFile` · `aOneTimeToken` · `aRefreshToken`
 
-Los valores por defecto respetan los CHECK de la base: `price > 0`,
-`reserved <= stock`, un GUEST nunca verificado, un fichero que pasa las tres
-validaciones de imagen. Si un test necesita una fila que la base rechazaría,
-tiene que decirlo en la sobreescritura, y eso deja constancia de que es a
-propósito.
+The default values respect the database's CHECKs: `price > 0`,
+`reserved <= stock`, a GUEST is never verified, a file that passes the three
+image validations. If a test needs a row the database would reject, it has
+to say so in the override, and that leaves a record that it's deliberate.
 
-`aFullProduct` monta el anidamiento de `FULL_INCLUDE`, incluida la envoltura
-`{ category }` de la tabla puente, que es donde todo el mundo se equivoca.
+`aFullProduct` assembles `FULL_INCLUDE`'s nesting, including the join table's
+`{ category }` wrapper, which is where everyone gets it wrong.
 
 ## `http.ts`
 
-Para el filtro de problemas:
+For the problem filter:
 
 ```ts
-const { host, recorded } = anArgumentsHost({ url: '/api/v1/pedidos' });
-new ProblemDetailsFilter().catch(laExcepcion, host);
+const { host, recorded } = anArgumentsHost({ url: '/api/v1/orders' });
+new ProblemDetailsFilter().catch(theException, host);
 // recorded.status, recorded.contentType, recorded.body, recorded.headers
 ```
 
-Para un guard, `anExecutionContext({ user, handler, controller })`. `handler` y
-`controller` importan: `Reflector.getAllAndOverride` lee la metadata de los dos,
-así que hay que pasarle el método y la clase reales que llevan el decorador.
+For a guard, `anExecutionContext({ user, handler, controller })`. `handler`
+and `controller` matter: `Reflector.getAllAndOverride` reads metadata from
+both, so the real method and class carrying the decorator have to be passed
+in.
 
 ---
 
-## Lo que conviene cubrir
+## What's worth covering
 
-No es una lista cerrada; sale del contrato y de `MATRIZ-AUTORIZACION.md`.
+This isn't a closed list; it comes from the contract and from
+`MATRIZ-AUTORIZACION.md`.
 
-**`auth.service.ts`** — 322 líneas a cero, la mitad del trabajo que falta.
+**`auth.service.ts`** — 322 lines at zero, half of the remaining work.
 
-- **`signIn` con contraseña mala sobre cuenta sin verificar da 401, no 403.** Es
-  lo que impide que el 403 sea un oráculo de enumeración. Un test que sólo mire
-  el código de respuesta no lo protege.
-- `signUp` sobre cuenta verificada manda recordatorio y **no toca la base**.
-- `signUp` sobre cuenta sin verificar consume el token vivo antes de crear el
-  nuevo. Sin eso, el único parcial revienta.
-- `confirmEmailVerification` mueve `pendingPasswordHash` a `users`, marca
-  verificado y pone ACTIVE, **en la misma transacción**.
+- **`signIn` with a bad password on an unverified account returns 401, not
+  403.** That's what keeps 403 from being an enumeration oracle. A test that
+  only checks the response code doesn't protect it.
+- `signUp` on a verified account sends a reminder and **never touches the
+  database**.
+- `signUp` on an unverified account consumes the live token before creating
+  the new one. Without that, the partial unique index blows up.
+- `confirmEmailVerification` moves `pendingPasswordHash` to `users`, marks it
+  verified and sets ACTIVE, **in the same transaction**.
 
-**`token.service.ts`** — `rotate` tiene tres caminos, y el que vale es que un
-token con `revokedAt` **revoca la familia entera**, no sólo ese token.
+**`token.service.ts`** — `rotate` has three paths, and the one that matters is
+that a token with `revokedAt` **revokes the whole family**, not just that
+token.
 
-**`problem-details.filter.ts`** — `message` array y `message` cadena tienen que
-producir los dos un `detail` que sea cadena. Y un `Error` pelado sale como 500
-genérico **sin que su mensaje aparezca** en la respuesta.
+**`problem-details.filter.ts`** — an array `message` and a string `message`
+both have to produce a string `detail`. And a bare `Error` comes out as a
+generic 500 **without its message showing up** in the response.
 
-**`skus.service.ts`** — `imageId: null` desengancha y `imageId: undefined` no
-toca nada: son ramas distintas.
+**`skus.service.ts`** — `imageId: null` detaches and `imageId: undefined`
+touches nothing: they're different branches.
 
-**`images.service.ts`** — el producto se valida antes de subir a S3, así que con
-producto inexistente `storage.put` no debe haberse llamado. Y en el borrado, la
-fila cae antes que el objeto.
+**`images.service.ts`** — the product is validated before uploading to S3, so
+with a nonexistent product `storage.put` must never have been called. And on
+delete, the row goes before the object.
 
-**`products.service.ts`** — faltan `create`, `update` y `remove`.
+**`products.service.ts`** — `create`, `update` and `remove` are still missing.
 
-## Y una que vale por todas
+## And the one that's worth all the others
 
-El programa cierra este bloque con un criterio concreto: haber escrito **un test
-que falle** contra código generado, y haber arreglado **el código, no el test**.
+The program closes this block with a concrete requirement: having written
+**a test that fails** against generated code, and having fixed **the code,
+not the test**.
 
-Ya está cumplido: el `PoliciesGuard` autorizaba por nombre de sujeto y se
-corrigió el guard, no la prueba.
+Already done: `PoliciesGuard` was authorizing by subject name, and it was the
+guard that got fixed, not the test.

@@ -24,8 +24,8 @@ export class ImagesService {
     productId: string,
     file: Express.Multer.File | undefined,
   ): Promise<ImageView> {
-    // El producto se comprueba primero: subir a S3 y luego descubrir que no
-    // existe deja un objeto huérfano que nadie va a borrar.
+    // The product is checked first: uploading to S3 and only then finding
+    // out it doesn't exist leaves an orphaned object nobody will delete.
     await this.products.loadForManager(productId);
 
     if (!file) {
@@ -44,10 +44,10 @@ export class ImagesService {
       );
     }
 
-    // `file.mimetype` es un dato que declara el cliente en la petición
-    // multipart; Multer nunca abre el archivo para comprobarlo. Verificamos
-    // los bytes reales y sólo seguimos si coinciden con lo declarado, para no
-    // guardar un archivo bajo una etiqueta que no le corresponde.
+    // `file.mimetype` is data the client declares in the multipart request;
+    // Multer never opens the file to check it. We verify the actual bytes
+    // and only proceed if they match what was declared, so we don't store a
+    // file under a label it doesn't deserve.
     const verifiedType = detectImageType(file.buffer);
     if (!verifiedType || verifiedType !== file.mimetype) {
       throw new ProblemException(
@@ -65,9 +65,10 @@ export class ImagesService {
         data: { id: newId(), productId, s3Key },
       });
     } catch (error) {
-      // Si la fila falla después de subir el objeto, hay que deshacer el
-      // `put`: sin esto el objeto queda huérfano en S3 para siempre, porque
-      // este repositorio no tiene barredor que reconcilie objetos sin fila.
+      // If the row fails after uploading the object, the `put` has to be
+      // undone: without this the object stays orphaned in S3 forever,
+      // because this repository has no sweeper that reconciles objects with
+      // no row.
       await this.storage.remove(s3Key);
       throw error;
     }
@@ -75,7 +76,8 @@ export class ImagesService {
     return { id: row.id, url: await this.storage.urlFor(row.s3Key) };
   }
 
-  // El 409 distingue dos causas porque el remedio difiere: repuntar la variante a otra imagen, o subir un reemplazo antes de borrar.
+  // The 409 distinguishes two causes because the remedy differs: repoint the
+  // variant to another image, or upload a replacement before deleting.
   async remove(productId: string, imageId: string): Promise<void> {
     const product = await this.products.loadForManager(productId);
     const image = product.images.find((i) => i.id === imageId);
@@ -102,9 +104,10 @@ export class ImagesService {
       );
     }
 
-    // La fila primero: si falla el borrado en S3 queda un objeto huérfano, que es
-    // basura barata. Al revés quedaría una fila apuntando a algo que ya no está,
-    // y eso rompe el correo de reposición de F8.
+    // The row first: if the S3 delete fails, an orphaned object is left
+    // behind, which is cheap garbage. The other way around would leave a row
+    // pointing at something that's gone, and that breaks F8's restock
+    // email.
     await this.prisma.productImage.delete({ where: { id: imageId } });
     await this.storage.remove(image.s3Key);
   }

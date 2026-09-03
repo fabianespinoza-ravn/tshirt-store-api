@@ -17,10 +17,11 @@ import { TokenService } from './token.service';
       useFactory: (config: ConfigService) => ({
         secret: config.getOrThrow<string>('JWT_ACCESS_SECRET'),
         signOptions: {
-          // En segundos y no como cadena: `@nestjs/jwt` 12 tipa `expiresIn` con
-          // el literal de `ms`, que una `string` cualquiera no satisface. Pasar
-          // el número evita el cast y deja la unidad a la vista, y de paso
-          // `parseDuration` valida el formato al arrancar en vez de al firmar.
+          // In seconds and not as a string: `@nestjs/jwt` 12 types `expiresIn`
+          // with the `ms` literal, which an arbitrary `string` doesn't
+          // satisfy. Passing the number avoids the cast and keeps the unit
+          // visible, and along the way `parseDuration` validates the format
+          // at boot instead of at signing time.
           expiresIn:
             parseDuration(config.get<string>('JWT_ACCESS_TTL', '15m')) / 1000,
         },
@@ -32,7 +33,8 @@ import { TokenService } from './token.service';
     AuthService,
     PasswordService,
     TokenService,
-    // Autenticación global. Se abre con @Public(); la autorización va aparte.
+    // Global authentication. It's opened up with @Public(); authorization is
+    // separate.
     { provide: APP_GUARD, useClass: JwtAuthGuard },
   ],
   exports: [TokenService],

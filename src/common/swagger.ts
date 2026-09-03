@@ -6,11 +6,11 @@ import type { ProblemKind } from './problem/problem.catalog';
 export const SWAGGER_PATH = 'api/v1/docs';
 
 /**
- * Declara en el documento las respuestas de error de una operación a partir
- * del catálogo, en vez de repetir el código y el texto en cada endpoint. Los
- * problemas se agrupan por estado porque OpenAPI admite una sola respuesta por
- * código: 403 puede ser falta de permiso o correo sin verificar, y las dos
- * tienen que aparecer bajo el mismo 403.
+ * Declares an operation's error responses in the document from the catalog,
+ * instead of repeating the code and text at every endpoint. Problems are
+ * grouped by status because OpenAPI only allows one response per code: 403
+ * can mean missing permission or an unverified email, and both have to
+ * appear under the same 403.
  */
 export function ApiProblems(...kinds: ProblemKind[]) {
   const titlesByStatus = new Map<number, string[]>();
@@ -29,7 +29,9 @@ export function ApiProblems(...kinds: ProblemKind[]) {
   );
 }
 
-// La fuente de verdad es info.version en W2-API/openapi.yaml: servir el documento con otra versión es una divergencia con el entregable, no un detalle.
+// The source of truth is info.version in W2-API/openapi.yaml: serving the
+// document with another version is a divergence from the deliverable, not a
+// detail.
 const CONTRACT_VERSION = '1.0.2';
 
 export function setupSwagger(app: INestApplication, env: ConfigService): void {
@@ -42,8 +44,9 @@ export function setupSwagger(app: INestApplication, env: ConfigService): void {
         'the minor unit of the single currency. Errors are RFC 9457 problem ' +
         'documents served as application/problem+json.',
     )
-    // El puerto sale de la configuración, no de una constante: anunciar uno que
-    // no es el que escucha manda a cualquiera que use el documento a la nada.
+    // The port comes from configuration, not from a constant: announcing one
+    // that isn't the one actually listening sends anyone using the document
+    // nowhere.
     .addServer(
       `http://localhost:${env.get<number>('PORT', 3000)}/api/v1`,
       'Local development',

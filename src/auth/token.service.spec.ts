@@ -4,7 +4,7 @@ import { resetPrismaMock } from '../testing/prisma.mock';
 import { TokenService } from './token.service';
 
 /**
- * Lo que se afirma sale de la nota de `refresh_tokens` en el ERD:
+ * What's asserted here comes from the `refresh_tokens` note in the ERD:
  *
  * > Rotating refresh token with reuse detection. Detection lives in token_hash +
  * > revoked_at: a revoked row is kept, so replaying it is recognisable. On replay
@@ -29,10 +29,10 @@ describe('TokenService', () => {
     });
 
     /**
-     * El caso que define la detección de reuso. Presentar un token ya rotado
-     * significa que o le robaron la cookie al usuario o le robaron la copia al
-     * ladrón, y no hay forma de saber cuál. Revocar la familia entera es la
-     * única respuesta segura: las dos partes vuelven a autenticarse.
+     * The case that defines reuse detection. Presenting an already-rotated
+     * token means either the cookie was stolen from the user or the copy was
+     * stolen from the thief, and there's no way to know which. Revoking the
+     * whole family is the only safe answer: both parties authenticate again.
      */
     it('revokes the whole family when a revoked token is replayed', async () => {
       const user = aUser();
@@ -68,9 +68,10 @@ describe('TokenService', () => {
     });
 
     /**
-     * Rotar revoca el presentado y emite uno nuevo **en la misma familia**. Si el
-     * sucesor abriera familia nueva, replicar el viejo ya no arrastraría al
-     * nuevo y la detección de reuso dejaría de proteger nada.
+     * Rotating revokes the presented token and issues a new one **in the
+     * same family**. If the successor opened a new family, replaying the old
+     * one would no longer drag the new one down with it, and reuse detection
+     * would stop protecting anything.
      */
     it('revokes the presented token and issues a successor in the same family', async () => {
       const user = aUser();
@@ -114,7 +115,7 @@ describe('TokenService', () => {
     });
   });
 
-  describe('revocación', () => {
+  describe('revocation', () => {
     it('revokes by family when signing out', async () => {
       const row = aRefreshToken(aUser().id);
       h.prisma.refreshToken.findUnique.mockResolvedValue(row);
@@ -136,9 +137,9 @@ describe('TokenService', () => {
     });
 
     /**
-     * Restablecer y cambiar la contraseña revocan **todas** las familias, no la
-     * de la sesión actual: una sesión abierta antes del cambio tiene que dejar
-     * de valer, y ése es el sentido de cambiar la contraseña.
+     * Resetting and changing the password revoke **every** family, not just
+     * the current session's: a session opened before the change has to stop
+     * being valid, and that's the whole point of changing the password.
      */
     it('revokes every family of a user', async () => {
       const user = aUser();

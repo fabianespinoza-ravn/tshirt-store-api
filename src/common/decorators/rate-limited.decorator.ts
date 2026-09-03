@@ -1,7 +1,9 @@
 import { applyDecorators, UseGuards } from '@nestjs/common';
 import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 
-// No es guard global a propósito: el límite es por operación porque no todas las rutas declaran 429 en el contrato, y un guard global lo aplicaría también donde no lo declara.
+// Not a global guard on purpose: the limit is per operation because not
+// every route declares 429 in the contract, and a global guard would apply
+// it even where it doesn't.
 export const RateLimited = (limit: number, ttl: number) =>
   applyDecorators(
     UseGuards(ThrottlerGuard),

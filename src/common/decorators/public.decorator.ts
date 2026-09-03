@@ -2,5 +2,7 @@ import { SetMetadata } from '@nestjs/common';
 
 export const IS_PUBLIC_KEY = 'isPublic';
 
-// Marca una operación como accesible sin token para que el guard JWT pueda ser global; la lista va aquí y no en el guard para no desincronizarse del contrato si alguien mueve un path.
+// Marks an operation as reachable without a token so the JWT guard can be
+// global; the list lives here and not in the guard so it can't drift from
+// the contract if someone moves a path.
 export const Public = () => SetMetadata(IS_PUBLIC_KEY, true);

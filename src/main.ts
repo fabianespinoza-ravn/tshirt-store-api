@@ -15,8 +15,8 @@ function corsOrigin(config: ConfigService): string[] | boolean {
     return raw.split(',').map((origin) => origin.trim());
   }
 
-  // Sin lista, desarrollo refleja el origen y producción no permite ninguno.
-  // El fallo seguro es no permitir, no permitirlo todo.
+  // With no list, development reflects the origin and production allows
+  // none. The safe failure is to deny, not to allow everything.
   return config.get<string>('NODE_ENV') === NodeEnv.Development;
 }
 
@@ -27,17 +27,18 @@ async function bootstrap() {
   app.setGlobalPrefix('api/v1');
 
   app.use(helmet());
-  // /auth/refresh y /auth/sign-out se autentican con la cookie httpOnly, asi
-  // que sin esto request.cookies llega vacio y las dos responden 401.
+  // /auth/refresh and /auth/sign-out authenticate with the httpOnly cookie,
+  // so without this request.cookies arrives empty and both respond 401.
   app.use(cookieParser());
   app.enableCors({ origin: corsOrigin(config), credentials: true });
 
-  // whitelist descarta lo no declarado en el DTO y forbidNonWhitelisted lo
-  // rechaza con 400. transform aplica los tipos del DTO a la petición.
+  // whitelist drops anything not declared in the DTO, and forbidNonWhitelisted
+  // rejects it with 400. transform applies the DTO's types to the request.
   //
-  // Sobre la query esto rechaza cualquier parámetro extra, un `utm_source`
-  // incluido. Es deliberado por ahora: es lo mismo que impide que `customerId`
-  // se ignore en silencio. Ver el hallazgo 35 de ATAQUE-DISENO.md.
+  // On the query string this rejects any extra parameter, `utm_source`
+  // included. That's deliberate for now: it's the same thing that stops
+  // `customerId` from being silently ignored. See finding 35 of
+  // ATAQUE-DISENO.md.
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
@@ -46,8 +47,8 @@ async function bootstrap() {
     }),
   );
 
-  // Va después del pipe a propósito: es quien traduce sus 400 al documento
-  // RFC 9457 que declara el contrato.
+  // Goes after the pipe on purpose: it's what translates its 400s into the
+  // RFC 9457 document the contract declares.
   app.useGlobalFilters(new ProblemDetailsFilter());
 
   setupSwagger(app, config);

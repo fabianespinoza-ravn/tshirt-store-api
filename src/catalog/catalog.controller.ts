@@ -56,7 +56,7 @@ import type {
 import { ProductsService } from './products.service';
 import { SkusService } from './skus.service';
 
-// Alias para acortar las firmas: cada id de ruta se valida como UUID.
+// Alias to shorten the signatures: every route id is validated as a UUID.
 const uuid = ParseUUIDPipe;
 
 @ApiTags('Catalog')
@@ -69,7 +69,7 @@ export class CatalogController {
     private readonly skus: SkusService,
   ) {}
 
-  // ------------------------------------------------------------- categorías
+  // ------------------------------------------------------------- categories
 
   @Public()
   @ApiOperation({ summary: 'List categories' })
@@ -139,7 +139,7 @@ export class CatalogController {
     return this.categories.remove(categoryId);
   }
 
-  // -------------------------------------------------------------- productos
+  // -------------------------------------------------------------- products
 
   @Public()
   @ApiOperation({
@@ -155,7 +155,9 @@ export class CatalogController {
     return this.products.list(query);
   }
 
-  // Autenticación opcional: @Public() acepta anónimo, pero el guard JWT igual adjunta el usuario si viene, y aquí se decide la proyección.
+  // Optional authentication: @Public() accepts anonymous callers, but the
+  // JWT guard still attaches the user if one comes along, and the
+  // projection is decided here.
   @Public()
   @ApiOperation({
     summary: 'Get one product',
@@ -231,7 +233,7 @@ export class CatalogController {
     return this.products.remove(productId);
   }
 
-  // --------------------------------------------------------------- imágenes
+  // --------------------------------------------------------------- images
 
   @UseGuards(PoliciesGuard)
   @CheckPolicies({ action: 'create', subject: 'ProductImage' })
@@ -257,8 +259,8 @@ export class CatalogController {
   )
   @Post('products/:productId/images')
   @HttpCode(HttpStatus.CREATED)
-  // El techo va también en multer: sin esto un fichero enorme se lee entero en
-  // memoria antes de que el servicio tenga ocasión de rechazarlo.
+  // The cap also lives in multer: without this, a huge file gets read
+  // entirely into memory before the service ever has a chance to reject it.
   @UseInterceptors(
     FileInterceptor('file', { limits: { fileSize: MAX_IMAGE_BYTES } }),
   )

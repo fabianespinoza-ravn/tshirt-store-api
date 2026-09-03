@@ -7,7 +7,9 @@ import { Problems } from '../../common/problem/problem.catalog';
 import { ProblemException } from '../../common/problem/problem.exception';
 import { TokenService } from '../token.service';
 
-// Solo autenticación, no autorización (eso va en otro guard); no consulta la base de datos, así que una cuenta desactivada conserva acceso hasta que expire su access token.
+// Authentication only, not authorization (that goes in another guard); it
+// doesn't query the database, so a deactivated account keeps access until
+// its access token expires.
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
   constructor(
@@ -25,18 +27,20 @@ export class JwtAuthGuard implements CanActivate {
     const request = http.getRequest<RequestWithUser>();
     const presented = this.bearerFrom(request.headers.authorization);
 
-    // Una ruta pública que además trae token lo aprovecha. Es lo que necesita
-    // `GET /products/{productId}`: acepta anónimo y ensancha la respuesta para
-    // un manager, así que no puede limitarse a dejar pasar sin mirar.
+    // A public route that also carries a token makes use of it. That's what
+    // `GET /products/{productId}` needs: it accepts anonymous callers and
+    // widens the response for a manager, so it can't just let everything
+    // through without looking.
     if (isPublic) {
       if (presented) this.tryAttach(request, presented);
       return true;
     }
 
     if (!presented) {
-      // RFC 6750: sin `error=` cuando no se presentó ningún token. La ausencia
-      // del parámetro es lo que distingue "no mandaste" de "el tuyo no vale", y
-      // es lo que le dice a un cliente si tiene que refrescar o volver al login.
+      // RFC 6750: no `error=` when no token was presented at all. The
+      // absence of the parameter is what distinguishes "you sent none" from
+      // "yours doesn't work", and it's what tells a client whether to
+      // refresh or go back to login.
       this.challenge(http.getResponse<Response>(), 'Bearer');
       throw new ProblemException(
         Problems.unauthorized,

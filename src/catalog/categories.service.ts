@@ -22,7 +22,9 @@ const view = (c: Category): CategoryView => ({ id: c.id, name: c.name });
 export class CategoriesService {
   constructor(private readonly prisma: PrismaService) {}
 
-  // El nombre es único en categories, así que el orden es total y paginar no repite ni salta filas (en products no lo es, por eso allí hace falta desempatar con el id).
+  // The name is unique in categories, so the order is total and paginating
+  // doesn't repeat or skip rows (in products it isn't, which is why there
+  // the id has to break the tie).
   async list(query: PaginationQueryDto): Promise<Paginated<CategoryView>> {
     const [rows, total] = await this.prisma.$transaction([
       this.prisma.category.findMany({
@@ -64,7 +66,8 @@ export class CategoriesService {
     }
   }
 
-  // Borrado físico, no lógico: una categoría no aparece en ningún registro histórico (a diferencia de un producto), así que borrarla es seguro.
+  // Hard delete, not soft: a category doesn't appear in any historical
+  // record (unlike a product), so deleting it is safe.
   async remove(id: string): Promise<void> {
     await this.mustExist(id);
 

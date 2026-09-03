@@ -19,8 +19,8 @@ describe('CategoriesService', () => {
     resetPrismaMock(h.prisma);
   });
 
-  // Sin al menos un camino feliz por método, un fallo que hiciera lanzar SIEMPRE
-  // pasaría todos los tests de error.
+  // Without at least one happy path per method, a bug that made it throw
+  // ALWAYS would pass every error test.
 
   it('creates a category and returns only the contract fields', async () => {
     const created = aCategory({ name: 'Tees' });
@@ -28,8 +28,8 @@ describe('CategoriesService', () => {
 
     const result = await h.service.create('Tees');
 
-    // La proyección no arrastra createdAt ni updatedAt: `Category` en el
-    // contrato son exactamente id y name.
+    // The projection doesn't carry createdAt or updatedAt: `Category` in the
+    // contract is exactly id and name.
     expect(Object.keys(result).sort()).toEqual(['id', 'name']);
     expect(result).toEqual({ id: created.id, name: 'Tees' });
   });
@@ -56,9 +56,9 @@ describe('CategoriesService', () => {
   });
 
   /**
-   * Renombrar a su propio nombre no es un conflicto: la base no dispara la
-   * violación de unicidad porque la fila ya tenía ese nombre. Sin este caso,
-   * el catch de P2002 podría confundirse con un cambio idempotente.
+   * Renaming to its own name isn't a conflict: the database never fires the
+   * unique violation because the row already had that name. Without this
+   * case, the P2002 catch could be mistaken for an idempotent change.
    */
   it('lets a category keep its own name', async () => {
     const category = aCategory({ name: 'Tees' });
@@ -89,8 +89,8 @@ describe('CategoriesService', () => {
     ).rejects.toMatchObject({ kind: Problems.notFound });
   });
 
-  // El borrado es físico, no lógico: una categoría no aparece en ningún registro
-  // histórico y un producto sí.
+  // The delete is hard, not soft: a category doesn't appear in any
+  // historical record, and a product does.
   it('deletes a category that no product uses', async () => {
     const category = aCategory();
     h.prisma.category.findUnique.mockResolvedValue(category);
@@ -123,9 +123,9 @@ describe('CategoriesService', () => {
   });
 
   /**
-   * `categories.name` sí es único en el modelo, así que ordenar por nombre da un
-   * orden total y paginar no repite ni salta filas. Es lo contrario que
-   * `products`, que necesita desempatar con el id.
+   * `categories.name` is indeed unique in the model, so ordering by name
+   * gives a total order and pagination doesn't repeat or skip rows. That's
+   * the opposite of `products`, which needs the id to break ties.
    */
   it('pages categories by name and returns the shared envelope', async () => {
     const rows = [aCategory({ name: 'Hoodies' }), aCategory({ name: 'Tees' })];

@@ -9,7 +9,8 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { newId } from '../common/ids';
 
-// Tipos y techo tal como los declara el contrato, para poder rechazar antes de subir.
+// Types and ceiling exactly as the contract declares them, so we can reject
+// before uploading.
 export const ACCEPTED_IMAGE_TYPES = [
   'image/jpeg',
   'image/png',
@@ -18,21 +19,22 @@ export const ACCEPTED_IMAGE_TYPES = [
 export type AcceptedImageType = (typeof ACCEPTED_IMAGE_TYPES)[number];
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
-// Extensión que corresponde a cada tipo verificado, nunca al `originalname` que
-// manda el cliente: ese campo no pasa por ninguna validación y `x.svg` con
-// `mimetype: image/png` terminaría guardado como `.svg`.
+// Extension that matches each verified type, never the client-supplied
+// `originalname`: that field goes through no validation, and `x.svg` with
+// `mimetype: image/png` would end up stored as `.svg`.
 const EXTENSION_BY_TYPE: Record<AcceptedImageType, string> = {
   'image/jpeg': '.jpg',
   'image/png': '.png',
   'image/webp': '.webp',
 };
 
-// Firma de los primeros bytes de cada tipo aceptado. Es la única verificación
-// real: `file.mimetype` lo declara el cliente en la petición multipart y
-// Multer nunca mira el contenido, así que confiar en ese campo a solas deja
-// subir cualquier byte bajo la etiqueta que el atacante prefiera. No usamos el
-// paquete `file-type` porque sus versiones recientes son ESM puro y este build
-// es CommonJS; para tres firmas fijas alcanza con mirar los bytes a mano.
+// Signature of the first bytes of each accepted type. This is the only real
+// verification: `file.mimetype` is declared by the client in the multipart
+// request and Multer never looks at the content, so trusting that field
+// alone lets an attacker upload any bytes under whatever label they prefer.
+// We don't use the `file-type` package because its recent versions are pure
+// ESM and this build is CommonJS; for three fixed signatures, checking the
+// bytes by hand is enough.
 export function detectImageType(buffer: Buffer): AcceptedImageType | undefined {
   if (
     buffer.length >= 8 &&
@@ -57,8 +59,8 @@ export function detectImageType(buffer: Buffer): AcceptedImageType | undefined {
     return 'image/jpeg';
   }
 
-  // RIFF....WEBP: las cuatro letras de WEBP quedan en el byte 8, después del
-  // tamaño del chunk en little-endian, no al principio del buffer.
+  // RIFF....WEBP: the four letters of WEBP sit at byte 8, after the
+  // little-endian chunk size, not at the start of the buffer.
   if (
     buffer.length >= 12 &&
     buffer.toString('ascii', 0, 4) === 'RIFF' &&
@@ -70,7 +72,9 @@ export function detectImageType(buffer: Buffer): AcceptedImageType | undefined {
   return undefined;
 }
 
-// Una hora basta para una respuesta de API; el correo de reposición de F8 necesita otra vía porque se lee días después, cuando la credencial de firma ya expiró (hallazgo 15).
+// One hour is enough for an API response; F8's restock email needs another
+// route because it's read days later, once the signing credential has
+// already expired (finding 15).
 const SIGNED_URL_TTL_SECONDS = 3600;
 
 @Injectable()
@@ -84,9 +88,9 @@ export class StorageService {
     this.bucket = config.getOrThrow<string>('AWS_S3_BUCKET');
     this.client = new S3Client({
       region: config.getOrThrow<string>('AWS_REGION'),
-      // Con endpoint propio hace falta el estilo de ruta: MinIO no resuelve
-      // buckets como subdominio. Sin endpoint, el SDK habla con AWS de verdad y
-      // usa el estilo virtual, que es su valor por defecto.
+      // A custom endpoint needs path-style: MinIO doesn't resolve buckets as
+      // a subdomain. With no endpoint, the SDK talks to real AWS and uses
+      // virtual-hosted style, which is its default.
       ...(endpoint ? { endpoint, forcePathStyle: true } : {}),
       credentials: {
         accessKeyId: config.getOrThrow<string>('AWS_ACCESS_KEY_ID'),
@@ -95,9 +99,10 @@ export class StorageService {
     });
   }
 
-  // La clave la elige el servidor, no el cliente: un nombre externo podría
-  // traer `../` o pisar un objeto existente. La extensión sale del tipo ya
-  // verificado por `detectImageType`, no de `file.originalname`.
+  // The server picks the key, not the client: an external name could carry
+  // `../` or overwrite an existing object. The extension comes from the
+  // type already verified by `detectImageType`, not from
+  // `file.originalname`.
   buildKey(productId: string, type: AcceptedImageType): string {
     return `products/${productId}/${newId()}${EXTENSION_BY_TYPE[type]}`;
   }
@@ -119,7 +124,7 @@ export class StorageService {
     );
   }
 
-  // URL de lectura temporal, necesaria porque el bucket no es público.
+  // Temporary read URL, needed because the bucket isn't public.
   urlFor(key: string): Promise<string> {
     return getSignedUrl(
       this.client,

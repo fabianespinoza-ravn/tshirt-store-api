@@ -26,7 +26,7 @@ import {
   type ProductSummaryView,
 } from './product.mappers';
 
-// Todo lo que hace falta para proyectar un producto en cualquiera de las dos formas.
+// Everything needed to project a product in either of the two shapes.
 const FULL_INCLUDE = {
   categories: { include: { category: true } },
   images: { orderBy: { id: 'asc' } },
@@ -39,7 +39,8 @@ type FullProduct = Prisma.ProductGetPayload<{ include: typeof FULL_INCLUDE }>;
 // `product` relation, so both sides of the FK agree on what "live" means.
 export const NOT_DELETED: Prisma.ProductWhereInput = { deletedAt: null };
 
-// Publicado = activo, no borrado, con al menos una variante y una imagen; la imagen no es cosmética, F8 la manda en el correo de reposición.
+// Published = active, not deleted, with at least one variant and one image;
+// the image isn't cosmetic, F8 sends it in the restock email.
 const PUBLISHED: Prisma.ProductWhereInput = {
   ...NOT_DELETED,
   isActive: true,
@@ -57,7 +58,7 @@ export class ProductsService {
     private readonly storage: StorageService,
   ) {}
 
-  // Las URL son prefirmadas, así que resolverlas es asíncrono y va en lote.
+  // URLs are presigned, so resolving them is asynchronous and done in bulk.
   private async toImageViews(rows: ImageRow[]): Promise<ImageView[]> {
     return Promise.all(
       rows.map(async (i) => ({
@@ -83,8 +84,9 @@ export class ProductsService {
       this.prisma.product.findMany({
         where,
         include: FULL_INCLUDE,
-        // El id desempata porque `products.name` NO es único: sin él, dos
-        // productos homónimos en el borde de página se repiten o se saltan.
+        // The id breaks ties because `products.name` is NOT unique: without
+        // it, two same-named products at a page boundary get repeated or
+        // skipped.
         orderBy: [{ name: 'asc' }, { id: 'asc' }],
         skip: query.offset,
         take: query.limit,
@@ -96,7 +98,9 @@ export class ProductsService {
     return paginate(data, total, query);
   }
 
-  // La visibilidad es una condición sobre la fila, no un permiso: por eso esta ruta devuelve 404 y nunca 403 (un producto desactivado es 404 para quien no es manager).
+  // Visibility is a condition on the row, not a permission: that's why this
+  // route returns 404 and never 403 (a deactivated product is a 404 for
+  // anyone who isn't a manager).
   async getOne(
     id: string,
     asManager: boolean,
@@ -166,7 +170,9 @@ export class ProductsService {
     return this.toManager(await this.loadForManager(id));
   }
 
-  // Borrado lógico y terminal: la fila sobrevive porque el historial de pedidos la referencia vía SKU; el 409 evita dejar reservas pendientes apuntando a algo ya no comprable.
+  // Soft and terminal delete: the row survives because order history
+  // references it through the SKU; the 409 avoids leaving pending
+  // reservations pointing at something no longer purchasable.
   async remove(id: string): Promise<void> {
     const product = await this.loadForManager(id);
     const held = product.skus.reduce((sum, s) => sum + s.reserved, 0);
@@ -186,7 +192,7 @@ export class ProductsService {
 
   // ------------------------------------------------------------------ apoyo
 
-  // Carga para un manager: cualquier estado salvo borrado.
+  // Load for a manager: any state except deleted.
   async loadForManager(id: string): Promise<FullProduct> {
     return loadOrThrow(
       () =>
@@ -223,8 +229,8 @@ export class ProductsService {
     return {
       id: p.id,
       name: p.name,
-      // El filtro de publicación garantiza que existen; el `!` documenta que la
-      // garantía viene de la consulta y no de la forma del tipo.
+      // The publication filter guarantees these exist; the `!` documents
+      // that the guarantee comes from the query, not from the type's shape.
       priceFrom: priceFrom!,
       image: coverOf(images)!,
       categories: toCategoryViews(p.categories),

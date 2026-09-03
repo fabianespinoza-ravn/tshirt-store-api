@@ -15,14 +15,14 @@ class Rutas {
 }
 
 /**
- * Este guard sólo contesta "quién es el que llama". Lo que puede hacer es
- * problema de la ability de CASL, en otro guard.
+ * This guard only answers "who is the caller". What they're allowed to do is
+ * the CASL ability's problem, in another guard.
  *
- * Las expectativas salen del contrato: `components/responses/Unauthorized`
- * declara que la cabecera `WWW-Authenticate` distingue un token presentado y
- * rechazado de uno que nunca se envió, citando RFC 6750, y `GET
- * /products/{productId}` declara autenticación opcional con la respuesta
- * ensanchada para un manager.
+ * The expectations come from the contract: `components/responses/Unauthorized`
+ * declares that the `WWW-Authenticate` header distinguishes a token that was
+ * presented and rejected from one that was never sent, citing RFC 6750, and
+ * `GET /products/{productId}` declares authentication optional with the
+ * response widened for a manager.
  */
 describe('JwtAuthGuard', () => {
   const tokens = mockDeep<TokenService>();
@@ -37,11 +37,11 @@ describe('JwtAuthGuard', () => {
     tokens.verifyAccessToken.mockReset();
   });
 
-  const usuarioDe = (context: {
+  const userOf = (context: {
     switchToHttp: () => { getRequest: () => unknown };
   }) => (context.switchToHttp().getRequest() as { user?: unknown }).user;
 
-  describe('rutas protegidas', () => {
+  describe('protected routes', () => {
     it('rejects a request with no Authorization header', () => {
       const { context, recorded } = anExecutionContext({
         handler: Rutas.prototype.protegida,
@@ -49,9 +49,9 @@ describe('JwtAuthGuard', () => {
       });
 
       expect(() => guard.canActivate(context)).toThrow(ProblemException);
-      // Sin `error=`: la ausencia del parámetro es lo que dice "no mandaste
-      // token", y es lo que hace que un cliente vuelva al login en vez de
-      // intentar refrescar.
+      // No `error=`: the absence of the parameter is what says "you sent no
+      // token", and it's what makes a client go back to login instead of
+      // trying to refresh.
       expect(recorded.headers['WWW-Authenticate']).toBe('Bearer');
     });
 
@@ -67,7 +67,7 @@ describe('JwtAuthGuard', () => {
 
       try {
         guard.canActivate(context);
-        fail('el guard debía rechazar el token');
+        fail('the guard should have rejected the token');
       } catch (error) {
         expect((error as ProblemException).kind).toBe(Problems.unauthorized);
       }
@@ -85,7 +85,7 @@ describe('JwtAuthGuard', () => {
       });
 
       expect(guard.canActivate(context)).toBe(true);
-      expect(usuarioDe(context)).toEqual({
+      expect(userOf(context)).toEqual({
         id: 'user-1',
         email: 'ana@ejemplo.test',
         role: 'MANAGER',
@@ -93,8 +93,9 @@ describe('JwtAuthGuard', () => {
     });
 
     /**
-     * Un esquema que no es Bearer se trata como si no hubiera token, no como un
-     * token inválido: `Basic` o un valor suelto no son credenciales de esta API.
+     * A scheme that isn't Bearer is treated as if there were no token, not
+     * as an invalid one: `Basic` or a bare value aren't credentials for this
+     * API.
      */
     it.each([['Basic dXNlcjpwYXNz'], ['valorsuelto'], ['Bearer']])(
       'treats %s as no token at all',
@@ -112,7 +113,7 @@ describe('JwtAuthGuard', () => {
     );
   });
 
-  describe('rutas públicas', () => {
+  describe('public routes', () => {
     it('lets an anonymous caller through with no user attached', () => {
       const { context } = anExecutionContext({
         handler: Rutas.prototype.publica,
@@ -120,14 +121,15 @@ describe('JwtAuthGuard', () => {
       });
 
       expect(guard.canActivate(context)).toBe(true);
-      expect(usuarioDe(context)).toBeUndefined();
+      expect(userOf(context)).toBeUndefined();
     });
 
     /**
-     * **Una ruta pública que además trae token lo aprovecha.** Es lo que necesita
-     * `GET /products/{productId}`: acepta anónimo y ensancha la respuesta para un
-     * manager, así que dejar pasar sin mirar dejaría a un manager viendo la
-     * proyección pública de su propio catálogo.
+     * **A public route that also carries a token makes use of it.** That's
+     * what `GET /products/{productId}` needs: it accepts anonymous callers
+     * and widens the response for a manager, so letting it through without
+     * looking would leave a manager seeing the public projection of their
+     * own catalog.
      */
     it('still attaches the identity when a public route carries a valid token', () => {
       tokens.verifyAccessToken.mockReturnValue(identidad);
@@ -138,12 +140,13 @@ describe('JwtAuthGuard', () => {
       });
 
       expect(guard.canActivate(context)).toBe(true);
-      expect(usuarioDe(context)).toMatchObject({ role: 'MANAGER' });
+      expect(userOf(context)).toMatchObject({ role: 'MANAGER' });
     });
 
     /**
-     * Y con un token roto pasa como anónimo en vez de fallar. La proyección cae
-     * del lado seguro: enseñar de menos, nunca de más.
+     * And with a broken token it passes through as anonymous instead of
+     * failing. The projection falls on the safe side: show too little,
+     * never too much.
      */
     it('falls back to anonymous when a public route carries a broken token', () => {
       tokens.verifyAccessToken.mockImplementation(() => {
@@ -156,7 +159,7 @@ describe('JwtAuthGuard', () => {
       });
 
       expect(guard.canActivate(context)).toBe(true);
-      expect(usuarioDe(context)).toBeUndefined();
+      expect(userOf(context)).toBeUndefined();
     });
   });
 });

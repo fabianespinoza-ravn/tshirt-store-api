@@ -23,7 +23,7 @@ import type { AuthenticatedUser } from '../../common/decorators/current-user.dec
 
 export type AppAction = 'create' | 'read' | 'update' | 'delete';
 
-/** Nombres estáticos que pueden aparecer en @CheckPolicies. */
+/** Static names that can appear in @CheckPolicies. */
 export type AppSubjectName =
   | 'Category'
   | 'Product'

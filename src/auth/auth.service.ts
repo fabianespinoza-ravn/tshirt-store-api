@@ -31,14 +31,20 @@ export class AuthService {
     private readonly mail: MailService,
   ) {}
 
-  // email no es único para Prisma porque el índice del modelo es parcial (UNIQUE WHERE deleted_at IS NULL); hay que repetir aquí la condición o una cuenta borrada volvería como si estuviera viva.
+  // email isn't unique to Prisma because the model's index is partial
+  // (UNIQUE WHERE deleted_at IS NULL); the condition has to be repeated here
+  // or a deleted account would come back as if it were live.
   private findLiveByEmail(email: string) {
     return this.prisma.user.findFirst({ where: { email, ...NOT_DELETED } });
   }
 
   // ---------------------------------------------------------------- registro
 
-  // Responde igual exista o no la dirección, para no ser un oráculo de qué correos están registrados; si la cuenta existe pero no está verificada, reemite el enlace y reemplaza la credencial pendiente, dejando recuperar el acceso a quien olvidó la contraseña antes de confirmar.
+  // Responds the same whether or not the address exists, so as not to be an
+  // oracle of which emails are registered; if the account exists but isn't
+  // verified, it reissues the link and replaces the pending credential,
+  // letting someone who forgot their password before confirming recover
+  // access.
   async signUp(email: string, password: string): Promise<void> {
     const pendingPasswordHash = await this.passwords.hash(password);
     const existing = await this.findLiveByEmail(email);
@@ -64,8 +70,9 @@ export class AuthService {
           })
         ).id;
 
-      // El único parcial admite un solo token vivo por usuario, así que el
-      // anterior se consume antes de emitir el nuevo. Sin esto el INSERT choca.
+      // The partial unique index allows only one live token per user, so the
+      // previous one is consumed before issuing the new one. Without this
+      // the INSERT collides.
       if (existing) {
         await tx.emailVerificationToken.updateMany({
           where: { userId, consumedAt: null },
@@ -87,7 +94,9 @@ export class AuthService {
     await this.mail.sendVerificationLink(email, token);
   }
 
-  // Mover la contraseña a users, marcar la verificación y pasar a ACTIVE van en la misma transacción porque los CHECK del modelo las relacionan: una cuenta verificada siempre tiene contraseña y un GUEST nunca está verificado.
+  // Moving the password to users, marking verification and moving to ACTIVE
+  // go in the same transaction because the model's CHECKs relate them: a
+  // verified account always has a password, and a GUEST is never verified.
   async confirmEmailVerification(token: string): Promise<void> {
     const row = await loadOrThrow(
       () =>
@@ -116,7 +125,8 @@ export class AuthService {
     ]);
   }
 
-  // Reemite el enlace sin aceptar una credencial nueva: arrastra la que ya estaba pendiente.
+  // Reissues the link without accepting a new credential: it carries over
+  // the one that was already pending.
   async resendEmailVerification(email: string): Promise<void> {
     const user = await this.findLiveByEmail(email);
     if (!user || user.emailVerifiedAt) return;
@@ -147,9 +157,12 @@ export class AuthService {
     await this.mail.sendVerificationLink(email, token);
   }
 
-  // ------------------------------------------------------------------ sesión
+  // ------------------------------------------------------------------ session
 
-  // La contraseña se verifica antes que el estado de verificación, para que el 403 de "correo sin verificar" no sirva de oráculo de qué direcciones existen; si la cuenta aún no tiene passwordHash, se compara contra la credencial aparcada en su token de verificación vivo.
+  // The password is verified before the verification state, so that the 403
+  // for "email not verified" can't be used as an oracle of which addresses
+  // exist; if the account doesn't have a passwordHash yet, it's compared
+  // against the credential parked in its live verification token.
   async signIn(email: string, password: string): Promise<SessionResult> {
     const user = await this.findLiveByEmail(email);
 
@@ -174,7 +187,7 @@ export class AuthService {
       if (!ok) throw this.invalidCredentials();
     }
 
-    // Tres guardas separadas, deliberadamente no fusionadas, como el ERD declara.
+    // Three separate guards, deliberately not merged, as the ERD declares.
     if (user.state !== UserState.ACTIVE || !user.emailVerifiedAt) {
       throw new ProblemException(
         Problems.emailNotVerified,
@@ -214,9 +227,10 @@ export class AuthService {
     if (token) await this.tokens.revokeFamilyOf(token);
   }
 
-  // -------------------------------------------------------------- contraseña
+  // -------------------------------------------------------------- password
 
-  // Responde 202 siempre: la respuesta no dice si la dirección está registrada.
+  // Always responds 202: the response doesn't say whether the address is
+  // registered.
   async forgotPassword(email: string): Promise<void> {
     const user = await this.findLiveByEmail(email);
     if (!user?.emailVerifiedAt || user.state !== UserState.ACTIVE) return;
@@ -259,8 +273,8 @@ export class AuthService {
       }),
     ]);
 
-    // Una sesión abierta antes del restablecimiento deja de valer. Es el sentido
-    // de restablecer: si alguien tenía acceso, lo pierde.
+    // A session opened before the reset stops being valid. That's the point
+    // of resetting: if someone had access, they lose it.
     await this.tokens.revokeAllForUser(row.userId);
   }
 

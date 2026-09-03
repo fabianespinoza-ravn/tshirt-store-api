@@ -17,10 +17,10 @@ import {
 import { Color, Size } from '@prisma/client';
 import { PaginationQueryDto } from '../../common/pagination';
 
-// Techo de los importes: coincide con el límite de la columna integer de PostgreSQL.
+// Ceiling on amounts: matches the limit of PostgreSQL's integer column.
 const MAX_MONEY = 2_147_483_647;
 
-// --------------------------------------------------------------- categorías
+// --------------------------------------------------------------- categories
 
 export class CreateCategoryDto {
   @IsString()
@@ -31,7 +31,7 @@ export class CreateCategoryDto {
 
 export class UpdateCategoryDto extends CreateCategoryDto {}
 
-// ---------------------------------------------------------------- productos
+// ---------------------------------------------------------------- products
 
 export class ListProductsQueryDto extends PaginationQueryDto {
   @IsOptional()
@@ -123,7 +123,8 @@ export class UpdateSkuDto {
   @Max(MAX_MONEY)
   stock?: number;
 
-  // `null` desprende la imagen (vuelta atrás sin depender de que exista otra); omitir el campo significa "no lo toques".
+  // `null` detaches the image (a way back that doesn't depend on another one
+  // existing); omitting the field means "don't touch it".
   @IsOptional()
   @IsUUID(undefined, { each: false })
   imageId?: string | null;

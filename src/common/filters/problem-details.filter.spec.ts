@@ -10,9 +10,9 @@ import { ProblemException } from '../problem/problem.exception';
 import { ProblemDetailsFilter } from './problem-details.filter';
 
 /**
- * Todo lo que se afirma aquí sale del contrato de la Semana 2: `ProblemDetails`
- * declara los cinco campos como requeridos, y `components/responses` sirve cada
- * error como `application/problem+json`.
+ * Everything asserted here comes from the Week 2 contract: `ProblemDetails`
+ * declares the five fields as required, and `components/responses` serves
+ * every error as `application/problem+json`.
  */
 describe('ProblemDetailsFilter', () => {
   const filter = new ProblemDetailsFilter();
@@ -43,10 +43,10 @@ describe('ProblemDetailsFilter', () => {
   });
 
   /**
-   * `message` llega en dos formas y las dos tienen que acabar en un `detail` que
-   * sea cadena: `ValidationPipe` lo lanza como array y cualquier otra excepción
-   * como una sola cadena. Aplanar sólo una deja el 400 rompiendo su propio
-   * esquema mientras el 404 pasa.
+   * `message` arrives in two shapes and both have to end up as a string
+   * `detail`: `ValidationPipe` throws it as an array and every other
+   * exception as a single string. Flattening only one leaves the 400
+   * breaking its own schema while the 404 passes.
    */
   it('flattens the array message of a validation failure into a string', () => {
     const recorded = catchIt(
@@ -99,8 +99,9 @@ describe('ProblemDetailsFilter', () => {
   });
 
   /**
-   * Un error no controlado sale como 500 genérico y **su mensaje no viaja al
-   * cliente**. Filtrarlo sería exponer detalle interno en una respuesta pública.
+   * An unhandled error comes out as a generic 500 and **its message never
+   * travels to the client**. Letting it through would expose internal detail
+   * in a public response.
    */
   it('hides the message of an unhandled error behind a generic 500', () => {
     const recorded = catchIt(
@@ -114,9 +115,9 @@ describe('ProblemDetailsFilter', () => {
   });
 
   /**
-   * RFC 9110 15.5.2 obliga a que un 401 lleve `WWW-Authenticate`, y el contrato
-   * la declara. Un guard que ya la puso conserva su valor, que es el que
-   * distingue "no mandaste token" de "el tuyo no vale".
+   * RFC 9110 15.5.2 requires a 401 to carry `WWW-Authenticate`, and the
+   * contract declares it. A guard that already set it keeps its value,
+   * which is what distinguishes "you sent no token" from "yours is invalid".
    */
   it('adds a Bearer challenge to a 401 that arrives without one', () => {
     const recorded = catchIt(new UnauthorizedException());

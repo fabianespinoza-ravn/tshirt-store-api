@@ -16,7 +16,11 @@ export enum NodeEnv {
   Production = 'production',
 }
 
-// Las propiedades numéricas llevan ": number" explícito a propósito: sin la anotación, design:type es Object y enableImplicitConversion no sabe convertir la cadena del entorno, así que @IsInt() falla, y sólo cuando la variable está presente porque el valor por defecto ya es un número.
+// Numeric properties carry an explicit ": number" on purpose: without the
+// annotation, design:type is Object and enableImplicitConversion doesn't
+// know how to convert the environment's string, so @IsInt() fails, and only
+// when the variable is present because the default value is already a
+// number.
 export class EnvironmentVariables {
   @IsEnum(NodeEnv)
   NODE_ENV: NodeEnv = NodeEnv.Development;
@@ -55,12 +59,13 @@ export class EnvironmentVariables {
   @IsNotEmpty()
   JWT_REFRESH_TTL!: string;
 
-  // Vacío en desarrollo refleja el origen de la petición; vacío en producción no permite ninguno, que es el fallo seguro.
+  // Empty in development reflects the request's origin; empty in production
+  // allows none, which is the safe failure.
   @IsOptional()
   @IsString()
   CORS_ORIGINS?: string;
 
-  /** Ventana del límite de peticiones, en milisegundos. Throttler v5+ usa ms. */
+  /** Rate limit window, in milliseconds. Throttler v5+ uses ms. */
   @IsInt()
   @Min(1000)
   THROTTLE_TTL: number = 60_000;
@@ -69,7 +74,9 @@ export class EnvironmentVariables {
   @Min(1)
   THROTTLE_LIMIT: number = 10;
 
-  // Las imágenes están en el camino crítico del catálogo, así que estas variables no son opcionales como las de Stripe; AWS_S3_ENDPOINT sí lo es: presente apunta al MinIO local, ausente deja que el SDK resuelva el host real de AWS.
+  // Images are on the catalog's critical path, so these variables aren't
+  // optional the way Stripe's are; AWS_S3_ENDPOINT is: present points at the
+  // local MinIO, absent lets the SDK resolve the real AWS host.
   @IsString()
   @IsNotEmpty()
   AWS_REGION!: string;
@@ -90,8 +97,8 @@ export class EnvironmentVariables {
   @IsNotEmpty()
   AWS_SECRET_ACCESS_KEY!: string;
 
-  // Stripe y el correo entran cuando lleguen sus features. Opcionales hasta
-  // entonces para que el checkpoint de la semana 3 arranque sin ellas.
+  // Stripe and email come in when their features do. Optional until then so
+  // the week 3 checkpoint can boot without them.
   @IsOptional()
   @IsString()
   STRIPE_SECRET_KEY?: string;
@@ -115,7 +122,7 @@ export function validateEnv(config: Record<string, unknown>) {
           `  ${e.property}: ${Object.values(e.constraints ?? {}).join(', ')}`,
       )
       .join('\n');
-    throw new Error(`Configuración de entorno inválida:\n${detail}`);
+    throw new Error(`Invalid environment configuration:\n${detail}`);
   }
 
   return validated;

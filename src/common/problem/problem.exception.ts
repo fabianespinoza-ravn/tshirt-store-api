@@ -1,7 +1,7 @@
 import { HttpException } from '@nestjs/common';
 import type { ProblemKind } from './problem.catalog';
 
-/** Campos extra de un problema, como el `expiresAt` de `order-already-pending`. */
+/** Extra fields of a problem, like the `expiresAt` of `order-already-pending`. */
 export type ProblemExtensions = Record<string, unknown>;
 
 export interface ProblemBody extends ProblemExtensions {
@@ -12,7 +12,9 @@ export interface ProblemBody extends ProblemExtensions {
   instance: string;
 }
 
-// El filtro reconoce esta excepción y la sirve tal cual, sin adivinar por el código de estado; instance no se pasa aquí porque sólo el filtro conoce la URL de la petición.
+// The filter recognises this exception and serves it as-is, without guessing
+// from the status code; instance isn't passed here because only the filter
+// knows the request's URL.
 export class ProblemException extends HttpException {
   constructor(
     readonly kind: ProblemKind,
