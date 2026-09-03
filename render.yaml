@@ -77,10 +77,14 @@ services:
     # instances never race to sync the schema — see the Deployment section
     # of docs/ARQUITECTURA.md. No migration history is kept: the database
     # is synced directly to schema.prisma on every deploy.
-    # No `--accept-data-loss`: its absence is what makes this safe in a
-    # non-interactive pipeline. A destructive change fails the deploy
-    # instead of silently applying.
-    preDeployCommand: npx prisma db push
+    # No `--accept-data-loss` on the push: its absence is what makes this
+    # safe in a non-interactive pipeline, so a destructive change fails the
+    # deploy instead of silently applying. The backfill after it fills the
+    # live_email/live_user_id columns a plain push leaves NULL on existing
+    # rows — see prisma/backfill-live-columns.ts. Both need `ts-node` (a
+    # devDependency) present at deploy time; the Dockerfile that runs this
+    # doesn't exist yet, and that's a constraint on how it's written.
+    preDeployCommand: npm run prisma:sync
     envVars:
       - fromGroup: tshirt-store-config
 
