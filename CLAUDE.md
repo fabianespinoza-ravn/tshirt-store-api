@@ -2,7 +2,7 @@
 
 NestJS + Prisma REST API. These are the constraints that hold across the
 codebase; see `docs/ARQUITECTURA.md` for the production architecture and
-`docs/MATRIZ-AUTORIZACION.md` for the authorization contract.
+`docs/AUTHORIZATION-MATRIX.md` for the authorization contract.
 
 ## Style
 

@@ -20,16 +20,16 @@ directly when you open it.
 
 | File | Contract operations |
 |---|---|
-| `01-auth-registro.puml` | `signUp`, `resendEmailVerification`, `confirmEmailVerification` |
-| `02-auth-sesion.puml` | `signIn`, `refreshSession`, `signOut` |
-| `03-auth-contrasenas.puml` | `forgotPassword`, `resetPassword`, `changePassword` |
-| `04-catalogo-lectura.puml` | `listCategories`, `listProducts`, `getProduct` |
-| `05-catalogo-gestion.puml` | `createCategory`, `updateCategory`, `deleteCategory`, `createProduct`, `updateProduct`, `deleteProduct`, `uploadProductImage`, `deleteProductImage`, `createSku`, `updateSku` |
-| `06-like-y-notificacion-stock.puml` | `setProductLike` and the queue it triggers |
-| `07-carrito.puml` | `getCart`, `addCartItem`, `updateCartItem`, `removeCartItem` |
-| `08-checkout-y-pago.puml` | `checkout`, `receiveStripeEvent` |
-| `09-payment-link-invitado.puml` | `createPaymentLink`, `getGuestOrder` |
-| `10-pedidos-historial-estados.puml` | `listOrders`, `getOrder`, `updateOrderStatus` |
+| `01-auth-signup.puml` | `signUp`, `resendEmailVerification`, `confirmEmailVerification` |
+| `02-auth-session.puml` | `signIn`, `refreshSession`, `signOut` |
+| `03-auth-passwords.puml` | `forgotPassword`, `resetPassword`, `changePassword` |
+| `04-catalog-read.puml` | `listCategories`, `listProducts`, `getProduct` |
+| `05-catalog-management.puml` | `createCategory`, `updateCategory`, `deleteCategory`, `createProduct`, `updateProduct`, `deleteProduct`, `uploadProductImage`, `deleteProductImage`, `createSku`, `updateSku` |
+| `06-like-and-stock-notification.puml` | `setProductLike` and the queue it triggers |
+| `07-cart.puml` | `getCart`, `addCartItem`, `updateCartItem`, `removeCartItem` |
+| `08-checkout-and-payment.puml` | `checkout`, `receiveStripeEvent` |
+| `09-payment-link-guest.puml` | `createPaymentLink`, `getGuestOrder` |
+| `10-orders-history-statuses.puml` | `listOrders`, `getOrder`, `updateOrderStatus` |
 | `11-promo-codes.puml` | `createPromoCode`, `listPromoCodes`, `updatePromoCode`, `validatePromoCode` |
 
 ## The notes in red

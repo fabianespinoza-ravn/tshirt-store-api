@@ -10,7 +10,7 @@ language: en-US
 tone_instructions: >-
   Weigh authorization, error handling, money and stock above style. For CASL or
   guard changes, ask whether a CLIENT reaches another user's row and check
-  docs/MATRIZ-AUTORIZACION.md. New behaviour without a test is a finding.
+  docs/AUTHORIZATION-MATRIX.md. New behaviour without a test is a finding.
 
 reviews:
   # `assertive` instead of the `chill` default: with only one review per

@@ -36,7 +36,7 @@ Four domain alerts a generic dashboard would not catch:
 On the generic base underneath: error rate and p95 per route, pool saturation seen as Prisma's pool-timeout errors, queue depth and job age, and structured JSON logs with a correlation id and customer data redacted from webhook payloads.
 
 The full write-up is in [`docs/ARQUITECTURA.md`](docs/ARQUITECTURA.md). Request-level
-sequence diagrams for every flow live in [`docs/flujos/`](docs/flujos/).
+sequence diagrams for every flow live in [`docs/flows/`](docs/flows/).
 
 ## What is implemented
 
