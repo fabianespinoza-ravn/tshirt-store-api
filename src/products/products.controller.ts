@@ -33,7 +33,7 @@ import type {
   ManagerProductView,
   ProductDetailView,
   ProductSummaryView,
-} from '../catalog/product.mappers';
+} from '../catalog/views';
 import { CreateProductDto } from './dto/create-product.dto';
 import { ListProductsQueryDto } from './dto/list-products-query.dto';
 import { UpdateProductDto } from './dto/update-product.dto';

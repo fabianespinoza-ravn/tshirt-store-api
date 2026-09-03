@@ -24,7 +24,7 @@ import { PoliciesGuard } from '../auth/guards/policies.guard';
 import { Problems } from '../common/problem/problem.catalog';
 import { ApiProblems } from '../common/swagger';
 import { MAX_IMAGE_BYTES } from '../storage/storage.service';
-import type { ImageView } from '../catalog/product.mappers';
+import type { ImageView } from '../catalog/views';
 import { ImagesService } from './images.service';
 
 // Alias to shorten the signatures: every route id is validated as a UUID.
