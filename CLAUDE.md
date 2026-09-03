@@ -21,7 +21,7 @@ codebase; see `docs/ARQUITECTURA.md` for the production architecture and
   return value only proves the test wired a fixture; the Prisma call proves
   the code asked the database for the right thing.
 - Coverage cannot drop below the thresholds in `package.json`'s `jest.coverageThreshold`
-  (statements 75, branches 65, functions 63, lines 74). Raise the floor when
+  (statements 78, branches 67, functions 65, lines 77). Raise the floor when
   coverage improves; never lower it to make a PR pass.
 - Assertions for behaviour the assistant generated are the student's to
   write. The assistant scaffolds the harness, the fixtures and `it.todo`

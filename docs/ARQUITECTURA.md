@@ -42,7 +42,7 @@ flowchart TB
     C["Commit"] -->|"push"| CI["CI<br/>lint · build · unit · e2e"]
     CI -->|"green"| REL["Release<br/>version tag"]
     REL -->|"tag"| REG["Container registry<br/>image tagged by the release"]
-    REG -->|"image"| MIG["Sync schema<br/>prisma db push · pre-deploy"]
+    REG -->|"image"| MIG["Sync schema<br/>plan · refuse destructive · apply · pre-deploy"]
     MIG -->|"synced"| DEP["Deploy<br/>rolling replace"]
   end
 
@@ -121,25 +121,30 @@ attempt, and the repeatable sweep cancels the intent and releases the stock.
 
 One container image runs both the API and the worker under different entrypoints. Build and
 pipeline are shared, but each process scales on its own signal: request latency
-for the API, queue depth for the worker. `prisma db push` runs once as its own
+for the API, queue depth for the worker. The schema is synced once as its own
 pre-deploy step, after the release is tagged and the image is built, and never
-on boot, so instances never race to sync the schema. No migration history is
-kept — the database is synced directly to `schema.prisma` on every deploy, and
-a destructive change fails the deploy rather than applying silently, since the
-pre-deploy step never passes `--accept-data-loss`. That gate catches more than
-destruction: Prisma also refuses, non-interactively, to add a unique constraint
-to a table that already exists, because the push could fail on duplicates — so
-on a database that already has the tables, that kind of expand step and every
-contract step is applied by hand with the warning read first, not by the
-pipeline; the first deploy creates every table from scratch and never meets the
-prompt. Schema changes still expand
+on boot, so instances never race to sync it. No migration history is kept. The
+step (`prisma/sync-schema.ts`) has `prisma migrate diff` compute the SQL that
+takes the live database to `schema.prisma`, prints that plan into the deploy
+log, refuses it when it contains a statement class that loses data or locks
+rows out — `DROP TABLE`, `DROP COLUMN`, a column type change, `SET NOT NULL`,
+`DROP CONSTRAINT` — and otherwise has `prisma db execute` apply it as one
+transaction, so a unique constraint that meets duplicates fails loudly with
+nothing applied. The pipeline never prompts and never passes
+`--accept-data-loss`: `prisma db push` would stop to ask before adding a unique
+constraint to an existing table, and in a pipeline nobody answers. The
+"contract" half of a rollout is let through for a single deploy by setting
+`ALLOW_DESTRUCTIVE_SCHEMA_CHANGE=1` in that deploy's environment and removing
+it afterwards; the override is named in the log of that deploy. What keeping no
+history costs is that the SQL is reviewed in the deploy log, not in the pull
+request — the refusal list exists because of that. Schema changes still expand
 and contract — the compatible change ships first, the old shape is dropped in a
 later release — because a rollback is just redeploying the previous tag from
 the registry, and there is no migration history to roll back through either way.
 The one exception is this repository's first schema change, `live_email` and
-`live_user_id`: it ships in a single release together with the code that reads
-it, because nothing has been deployed yet — `render.yaml` describes the target
-topology, no image exists in a registry, and so there is no window in which an
+`live_user_id`: it shipped in a single release together with the code that reads
+it, because nothing had been deployed yet — `render.yaml` describes the target
+topology, no image exists in a registry, and so there was no window in which an
 old instance and a new one serve traffic at once. Expand-then-contract applies
 from the first deploy with live rows onward.
 

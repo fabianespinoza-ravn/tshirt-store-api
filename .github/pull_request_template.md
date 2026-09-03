@@ -12,7 +12,7 @@
 - [ ] `npm test` passes, and new behaviour arrived with its own test
 - [ ] No secret, token or connection string in the diff — `.env` stays untracked
 - [ ] Authorization changes are reflected in the authorization matrix
-- [ ] Prisma schema changes were applied with `npm run prisma:push` against a local database, not just typed into `schema.prisma`
+- [ ] Prisma schema changes were applied with `npm run prisma:sync` against a local database, not just typed into `schema.prisma`
 - [ ] Public API changes are reflected in the OpenAPI decorators
 - [ ] `README.md` and `docs/` still describe what this diff changes: layout, scripts, env vars
 
