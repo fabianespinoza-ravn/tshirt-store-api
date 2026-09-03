@@ -136,6 +136,70 @@ describe('ImagesService upload validation', () => {
   });
 
   /**
+   * `file.mimetype` lo declara el cliente en la petición multipart y Multer
+   * nunca abre el archivo para comprobarlo. Sin esta verificación de bytes,
+   * un archivo cualquiera etiquetado como `image/png` se sube y se guarda tal
+   * cual.
+   */
+  it('returns 415 when the declared mimetype does not match the real bytes', async () => {
+    const file = aMulterFile({
+      mimetype: 'image/png',
+      buffer: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"></svg>'),
+    });
+
+    await expect(h.service.upload('product-1', file)).rejects.toMatchObject({
+      kind: Problems.unsupportedMediaType,
+    });
+    expect(h.storage.put).not.toHaveBeenCalled();
+    expect(h.prisma.productImage.create).not.toHaveBeenCalled();
+  });
+
+  /**
+   * `file.originalname` no pasa por ninguna validación: sin esto, un
+   * `originalname: 'x.svg'` con `mimetype: image/png` real terminaría
+   * guardado con extensión `.svg` en S3.
+   */
+  it('derives the S3 key from the verified type, not from originalname', async () => {
+    const file = aMulterFile({
+      originalname: 'x.svg',
+      mimetype: 'image/png',
+    });
+    h.storage.buildKey.mockReturnValue('products/key.png');
+    h.prisma.productImage.create.mockResolvedValue({
+      id: 'image-3',
+      productId: 'product-1',
+      s3Key: 'products/key.png',
+      createdAt: new Date(),
+    });
+
+    await h.service.upload('product-1', file);
+
+    expect(h.storage.buildKey).toHaveBeenCalledWith('product-1', 'image/png');
+  });
+
+  /**
+   * Si la fila falla después del `put`, el objeto queda huérfano en S3 para
+   * siempre: este repositorio no tiene barredor que reconcilie objetos sin
+   * fila. La compensación debe borrar lo que se acaba de subir y dejar que el
+   * error original siga propagándose.
+   */
+  it('deletes the just-uploaded S3 object when the database create fails', async () => {
+    const file = aMulterFile();
+    h.storage.buildKey.mockReturnValue('products/huerfano.png');
+    const dbError = new Error('conexión perdida');
+    h.prisma.productImage.create.mockRejectedValue(dbError);
+
+    await expect(h.service.upload('product-1', file)).rejects.toBe(dbError);
+
+    expect(h.storage.put).toHaveBeenCalledWith(
+      'products/huerfano.png',
+      file.buffer,
+      file.mimetype,
+    );
+    expect(h.storage.remove).toHaveBeenCalledWith('products/huerfano.png');
+  });
+
+  /**
    * El producto se valida ANTES de subir. Sin esta prueba, mover la validación
    * después del `put` deja objetos huérfanos en S3 que nadie va a borrar, y
    * ningún test lo nota.

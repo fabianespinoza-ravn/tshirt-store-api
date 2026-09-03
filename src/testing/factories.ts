@@ -125,11 +125,20 @@ export function aFullProduct(
   };
 }
 
-// Fichero subido con la forma que deja FileInterceptor; los valores por defecto pasan las tres validaciones de ImagesService, así que un test que quiera romper una la sobreescribe explícitamente.
+// Firma real de un PNG (los 8 bytes que exige detectImageType) más relleno
+// para que el archivo de prueba supere también la verificación de magic
+// bytes, no sólo el `mimetype` declarado.
+const PNG_MAGIC_BYTES = Buffer.from([
+  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+]);
+
+// Fichero subido con la forma que deja FileInterceptor; los valores por defecto pasan las cuatro validaciones de ImagesService (tamaño, mimetype declarado, magic bytes reales), así que un test que quiera romper una la sobreescribe explícitamente.
 export function aMulterFile(
   overrides: Partial<Express.Multer.File> = {},
 ): Express.Multer.File {
-  const buffer = overrides.buffer ?? Buffer.from('imagen-de-prueba');
+  const buffer =
+    overrides.buffer ??
+    Buffer.concat([PNG_MAGIC_BYTES, Buffer.from('imagen-de-prueba')]);
   return {
     fieldname: 'file',
     originalname: 'camiseta.png',

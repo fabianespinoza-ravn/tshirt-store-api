@@ -7,6 +7,7 @@ import {
   ACCEPTED_IMAGE_TYPES,
   MAX_IMAGE_BYTES,
   StorageService,
+  detectImageType,
 } from '../storage/storage.service';
 import type { ImageView } from './product.mappers';
 import { ProductsService } from './products.service';
@@ -43,12 +44,33 @@ export class ImagesService {
       );
     }
 
-    const s3Key = this.storage.buildKey(productId, file.originalname);
+    // `file.mimetype` es un dato que declara el cliente en la petición
+    // multipart; Multer nunca abre el archivo para comprobarlo. Verificamos
+    // los bytes reales y sólo seguimos si coinciden con lo declarado, para no
+    // guardar un archivo bajo una etiqueta que no le corresponde.
+    const verifiedType = detectImageType(file.buffer);
+    if (!verifiedType || verifiedType !== file.mimetype) {
+      throw new ProblemException(
+        Problems.unsupportedMediaType,
+        `Accepted types are ${ACCEPTED_IMAGE_TYPES.join(', ')}.`,
+      );
+    }
+
+    const s3Key = this.storage.buildKey(productId, verifiedType);
     await this.storage.put(s3Key, file.buffer, file.mimetype);
 
-    const row = await this.prisma.productImage.create({
-      data: { id: newId(), productId, s3Key },
-    });
+    let row;
+    try {
+      row = await this.prisma.productImage.create({
+        data: { id: newId(), productId, s3Key },
+      });
+    } catch (error) {
+      // Si la fila falla después de subir el objeto, hay que deshacer el
+      // `put`: sin esto el objeto queda huérfano en S3 para siempre, porque
+      // este repositorio no tiene barredor que reconcilie objetos sin fila.
+      await this.storage.remove(s3Key);
+      throw error;
+    }
 
     return { id: row.id, url: await this.storage.urlFor(row.s3Key) };
   }
