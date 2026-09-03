@@ -1,0 +1,9 @@
+# Every text file is checked out with LF, whatever core.autocrlf says on the
+# machine. Prettier's default endOfLine is lf, so a CRLF checkout fails
+# `npm run format:check` locally while CI on Linux passes, and a red
+# /preflight nobody trusts is worse than none.
+* text=auto eol=lf
+
+# Never normalise binaries.
+*.png binary
+*.jpg binary
