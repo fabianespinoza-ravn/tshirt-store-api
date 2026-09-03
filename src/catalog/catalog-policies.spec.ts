@@ -3,9 +3,6 @@ import { CatalogController } from './catalog.controller';
 
 describe('CatalogController policies', () => {
   it.each([
-    ['createProduct', 'create', 'Product'],
-    ['updateProduct', 'update', 'Product'],
-    ['deleteProduct', 'delete', 'Product'],
     ['uploadImage', 'create', 'ProductImage'],
     ['deleteImage', 'delete', 'ProductImage'],
     ['createSku', 'create', 'Sku'],

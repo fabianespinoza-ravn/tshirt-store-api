@@ -5,7 +5,7 @@ import { JwtService } from '@nestjs/jwt';
 import { mockDeep, type DeepMockProxy } from 'jest-mock-extended';
 import { PasswordService } from '../auth/password.service';
 import { TokenService } from '../auth/token.service';
-import { ProductsService } from '../catalog/products.service';
+import { ProductsService } from '../products/products.service';
 import { MailService } from '../mail/mail.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';

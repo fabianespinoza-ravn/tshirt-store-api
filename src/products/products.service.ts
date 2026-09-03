@@ -7,11 +7,6 @@ import { Problems } from '../common/problem/problem.catalog';
 import { ProblemException } from '../common/problem/problem.exception';
 import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
-import type {
-  CreateProductDto,
-  ListProductsQueryDto,
-  UpdateProductDto,
-} from './dto/catalog.dto';
 import {
   aggregate,
   coverOf,
@@ -24,7 +19,10 @@ import {
   type ManagerProductView,
   type ProductDetailView,
   type ProductSummaryView,
-} from './product.mappers';
+} from '../catalog/product.mappers';
+import type { CreateProductDto } from './dto/create-product.dto';
+import type { ListProductsQueryDto } from './dto/list-products-query.dto';
+import type { UpdateProductDto } from './dto/update-product.dto';
 
 // Everything needed to project a product in either of the two shapes.
 const FULL_INCLUDE = {

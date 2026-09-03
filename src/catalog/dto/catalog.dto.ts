@@ -1,75 +1,9 @@
 import { Type } from 'class-transformer';
-import {
-  ArrayMinSize,
-  ArrayUnique,
-  IsArray,
-  IsBoolean,
-  IsEnum,
-  IsInt,
-  IsOptional,
-  IsString,
-  IsUUID,
-  Max,
-  MaxLength,
-  Min,
-  MinLength,
-} from 'class-validator';
+import { IsEnum, IsInt, IsOptional, IsUUID, Max, Min } from 'class-validator';
 import { Color, Size } from '@prisma/client';
-import { PaginationQueryDto } from '../../common/pagination';
 
 // Ceiling on amounts: matches the limit of PostgreSQL's integer column.
 const MAX_MONEY = 2_147_483_647;
-
-// ---------------------------------------------------------------- products
-
-export class ListProductsQueryDto extends PaginationQueryDto {
-  @IsOptional()
-  @IsUUID()
-  categoryId?: string;
-}
-
-export class CreateProductDto {
-  @IsString()
-  @MinLength(1)
-  @MaxLength(160)
-  name!: string;
-
-  @IsString()
-  @MinLength(1)
-  @MaxLength(2000)
-  description!: string;
-
-  @IsArray()
-  @ArrayMinSize(1)
-  @ArrayUnique()
-  @IsUUID('all', { each: true })
-  categoryIds!: string[];
-}
-
-export class UpdateProductDto {
-  @IsOptional()
-  @IsString()
-  @MinLength(1)
-  @MaxLength(160)
-  name?: string;
-
-  @IsOptional()
-  @IsString()
-  @MinLength(1)
-  @MaxLength(2000)
-  description?: string;
-
-  @IsOptional()
-  @IsArray()
-  @ArrayMinSize(1)
-  @ArrayUnique()
-  @IsUUID('all', { each: true })
-  categoryIds?: string[];
-
-  @IsOptional()
-  @IsBoolean()
-  isActive?: boolean;
-}
 
 // -------------------------------------------------------------------- SKUs
 

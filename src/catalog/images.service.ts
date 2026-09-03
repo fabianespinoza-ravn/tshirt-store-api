@@ -10,7 +10,7 @@ import {
   detectImageType,
 } from '../storage/storage.service';
 import type { ImageView } from './product.mappers';
-import { ProductsService } from './products.service';
+import { ProductsService } from '../products/products.service';
 
 @Injectable()
 export class ImagesService {

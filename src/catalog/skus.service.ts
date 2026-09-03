@@ -6,7 +6,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
 import type { CreateSkuDto, UpdateSkuDto } from './dto/catalog.dto';
 import { toManagerSku, type ManagerSkuView } from './product.mappers';
-import { NOT_DELETED, ProductsService } from './products.service';
+import { NOT_DELETED, ProductsService } from '../products/products.service';
 
 @Injectable()
 export class SkusService {
