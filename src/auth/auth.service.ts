@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import type { User } from '@prisma/client';
+import { UserRole, UserState, type User } from '@prisma/client';
 import { newId } from '../common/ids';
 import { Problems } from '../common/problem/problem.catalog';
 import { ProblemException } from '../common/problem/problem.exception';
@@ -50,7 +50,12 @@ export class AuthService {
         existing?.id ??
         (
           await tx.user.create({
-            data: { id: newId(), email, role: 'CLIENT', state: 'GUEST' },
+            data: {
+              id: newId(),
+              email,
+              role: UserRole.CLIENT,
+              state: UserState.GUEST,
+            },
           })
         ).id;
 
@@ -102,7 +107,7 @@ export class AuthService {
         data: {
           passwordHash: row.pendingPasswordHash,
           emailVerifiedAt: new Date(),
-          state: 'ACTIVE',
+          state: UserState.ACTIVE,
         },
       }),
       this.prisma.emailVerificationToken.update({
@@ -171,7 +176,7 @@ export class AuthService {
     }
 
     // Tres guardas separadas, deliberadamente no fusionadas, como el ERD declara.
-    if (user.state !== 'ACTIVE' || !user.emailVerifiedAt) {
+    if (user.state !== UserState.ACTIVE || !user.emailVerifiedAt) {
       throw new ProblemException(
         Problems.emailNotVerified,
         'Verify the email address before signing in.',
@@ -215,7 +220,7 @@ export class AuthService {
   // Responde 202 siempre: la respuesta no dice si la dirección está registrada.
   async forgotPassword(email: string): Promise<void> {
     const user = await this.findLiveByEmail(email);
-    if (!user?.emailVerifiedAt || user.state !== 'ACTIVE') return;
+    if (!user?.emailVerifiedAt || user.state !== UserState.ACTIVE) return;
 
     const token = this.tokens.mintOneTime();
 

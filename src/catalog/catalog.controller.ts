@@ -15,6 +15,7 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { UserRole } from '@prisma/client';
 import {
   ApiBearerAuth,
   ApiBody,
@@ -168,7 +169,7 @@ export class CatalogController {
     @Param('productId', uuid) productId: string,
     @CurrentUser() user: AuthenticatedUser | undefined,
   ): Promise<ProductDetailView | ManagerProductView> {
-    return this.products.getOne(productId, user?.role === 'MANAGER');
+    return this.products.getOne(productId, user?.role === UserRole.MANAGER);
   }
 
   @UseGuards(PoliciesGuard)
