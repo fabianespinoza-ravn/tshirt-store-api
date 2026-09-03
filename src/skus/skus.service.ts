@@ -90,9 +90,9 @@ export class SkusService {
     });
 
     // PENDING (Week 4): a price change deactivates this SKU's active Payment
-    // Link, and a sale that leaves it at zero does too. That's an outbound
-    // call to Stripe inside a manager request, and what happens if Stripe
-    // doesn't respond is still undecided. Finding 9 of docs/DESIGN-ATTACK.md.
+    // Link. That's an outbound call to Stripe inside a manager request, and
+    // what happens if Stripe doesn't respond is still undecided. Finding 9 of
+    // docs/DESIGN-ATTACK.md.
 
     return toManagerSku(updated, await this.imageViewOf(updated.imageId));
   }

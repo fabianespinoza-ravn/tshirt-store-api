@@ -120,7 +120,7 @@ export function mapSkus<V>(
 }
 
 // A deliberate decision, not an oversight: aggregation happens in memory over
-// the rows Prisma already fetched; with thousands of products the answer
+// the rows Prisma already fetched; with a few hundred products the answer
 // would be `$queryRaw` with `DISTINCT ON` (finding 30 in
 // docs/DESIGN-ATTACK.md).
 export function aggregate(skus: Sku[]): {
