@@ -2,7 +2,7 @@ node_modules/
 dist/
 coverage/
 
-# Nunca commitear secretos. .env.example es la plantilla.
+# Never commit secrets. .env.example is the template.
 .env
 .env.*
 !.env.example
@@ -13,8 +13,8 @@ coverage/
 # Personal to this machine, never shared.
 .claude/settings.local.json
 
-# Notas de planificación y borradores en la raíz. La documentación del
-# proyecto vive en docs/, que sí se versiona.
+# Planning notes and drafts at the root. The project's documentation
+# lives in docs/, which does get versioned.
 /*.md
 !/README.md
 !/CLAUDE.md

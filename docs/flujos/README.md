@@ -1,52 +1,52 @@
-# Flujos en PlantUML
+# Flows in PlantUML
 
-Once diagramas de secuencia, uno por flujo, escritos contra `../../W2-API/openapi.yaml`
-y `../ARQUITECTURA.md`. Entre los once cubren **las 38 operaciones del contrato**.
+Eleven sequence diagrams, one per flow, written against `../../W2-API/openapi.yaml`
+and `../ARQUITECTURA.md`. Between the eleven they cover **all 38 operations of the contract**.
 
-**No forman parte del entregable de una página.** `ARQUITECTURA.md` es lo que se
-envía; esto es material para la defensa oral y para el README del repo.
+**They are not part of the one-page deliverable.** `ARQUITECTURA.md` is what gets
+submitted; this is material for the oral defense and for the repo's README.
 
-## Cómo renderizarlos
+## How to render them
 
-Cada `.puml` es un diagrama completo. Abre [planttext.com](https://www.planttext.com),
-pega el contenido de **un** fichero y pulsa Refresh. PlantText renderiza un diagrama
-por vez, así que no los pegues juntos.
+Each `.puml` is a complete diagram. Open [planttext.com](https://www.planttext.com),
+paste the contents of **one** file and hit Refresh. PlantText renders one diagram
+at a time, so don't paste them together.
 
-Alternativa sin copiar y pegar: el servidor público acepta la fuente en la URL, y
-las extensiones de PlantUML de VS Code y de los JetBrains previsualizan el fichero
-directamente al abrirlo.
+Alternative without copy-pasting: the public server accepts the source in the URL, and
+the PlantUML extensions for VS Code and JetBrains preview the file
+directly when you open it.
 
-## Qué cubre cada uno
+## What each one covers
 
-| Fichero | Operaciones del contrato |
+| File | Contract operations |
 |---|---|
 | `01-auth-registro.puml` | `signUp`, `resendEmailVerification`, `confirmEmailVerification` |
 | `02-auth-sesion.puml` | `signIn`, `refreshSession`, `signOut` |
 | `03-auth-contrasenas.puml` | `forgotPassword`, `resetPassword`, `changePassword` |
 | `04-catalogo-lectura.puml` | `listCategories`, `listProducts`, `getProduct` |
 | `05-catalogo-gestion.puml` | `createCategory`, `updateCategory`, `deleteCategory`, `createProduct`, `updateProduct`, `deleteProduct`, `uploadProductImage`, `deleteProductImage`, `createSku`, `updateSku` |
-| `06-like-y-notificacion-stock.puml` | `setProductLike` y la cola que dispara |
+| `06-like-y-notificacion-stock.puml` | `setProductLike` and the queue it triggers |
 | `07-carrito.puml` | `getCart`, `addCartItem`, `updateCartItem`, `removeCartItem` |
 | `08-checkout-y-pago.puml` | `checkout`, `receiveStripeEvent` |
 | `09-payment-link-invitado.puml` | `createPaymentLink`, `getGuestOrder` |
 | `10-pedidos-historial-estados.puml` | `listOrders`, `getOrder`, `updateOrderStatus` |
 | `11-promo-codes.puml` | `createPromoCode`, `listPromoCodes`, `updatePromoCode`, `validatePromoCode` |
 
-## Las notas en rojo
+## The notes in red
 
-Las cajas `#ffe0e0` no son decoración: marcan los seis sitios donde el diseño puede
-morderte, y son las preguntas que conviene llegar sabiendo contestar.
+The `#ffe0e0` boxes are not decoration: they mark the six spots where the design can
+bite you, and they're the questions worth arriving with an answer for.
 
-| Diagrama | Lo que marca |
+| Diagram | What it marks |
 |---|---|
-| `04` | `anyOf` valida si **alguna** rama valida: el contrato no detecta una proyección por rol equivocada en ninguna dirección |
-| `07` | `cartItemId` desnudo en la ruta: si el servicio no comprueba de quién es la línea, es un BOLA |
-| `08` | El 200 del webhook es acuse, no liquidación; y hay que cancelar en Stripe **antes** de soltar el stock |
-| `09` | Sin recogida de dirección el webhook no puede rellenar columnas NOT NULL: se cobra y no se registra el pedido. Y poseer la URL de un pedido de invitado **es** la credencial |
-| `10` | 404 y nunca 403 fuera de alcance, para que el código no sirva de enumerador |
-| `11` | Validar un cupón no retiene nada: el checkout vuelve a comprobarlo |
+| `04` | `anyOf` validates if **any** branch validates: the contract can't detect a wrong-role projection in either direction |
+| `07` | A bare `cartItemId` in the route: if the service doesn't check whose line it is, that's a BOLA |
+| `08` | The webhook's 200 is an acknowledgment, not settlement; and you have to cancel in Stripe **before** releasing the stock |
+| `09` | Without address collection the webhook can't fill NOT NULL columns: the charge goes through and the order never gets recorded. And possessing the URL of a guest order **is** the credential |
+| `10` | 404 and never 403 outside of scope, so the status code can't be used as an enumerator |
+| `11` | Validating a coupon doesn't hold anything: checkout re-checks it |
 
-## Verificación pendiente
+## Pending verification
 
-Ninguno se ha renderizado: no hay PlantUML en el proyecto. Antes de usarlos en
-la defensa, pásalos por PlantText.
+None of them has been rendered: there is no PlantUML in the project. Before using
+them in the defense, run them through PlantText.

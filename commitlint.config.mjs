@@ -1,15 +1,15 @@
-// El historial ya sigue Conventional Commits desde el primer commit. Esto sólo
-// lo hace obligatorio, y va en CI y no en un hook local: `core.hooksPath` de
-// esta máquina apunta fuera del repo y un hook aquí lo desplazaría.
+// The history has followed Conventional Commits since the first commit. This
+// only makes it mandatory, and it runs in CI rather than a local hook:
+// `core.hooksPath` on this machine points outside the repo, and a hook here
+// would be shadowed by it.
 export default {
   extends: ['@commitlint/config-conventional'],
   rules: {
-    // Un cuerpo lleva enlaces, y un enlace no se parte por la mitad. Dependabot
-    // firma cada commit con las URLs del changelog, todas por encima de los 100
-    // caracteres que exige el preset, así que la regla rechazaría cada
-    // actualización de dependencia. Lo que de verdad importa —el tipo, el
-    // ámbito y el asunto, que son los que hacen legible el historial— sigue
-    // siendo obligatorio.
+    // A body carries links, and a link doesn't split in half. Dependabot
+    // signs every commit with the changelog URLs, all past the preset's
+    // 100-character limit, so the rule would reject every dependency update.
+    // What actually matters — the type, scope and subject, which are what
+    // make the history readable — stays mandatory.
     'body-max-line-length': [0, 'always'],
   },
 };
