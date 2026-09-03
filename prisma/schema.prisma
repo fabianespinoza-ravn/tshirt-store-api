@@ -7,12 +7,15 @@
 // why no id carries @default. See the ERD's header.
 //
 // No migration history is versioned: the database is synced straight from
-// this file with `prisma db push`. A partial-unique invariant is expressed
-// as a nullable column plus a plain @@unique instead of raw SQL — see
-// User.liveEmail and EmailVerificationToken.liveUserId for the pattern, and
-// PENDIENTE-W4.md for the ones still pending against tables with no service
-// code yet. A CHECK constraint has no schema.prisma equivalent at all; it
-// moves to application-level validation once the table it guards has one.
+// this file with `prisma db push`, and a push against a populated database
+// needs the matching backfill in prisma/backfill-live-columns.ts — a plain
+// push leaves any new non-defaulted column NULL on every existing row. A
+// partial-unique invariant is expressed as a nullable column plus a plain
+// @@unique instead of raw SQL; see User.liveEmail and
+// EmailVerificationToken.liveUserId for the pattern. The same pattern still
+// needs applying to Cart, PaymentLink, Payment and PromoCode once each has
+// service code — a CHECK constraint, meanwhile, has no schema.prisma
+// equivalent at all and moves to application-level validation instead.
 
 generator client {
   provider = "prisma-client-js"

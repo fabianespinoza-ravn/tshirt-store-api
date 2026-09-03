@@ -173,6 +173,22 @@ describe('AuthService', () => {
     });
   });
 
+  // ---------------------------------------------------- resendEmailVerification
+
+  // Harness only: this describe block's behaviour is new in this change
+  // (liveUserId is now cleared on the consumed token and set on the reissued
+  // one), so the assertions are left for the student to write, not generated
+  // alongside the code they'd be verifying.
+  describe('resendEmailVerification', () => {
+    it.todo('does nothing for an email with no live account');
+    it.todo('does nothing for an already-verified account');
+    it.todo('does nothing when the account has no live token to reissue');
+    it.todo('does nothing when the live token carries no pendingPasswordHash');
+    it.todo(
+      'consumes the old token, clearing its liveUserId, and issues a new one carrying the same pendingPasswordHash with liveUserId set to the user',
+    );
+  });
+
   // ------------------------------------------------------------------ signIn
 
   describe('signIn', () => {
