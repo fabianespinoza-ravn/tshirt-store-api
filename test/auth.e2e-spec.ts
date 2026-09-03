@@ -17,10 +17,10 @@ const AUTH = '/api/v1/auth';
  * requests against the real application over the e2e database, asserting
  * on the response and on the state the request left behind.
  *
- * Harness only. The fixtures in test/support/fixtures.ts sign up, confirm,
- * sign in and mint an expired token; the assertions are the student's
- * (CLAUDE.md, Tests). The protected route is PATCH /api/v1/auth/password,
- * the only one a client can call today.
+ * The fixtures in test/support/fixtures.ts sign up, confirm, sign in and
+ * mint an expired token; the assertions are the student's (CLAUDE.md,
+ * Tests). The protected route is PATCH /api/v1/auth/password, the only one
+ * a client can call today.
  */
 describe('Authentication (e2e)', () => {
   let e2e: E2eApp;
