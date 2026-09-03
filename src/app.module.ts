@@ -7,6 +7,7 @@ import { CategoriesModule } from './categories/categories.module';
 import { MailModule } from './mail/mail.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { ProductsModule } from './products/products.module';
+import { SkusModule } from './skus/skus.module';
 import { StorageModule } from './storage/storage.module';
 import { validateEnv } from './config/env.validation';
 
@@ -37,6 +38,7 @@ import { validateEnv } from './config/env.validation';
     AuthModule,
     CategoriesModule,
     ProductsModule,
+    SkusModule,
     CatalogModule,
   ],
 })

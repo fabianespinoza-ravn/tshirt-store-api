@@ -1,12 +1,10 @@
 import {
-  Body,
   Controller,
   Delete,
   HttpCode,
   HttpStatus,
   Param,
   ParseUUIDPipe,
-  Patch,
   Post,
   UploadedFile,
   UseGuards,
@@ -26,10 +24,8 @@ import { PoliciesGuard } from '../auth/guards/policies.guard';
 import { Problems } from '../common/problem/problem.catalog';
 import { ApiProblems } from '../common/swagger';
 import { MAX_IMAGE_BYTES } from '../storage/storage.service';
-import { CreateSkuDto, UpdateSkuDto } from './dto/catalog.dto';
 import { ImagesService } from './images.service';
-import type { ImageView, ManagerSkuView } from './product.mappers';
-import { SkusService } from './skus.service';
+import type { ImageView } from './product.mappers';
 
 // Alias to shorten the signatures: every route id is validated as a UUID.
 const uuid = ParseUUIDPipe;
@@ -37,10 +33,7 @@ const uuid = ParseUUIDPipe;
 @ApiTags('Catalog')
 @Controller()
 export class CatalogController {
-  constructor(
-    private readonly images: ImagesService,
-    private readonly skus: SkusService,
-  ) {}
+  constructor(private readonly images: ImagesService) {}
 
   // --------------------------------------------------------------- images
 
@@ -99,50 +92,5 @@ export class CatalogController {
     @Param('imageId', uuid) imageId: string,
   ): Promise<void> {
     return this.images.remove(productId, imageId);
-  }
-
-  // ------------------------------------------------------------------- SKUs
-
-  @UseGuards(PoliciesGuard)
-  @CheckPolicies({ action: 'create', subject: 'Sku' })
-  @ApiBearerAuth('bearerAuth')
-  @ApiOperation({ summary: 'Create a SKU for a product' })
-  @ApiResponse({ status: 201, description: 'SKU created' })
-  @ApiProblems(
-    Problems.validation,
-    Problems.unauthorized,
-    Problems.forbidden,
-    Problems.notFound,
-    Problems.conflict,
-    Problems.internalError,
-  )
-  @Post('products/:productId/skus')
-  @HttpCode(HttpStatus.CREATED)
-  createSku(
-    @Param('productId', uuid) productId: string,
-    @Body() dto: CreateSkuDto,
-  ): Promise<ManagerSkuView> {
-    return this.skus.create(productId, dto);
-  }
-
-  @UseGuards(PoliciesGuard)
-  @CheckPolicies({ action: 'update', subject: 'Sku' })
-  @ApiBearerAuth('bearerAuth')
-  @ApiOperation({ summary: 'Update a SKU' })
-  @ApiResponse({ status: 200, description: 'SKU updated' })
-  @ApiProblems(
-    Problems.validation,
-    Problems.unauthorized,
-    Problems.forbidden,
-    Problems.notFound,
-    Problems.conflict,
-    Problems.internalError,
-  )
-  @Patch('skus/:skuId')
-  updateSku(
-    @Param('skuId', uuid) skuId: string,
-    @Body() dto: UpdateSkuDto,
-  ): Promise<ManagerSkuView> {
-    return this.skus.update(skuId, dto);
   }
 }
