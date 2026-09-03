@@ -38,7 +38,7 @@ async function bootstrap() {
   // On the query string this rejects any extra parameter, `utm_source`
   // included. That's deliberate for now: it's the same thing that stops
   // `customerId` from being silently ignored. See finding 35 of
-  // ATAQUE-DISENO.md.
+  // docs/DESIGN-ATTACK.md.
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
