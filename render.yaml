@@ -84,6 +84,8 @@ services:
     # rows — see prisma/backfill-live-columns.ts. Both need `ts-node` (a
     # devDependency) present at deploy time; the Dockerfile that runs this
     # doesn't exist yet, and that's a constraint on how it's written.
+    # Schema and the code that reads it ship together this once: nothing is
+    # deployed yet to expand around — see the Deployment section.
     preDeployCommand: npm run prisma:sync
     envVars:
       - fromGroup: tshirt-store-config

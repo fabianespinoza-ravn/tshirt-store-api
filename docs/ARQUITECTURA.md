@@ -126,10 +126,22 @@ pre-deploy step, after the release is tagged and the image is built, and never
 on boot, so instances never race to sync the schema. No migration history is
 kept — the database is synced directly to `schema.prisma` on every deploy, and
 a destructive change fails the deploy rather than applying silently, since the
-pre-deploy step never passes `--accept-data-loss`. Schema changes still expand
+pre-deploy step never passes `--accept-data-loss`. That gate catches more than
+destruction: Prisma also refuses, non-interactively, to add a unique constraint
+to a table that already exists, because the push could fail on duplicates — so
+on a database that already has the tables, that kind of expand step and every
+contract step is applied by hand with the warning read first, not by the
+pipeline; the first deploy creates every table from scratch and never meets the
+prompt. Schema changes still expand
 and contract — the compatible change ships first, the old shape is dropped in a
 later release — because a rollback is just redeploying the previous tag from
 the registry, and there is no migration history to roll back through either way.
+The one exception is this repository's first schema change, `live_email` and
+`live_user_id`: it ships in a single release together with the code that reads
+it, because nothing has been deployed yet — `render.yaml` describes the target
+topology, no image exists in a registry, and so there is no window in which an
+old instance and a new one serve traffic at once. Expand-then-contract applies
+from the first deploy with live rows onward.
 
 Connection pooling is a design constraint here rather than a detail. Prisma pools
 inside each Node process, so there is no shared pooler and the total number of
