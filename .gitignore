@@ -10,6 +10,11 @@ coverage/
 *.log
 .DS_Store
 
+# No migration history is versioned. The database is synced straight from
+# schema.prisma with `prisma db push`; a migration generated locally for
+# exploration (`prisma migrate dev`) stays local.
+/prisma/migrations/
+
 # Personal to this machine, never shared.
 .claude/settings.local.json
 

@@ -42,8 +42,8 @@ flowchart TB
     C["Commit"] -->|"push"| CI["CI<br/>lint · build · unit · e2e"]
     CI -->|"green"| REL["Release<br/>version tag"]
     REL -->|"tag"| REG["Container registry<br/>image tagged by the release"]
-    REG -->|"image"| MIG["Migrate<br/>prisma migrate deploy · pre-deploy"]
-    MIG -->|"migrated"| DEP["Deploy<br/>rolling replace"]
+    REG -->|"image"| MIG["Sync schema<br/>prisma db push · pre-deploy"]
+    MIG -->|"synced"| DEP["Deploy<br/>rolling replace"]
   end
 
   CL -->|"browse · buy"| LB
@@ -121,12 +121,15 @@ attempt, and the repeatable sweep cancels the intent and releases the stock.
 
 One container image runs both the API and the worker under different entrypoints. Build and
 pipeline are shared, but each process scales on its own signal: request latency
-for the API, queue depth for the worker. `prisma migrate deploy` runs once as its
-own pre-deploy step, after the release is tagged and the image is built, and
-never on boot, so instances never race to migrate. Schema changes
-expand and contract — the compatible change ships first, the old shape is dropped
-in a later release — which is why a rollback is just redeploying the previous
-tag from the registry: Prisma has no down migrations.
+for the API, queue depth for the worker. `prisma db push` runs once as its own
+pre-deploy step, after the release is tagged and the image is built, and never
+on boot, so instances never race to sync the schema. No migration history is
+kept — the database is synced directly to `schema.prisma` on every deploy, and
+a destructive change fails the deploy rather than applying silently, since the
+pre-deploy step never passes `--accept-data-loss`. Schema changes still expand
+and contract — the compatible change ships first, the old shape is dropped in a
+later release — because a rollback is just redeploying the previous tag from
+the registry, and there is no migration history to roll back through either way.
 
 Connection pooling is a design constraint here rather than a detail. Prisma pools
 inside each Node process, so there is no shared pooler and the total number of
