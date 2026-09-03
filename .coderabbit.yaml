@@ -1,19 +1,20 @@
-# Revisión automática apagada a propósito. El plan Open Source escala el límite
-# con las estrellas del repositorio, y éste tiene cero: cuenta con una revisión
-# por hora. Gastarla en un bump de package-lock.json es perderla, así que se
-# pide a mano con `@coderabbitai review` en el pull request que la merezca.
+# Automatic review is off on purpose. The Open Source plan scales the limit
+# with the repository's stars, and this one has zero: it gets one review per
+# hour. Spending it on a package-lock.json bump is wasting it, so it's
+# requested by hand with `@coderabbitai review` on the pull request that
+# earns it.
 language: en-US
 
-# El esquema rechaza este campo por encima de 250 caracteres, y un fichero
-# rechazado no aplica nada: la revisión automática seguiría encendida.
+# The schema rejects this field above 250 characters, and a rejected file
+# applies nothing: automatic review would stay on.
 tone_instructions: >-
   Weigh authorization, error handling, money and stock above style. For CASL or
   guard changes, ask whether a CLIENT reaches another user's row and check
   docs/MATRIZ-AUTORIZACION.md. New behaviour without a test is a finding.
 
 reviews:
-  # `assertive` en vez del `chill` por defecto: si sólo hay una revisión por
-  # hora, se quiere que encuentre cosas, no que sea prudente.
+  # `assertive` instead of the `chill` default: with only one review per
+  # hour, the point is for it to find things, not to play it safe.
   profile: assertive
   high_level_summary: true
   auto_review:

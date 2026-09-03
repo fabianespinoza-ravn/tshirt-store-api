@@ -5,8 +5,8 @@ on:
     branches: [main]
   pull_request:
 
-# Un push nuevo sobre la misma rama cancela la ejecución anterior: lo que
-# importa es el veredicto sobre el último commit, no sobre los intermedios.
+# A new push to the same branch cancels the previous run: what matters is
+# the verdict on the latest commit, not on the intermediate ones.
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -16,10 +16,10 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      # `prisma generate` exige que DATABASE_URL resuelva, aunque nunca abra la
-      # conexión. Los tests unitarios corren contra el mock de Prisma, así que
-      # este job no necesita una base de datos de verdad. El día que entren los
-      # e2e, van en un job aparte con `services: postgres`.
+      # `prisma generate` requires DATABASE_URL to resolve, even though it
+      # never opens the connection. The unit tests run against the Prisma
+      # mock, so this job doesn't need a real database. The day the e2e tests
+      # land, they go in a separate job with `services: postgres`.
       DATABASE_URL: postgresql://ci:ci@localhost:5432/ci?schema=public
 
     steps:
@@ -33,14 +33,14 @@ jobs:
       - name: Install
         run: npm ci
 
-      # El cliente generado no se versiona, y sin él no compila nada.
+      # The generated client isn't versioned, and nothing compiles without it.
       - name: Generate Prisma client
         run: npm run prisma:generate
 
       - name: Typecheck
         run: npm run typecheck
 
-      # `lint` local lleva --fix; en CI se comprueba, no se corrige.
+      # `lint` locally runs with --fix; in CI it only checks, it doesn't fix.
       - name: Lint
         run: npm run lint:ci
 

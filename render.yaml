@@ -1,0 +1,99 @@
+# Render blueprint. Matches the deployment section of docs/ARQUITECTURA.md:
+# one container image, two processes under different entrypoints, and
+# `prisma migrate deploy` as a pre-deploy step that runs once, never on boot.
+#
+# The image itself (./Dockerfile) ships with the worker's bootstrap file
+# (dist/worker) once that entrypoint lands in src/ — this blueprint declares
+# the target topology ahead of it, the same way docs/ARQUITECTURA.md does.
+
+databases:
+  - name: tshirt-store-db
+    plan: basic-256mb
+    region: oregon
+    postgresMajorVersion: '17'
+
+envVarGroups:
+  - name: tshirt-store-config
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: tshirt-store-db
+          property: connectionString
+      - key: REDIS_HOST
+        fromService:
+          name: tshirt-store-redis
+          type: keyvalue
+          property: host
+      - key: REDIS_PORT
+        fromService:
+          name: tshirt-store-redis
+          type: keyvalue
+          property: port
+      - key: JWT_ACCESS_SECRET
+        generateValue: true
+      - key: JWT_ACCESS_TTL
+        value: 15m
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_TTL
+        value: 7d
+      - key: CORS_ORIGINS
+        sync: false
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: AWS_REGION
+        value: us-east-1
+      - key: AWS_S3_BUCKET
+        sync: false
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: MAIL_FROM
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+
+services:
+  - type: web
+    name: tshirt-store-api
+    runtime: docker
+    region: oregon
+    plan: starter
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    dockerCommand: node dist/main
+    # Runs once, before the rollout replaces instances. Never on boot, so
+    # instances never race to migrate — see the Deployment section of
+    # docs/ARQUITECTURA.md.
+    preDeployCommand: npx prisma migrate deploy
+    envVars:
+      - fromGroup: tshirt-store-config
+
+  - type: worker
+    name: tshirt-store-worker
+    runtime: docker
+    region: oregon
+    plan: starter
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    dockerCommand: node dist/worker
+    envVars:
+      - fromGroup: tshirt-store-config
+
+  - type: keyvalue
+    name: tshirt-store-redis
+    plan: starter
+    region: oregon
+    maxmemoryPolicy: noeviction
+    ipAllowList: []
