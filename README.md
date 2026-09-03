@@ -19,8 +19,8 @@ the OpenAPI contract designed in the previous weeks of the Ravn NodeJS program.
 ### Deployment
 
 - **One container image, two entrypoints.** Shared build and pipeline, but each process scales on its own signal: request latency for the API, queue depth for the worker.
-- **`prisma migrate deploy` runs once as a release step**, never on boot, so instances never race to migrate.
-- **Expand and contract.** The compatible change ships first and the old shape is dropped in a later release — which is why a rollback is just redeploying the previous tag from the registry: Prisma has no down migrations.
+- **`prisma db push` runs once as a release step**, never on boot, so instances never race to sync the schema. No migration history is kept — a destructive change fails the deploy instead of applying silently.
+- **Expand and contract.** The compatible change ships first and the old shape is dropped in a later release — a rollback is just redeploying the previous tag from the registry, and there's no migration history to roll back through either way. The `live_email`/`live_user_id` change is the one exception: nothing had been deployed yet, so it ships in a single release.
 - **Pooling is a constraint, not a detail.** Prisma pools inside each Node process, so there is no shared pooler and open connections grow with the number of processes, not with traffic.
 - **The pool size is pinned on the database URL**, not left to Prisma's CPU-derived default, which reads the host's cores rather than the container's quota. The ceiling is PostgreSQL's `max_connections`, and it has to hold during a rolling deploy, when old and new instances are briefly up at once.
 
@@ -47,7 +47,7 @@ sequence diagrams for every flow live in [`docs/flows/`](docs/flows/).
 | Catalog | Categories, products, SKUs and images, with S3-backed storage |
 | Cart, orders, payments | Designed in the contract, not yet implemented |
 
-Unit tests cover the services: **11 suites, 115 tests**.
+Unit tests: **16 suites, 130 tests**, plus five `it.todo` stubs for `resendEmailVerification` whose assertions are still pending.
 
 ## Requirements
 
@@ -60,7 +60,7 @@ Unit tests cover the services: **11 suites, 115 tests**.
 npm install
 cp .env.example .env          # fill in the values
 docker compose up -d          # PostgreSQL, Redis, MinIO
-npx prisma migrate deploy
+npm run prisma:sync           # db push, then the backfill (a no-op on a fresh database)
 npm run start:dev
 ```
 
@@ -79,14 +79,18 @@ npx jest --coverage           # with coverage
 
 ```
 src/
-  auth/       authentication, CASL abilities and guards
-  catalog/    categories, products, SKUs and images
-  common/     problem-details errors, pagination, decorators
-  config/     environment validation at bootstrap
-  mail/       outbound mail
-  prisma/     database access
-  storage/    S3-compatible object storage
-  testing/    unit-test harness and factories
-prisma/       schema, migrations and raw SQL notes
-docs/         architecture write-up and flow diagrams
+  auth/         authentication, CASL abilities and guards
+  catalog/      query fragments and response views shared by the four catalog modules
+  categories/   categories
+  common/       problem-details errors, pagination, decorators
+  config/       environment validation at bootstrap
+  images/       product images
+  mail/         outbound mail
+  prisma/       database access
+  products/     products
+  skus/         SKUs
+  storage/      S3-compatible object storage
+  testing/      unit-test harness and factories
+prisma/         schema and the one-time live-column backfill
+docs/           architecture write-up and flow diagrams
 ```

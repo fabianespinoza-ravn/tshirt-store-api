@@ -23,6 +23,12 @@ codebase; see `docs/ARQUITECTURA.md` for the production architecture and
 - Coverage cannot drop below the thresholds in `package.json`'s `jest.coverageThreshold`
   (statements 75, branches 65, functions 63, lines 74). Raise the floor when
   coverage improves; never lower it to make a PR pass.
+- Assertions for behaviour the assistant generated are the student's to
+  write. The assistant scaffolds the harness, the fixtures and `it.todo`
+  stubs that name each case, never the `expect` calls for code it wrote: a
+  generated assertion would assert the behaviour it produced, bugs included.
+  A stub is a declared gap, and the PR that carries it is not done until the
+  student has replaced it.
 
 ## Other conventions
 

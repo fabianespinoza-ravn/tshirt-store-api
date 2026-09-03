@@ -52,3 +52,10 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      # `start:prod` and both `dockerCommand` entries in render.yaml run
+      # `node dist/main`. A build can succeed while emitting the entrypoint
+      # somewhere else (widening tsconfig's `include` past src/ once moved it
+      # to dist/src/main.js), so the path is checked explicitly.
+      - name: Production entrypoint
+        run: test -f dist/main.js

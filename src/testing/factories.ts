@@ -19,14 +19,21 @@ type Overrides<T> = Partial<T>;
 const now = () => new Date('2026-08-28T12:00:00.000Z');
 
 export function aUser(overrides: Overrides<User> = {}): User {
+  const email =
+    overrides.email ??
+    `user-${Math.random().toString(36).slice(2, 8)}@example.test`;
+  const deletedAt = overrides.deletedAt ?? null;
   return {
     id: newId(),
-    email: `user-${Math.random().toString(36).slice(2, 8)}@example.test`,
+    email,
     passwordHash: '$argon2id$fake',
     role: UserRole.CLIENT,
     state: UserState.ACTIVE,
     emailVerifiedAt: now(),
-    deletedAt: null,
+    deletedAt,
+    // Mirrors `email` unless the row is soft-deleted, matching the
+    // liveEmail invariant `auth.service.ts` relies on.
+    liveEmail: deletedAt === null ? email : null,
     createdAt: now(),
     updatedAt: now(),
     ...overrides,
@@ -172,16 +179,21 @@ export function aOneTimeToken(
     pendingPasswordHash: string | null;
     expiresAt: Date;
     consumedAt: Date | null;
+    liveUserId: string | null;
     createdAt: Date;
   }> = {},
 ) {
+  const consumedAt = overrides.consumedAt ?? null;
   return {
     id: newId(),
     userId,
     tokenHash: `hash-${Math.random().toString(36).slice(2, 8)}`,
     pendingPasswordHash: '$argon2id$pending',
     expiresAt: new Date(Date.now() + 3_600_000),
-    consumedAt: null,
+    consumedAt,
+    // Mirrors `userId` unless the token has been consumed, matching the
+    // liveUserId invariant `auth.service.ts` relies on.
+    liveUserId: consumedAt === null ? userId : null,
     createdAt: now(),
     ...overrides,
   };
