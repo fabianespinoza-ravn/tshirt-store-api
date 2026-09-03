@@ -12,6 +12,7 @@ failed and its output instead of continuing to the next one:
 4. `npm run format:check`
 5. `npm test -- --ci --coverage`
 6. `npm run build`
+7. `test -f dist/main.js` — `node dist/main` is the production entrypoint, and a build can succeed while emitting it somewhere else
 
 Note the two places this deliberately differs from the everyday scripts:
 `lint:ci` (not `lint` — CI only checks, it doesn't `--fix`) and
