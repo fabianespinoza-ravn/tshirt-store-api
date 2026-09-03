@@ -175,10 +175,6 @@ describe('AuthService', () => {
 
   // ---------------------------------------------------- resendEmailVerification
 
-  // Harness only: this describe block's behaviour is new in this change
-  // (liveUserId is now cleared on the consumed token and set on the reissued
-  // one), so the assertions are left for the student to write, not generated
-  // alongside the code they'd be verifying.
   describe('resendEmailVerification', () => {
     it('does nothing for an email with no live account', async () => {
       h.prisma.user.findUnique.mockResolvedValue(null);
