@@ -18,8 +18,8 @@ jobs:
     env:
       # `prisma generate` requires DATABASE_URL to resolve, even though it
       # never opens the connection. The unit tests run against the Prisma
-      # mock, so this job doesn't need a real database. The day the e2e tests
-      # land, they go in a separate job with `services: postgres`.
+      # mock, so this job doesn't need a real database; the e2e job below
+      # is the one that does.
       DATABASE_URL: postgresql://ci:ci@localhost:5432/ci?schema=public
 
     steps:
@@ -59,3 +59,49 @@ jobs:
       # to dist/src/main.js), so the path is checked explicitly.
       - name: Production entrypoint
         run: test -f dist/main.js
+
+  # Real HTTP requests against the real application over a real Postgres.
+  # Its own job so a failing flow reads as "the flow broke", not as a red
+  # unit run, and so `verify` keeps needing no database at all.
+  e2e:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: tshirt_store_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      # The suite's global setup syncs this database to schema.prisma with
+      # the same plan-refuse-apply step a deploy runs, then truncates every
+      # table before each test. DATABASE_URL only lets `prisma generate`
+      # resolve; test/support/env.ts overwrites it in the test process.
+      E2E_DATABASE_URL: postgresql://ci:ci@localhost:5432/tshirt_store_test?schema=public
+      DATABASE_URL: postgresql://ci:ci@localhost:5432/tshirt_store_test?schema=public
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npm run prisma:generate
+
+      - name: End-to-end tests
+        run: npm run test:e2e -- --ci

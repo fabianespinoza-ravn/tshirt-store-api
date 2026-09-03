@@ -13,6 +13,7 @@ failed and its output instead of continuing to the next one:
 5. `npm test -- --ci --coverage`
 6. `npm run build`
 7. `test -f dist/main.js` — `node dist/main` is the production entrypoint, and a build can succeed while emitting it somewhere else
+8. `npm run test:e2e -- --ci` — the `e2e` job. Needs `docker compose up -d` first: the suite creates and syncs `tshirt_store_test` on the compose Postgres by itself and never touches the development database
 
 Note the two places this deliberately differs from the everyday scripts:
 `lint:ci` (not `lint` — CI only checks, it doesn't `--fix`) and

@@ -73,7 +73,15 @@ npm run lint
 npm run build
 npx jest                      # unit tests
 npx jest --coverage           # with coverage
+npm run test:e2e              # end to end, over a real tshirt_store_test database on the compose Postgres
 ```
+
+The end-to-end suite needs `docker compose up -d` first. It creates the test
+database if it is missing, syncs it to `schema.prisma`, and truncates every
+table before each test; it never reads `.env` or touches the development
+database. Only `MailService` (which has no transport) and the rate limiter's
+counters are replaced, so a test can read the one-time tokens and reset the
+counters — everything else is the production wiring.
 
 ## Project layout
 
