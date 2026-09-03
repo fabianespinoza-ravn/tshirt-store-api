@@ -17,7 +17,7 @@ codebase; see `docs/ARQUITECTURA.md` for the production architecture and
 ## Tests
 
 - Assert on the Prisma call the code under test makes — `expect(prisma.x.y)
-  .toHaveBeenCalledWith(...)` — not on what the mock returns. The mock's
+.toHaveBeenCalledWith(...)` — not on what the mock returns. The mock's
   return value only proves the test wired a fixture; the Prisma call proves
   the code asked the database for the right thing.
 - Coverage cannot drop below the thresholds in `package.json`'s `jest.coverageThreshold`
