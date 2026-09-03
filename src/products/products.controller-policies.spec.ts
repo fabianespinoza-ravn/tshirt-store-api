@@ -1,28 +1,24 @@
 import { CHECK_POLICIES_KEY } from '../auth/casl/check-policies.decorator';
-import { CatalogController } from './catalog.controller';
+import { ProductsController } from './products.controller';
 
-describe('CatalogController policies', () => {
+// This spec only checks the `@CheckPolicies` metadata attached to each
+// handler, not authorization behaviour: a guard weakened to allow everyone
+// would still pass it.
+describe('ProductsController policies', () => {
   it.each([
-    ['createCategory', 'create', 'Category'],
-    ['updateCategory', 'update', 'Category'],
-    ['deleteCategory', 'delete', 'Category'],
     ['createProduct', 'create', 'Product'],
     ['updateProduct', 'update', 'Product'],
     ['deleteProduct', 'delete', 'Product'],
-    ['uploadImage', 'create', 'ProductImage'],
-    ['deleteImage', 'delete', 'ProductImage'],
-    ['createSku', 'create', 'Sku'],
-    ['updateSku', 'update', 'Sku'],
   ])('declares %s as %s on %s', (method, action, subject) => {
     const descriptor = Object.getOwnPropertyDescriptor(
-      CatalogController.prototype,
+      ProductsController.prototype,
       method,
     );
 
     const handler: unknown = descriptor?.value;
     expect(typeof handler).toBe('function');
     if (typeof handler !== 'function') {
-      throw new Error(`Catalog handler ${method} is missing.`);
+      throw new Error(`Products handler ${method} is missing.`);
     }
 
     expect(Reflect.getMetadata(CHECK_POLICIES_KEY, handler as object)).toEqual([

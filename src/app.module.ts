@@ -2,9 +2,12 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { AuthModule } from './auth/auth.module';
-import { CatalogModule } from './catalog/catalog.module';
+import { CategoriesModule } from './categories/categories.module';
+import { ImagesModule } from './images/images.module';
 import { MailModule } from './mail/mail.module';
 import { PrismaModule } from './prisma/prisma.module';
+import { ProductsModule } from './products/products.module';
+import { SkusModule } from './skus/skus.module';
 import { StorageModule } from './storage/storage.module';
 import { validateEnv } from './config/env.validation';
 
@@ -33,7 +36,10 @@ import { validateEnv } from './config/env.validation';
     MailModule,
     StorageModule,
     AuthModule,
-    CatalogModule,
+    CategoriesModule,
+    ProductsModule,
+    SkusModule,
+    ImagesModule,
   ],
 })
 export class AppModule {}

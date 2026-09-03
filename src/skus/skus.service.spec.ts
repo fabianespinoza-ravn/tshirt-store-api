@@ -3,7 +3,7 @@ import { Problems } from '../common/problem/problem.catalog';
 import { buildService, type ServiceHarness } from '../testing/build-service';
 import { aFullProduct, aSku } from '../testing/factories';
 import { resetPrismaMock } from '../testing/prisma.mock';
-import { ProductsService } from './products.service';
+import { ProductsService } from '../products/products.service';
 import { SkusService } from './skus.service';
 
 describe('SkusService errors', () => {

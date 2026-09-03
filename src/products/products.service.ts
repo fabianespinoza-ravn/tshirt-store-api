@@ -7,11 +7,7 @@ import { Problems } from '../common/problem/problem.catalog';
 import { ProblemException } from '../common/problem/problem.exception';
 import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
-import type {
-  CreateProductDto,
-  ListProductsQueryDto,
-  UpdateProductDto,
-} from './dto/catalog.dto';
+import { NOT_DELETED } from '../catalog/query';
 import {
   aggregate,
   coverOf,
@@ -24,7 +20,10 @@ import {
   type ManagerProductView,
   type ProductDetailView,
   type ProductSummaryView,
-} from './product.mappers';
+} from '../catalog/views';
+import type { CreateProductDto } from './dto/create-product.dto';
+import type { ListProductsQueryDto } from './dto/list-products-query.dto';
+import type { UpdateProductDto } from './dto/update-product.dto';
 
 // Everything needed to project a product in either of the two shapes.
 const FULL_INCLUDE = {
@@ -34,10 +33,6 @@ const FULL_INCLUDE = {
 } satisfies Prisma.ProductInclude;
 
 type FullProduct = Prisma.ProductGetPayload<{ include: typeof FULL_INCLUDE }>;
-
-// A live product: not soft-deleted. Shared with SkusService through the
-// `product` relation, so both sides of the FK agree on what "live" means.
-export const NOT_DELETED: Prisma.ProductWhereInput = { deletedAt: null };
 
 // Published = active, not deleted, with at least one variant and one image;
 // the image isn't cosmetic, F8 sends it in the restock email.

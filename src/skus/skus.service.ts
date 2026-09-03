@@ -4,9 +4,11 @@ import { Problems } from '../common/problem/problem.catalog';
 import { ProblemException } from '../common/problem/problem.exception';
 import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
-import type { CreateSkuDto, UpdateSkuDto } from './dto/catalog.dto';
-import { toManagerSku, type ManagerSkuView } from './product.mappers';
-import { NOT_DELETED, ProductsService } from './products.service';
+import { NOT_DELETED } from '../catalog/query';
+import { toManagerSku, type ManagerSkuView } from '../catalog/views';
+import { ProductsService } from '../products/products.service';
+import type { CreateSkuDto } from './dto/create-sku.dto';
+import type { UpdateSkuDto } from './dto/update-sku.dto';
 
 @Injectable()
 export class SkusService {

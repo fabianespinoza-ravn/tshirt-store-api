@@ -4,7 +4,7 @@ import { buildService, type ServiceHarness } from '../testing/build-service';
 import { aFullProduct, aMulterFile } from '../testing/factories';
 import { resetPrismaMock } from '../testing/prisma.mock';
 import { ImagesService } from './images.service';
-import { ProductsService } from './products.service';
+import { ProductsService } from '../products/products.service';
 
 describe('ImagesService errors', () => {
   let h: ServiceHarness<ImagesService>;
