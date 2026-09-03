@@ -19,8 +19,8 @@ the OpenAPI contract designed in the previous weeks of the Ravn NodeJS program.
 ### Deployment
 
 - **One container image, two entrypoints.** Shared build and pipeline, but each process scales on its own signal: request latency for the API, queue depth for the worker.
-- **`prisma migrate deploy` runs once as a release step**, never on boot, so instances never race to migrate.
-- **Expand and contract.** The compatible change ships first and the old shape is dropped in a later release — which is why a rollback is just redeploying the previous tag from the registry: Prisma has no down migrations.
+- **`prisma db push` runs once as a release step**, never on boot, so instances never race to sync the schema. No migration history is kept — a destructive change fails the deploy instead of applying silently.
+- **Expand and contract.** The compatible change ships first and the old shape is dropped in a later release — a rollback is just redeploying the previous tag from the registry, and there's no migration history to roll back through either way.
 - **Pooling is a constraint, not a detail.** Prisma pools inside each Node process, so there is no shared pooler and open connections grow with the number of processes, not with traffic.
 - **The pool size is pinned on the database URL**, not left to Prisma's CPU-derived default, which reads the host's cores rather than the container's quota. The ceiling is PostgreSQL's `max_connections`, and it has to hold during a rolling deploy, when old and new instances are briefly up at once.
 
@@ -60,7 +60,7 @@ Unit tests cover the services: **11 suites, 115 tests**.
 npm install
 cp .env.example .env          # fill in the values
 docker compose up -d          # PostgreSQL, Redis, MinIO
-npx prisma migrate deploy
+npm run prisma:push
 npm run start:dev
 ```
 
