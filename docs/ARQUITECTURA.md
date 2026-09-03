@@ -40,9 +40,10 @@ flowchart TB
   subgraph CD["Continuous delivery"]
     direction LR
     C["Commit"] -->|"push"| CI["CI<br/>lint · build · unit · e2e"]
-    CI -->|"green"| REG["Container registry<br/>tagged by commit"]
-    REL["Release<br/>prisma migrate deploy"] -->|"migrated"| DEP["Deploy<br/>rolling replace"]
-    REG -->|"tag"| REL
+    CI -->|"green"| REL["Release<br/>version tag"]
+    REL -->|"tag"| REG["Container registry<br/>image tagged by the release"]
+    REG -->|"image"| MIG["Migrate<br/>prisma migrate deploy · pre-deploy"]
+    MIG -->|"migrated"| DEP["Deploy<br/>rolling replace"]
   end
 
   CL -->|"browse · buy"| LB
@@ -63,7 +64,7 @@ flowchart TB
   classDef pool fill:#ffffff,stroke:#9aa7b4,stroke-dasharray:4 3,color:#3d4a57
   classDef store fill:#eaf5ec,stroke:#6fa17d,color:#1f3d29
   classDef ext fill:#f4eefa,stroke:#9d86b9,color:#372a45
-  class C,CI,REG,REL,DEP pipe
+  class C,CI,REL,REG,MIG,DEP pipe
   class LB,API,WK proc
   class AP,WP pool
   class PG,RD store
@@ -93,8 +94,9 @@ attempt, and the repeatable sweep cancels the intent and releases the stock.
 
 One container image runs both the API and the worker under different entrypoints. Build and
 pipeline are shared, but each process scales on its own signal: request latency
-for the API, queue depth for the worker. `prisma migrate deploy` runs once as a
-release step, never on boot, so instances never race to migrate. Schema changes
+for the API, queue depth for the worker. `prisma migrate deploy` runs once as its
+own pre-deploy step, after the release is tagged and the image is built, and
+never on boot, so instances never race to migrate. Schema changes
 expand and contract — the compatible change ships first, the old shape is dropped
 in a later release — which is why a rollback is just redeploying the previous
 tag from the registry: Prisma has no down migrations.
