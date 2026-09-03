@@ -23,27 +23,31 @@ export interface ServiceHarness<T> {
   mail: MailMock;
   tokens: TokenMock;
   jwt: JwtMock;
-  // Valores que devuelve el ConfigService falso; se puede escribir en él desde el test.
+  // Values the fake ConfigService returns; a test can write to it directly.
   config: Record<string, string | number>;
 }
 
-// Lo que devuelve el ConfigService falso salvo que un test lo cambie.
+// What the fake ConfigService returns unless a test changes it.
 const CONFIG_DEFAULTS: Record<string, string | number> = {
   NODE_ENV: 'test',
   PORT: 3010,
   JWT_ACCESS_TTL: '15m',
   JWT_REFRESH_TTL: '7d',
-  JWT_ACCESS_SECRET: 'secreto-de-prueba',
-  JWT_REFRESH_SECRET: 'secreto-de-prueba',
+  JWT_ACCESS_SECRET: 'test-secret',
+  JWT_REFRESH_SECRET: 'test-secret',
   AWS_REGION: 'us-east-1',
-  AWS_S3_BUCKET: 'bucket-de-prueba',
-  AWS_ACCESS_KEY_ID: 'clave',
-  AWS_SECRET_ACCESS_KEY: 'secreto',
+  AWS_S3_BUCKET: 'test-bucket',
+  AWS_ACCESS_KEY_ID: 'key',
+  AWS_SECRET_ACCESS_KEY: 'secret',
   THROTTLE_TTL: 60_000,
   THROTTLE_LIMIT: 10,
 };
 
-// Compila un servicio con Prisma, Storage, Mail, Jwt, Token y Config sustituidos por dobles (así el test es unitario y no toca Postgres/S3/Redis/correo); deja reales PasswordService (para que signIn hashee de verdad) y ProductsService (Skus e Images dependen de él y ya tiene sus propias dependencias mockeadas).
+// Compiles a service with Prisma, Storage, Mail, Jwt, Token and Config
+// replaced by doubles (so the test stays unit-level and never touches
+// Postgres/S3/Redis/mail); keeps real PasswordService (so signIn actually
+// hashes) and ProductsService (Skus and Images depend on it, and it already
+// has its own dependencies mocked).
 export async function buildService<T>(
   target: Type<T>,
   extra: Provider[] = [],
@@ -55,11 +59,11 @@ export async function buildService<T>(
   const jwt = mockDeep<JwtService>();
   const config = { ...CONFIG_DEFAULTS };
 
-  // La URL prefirmada es asíncrona y aparece en casi toda proyección de
-  // producto. Sin un valor por defecto, cada test tendría que configurarla
-  // aunque no le importe.
+  // The presigned URL is asynchronous and shows up in almost every product
+  // projection. Without a default, every test would have to configure it
+  // even when it doesn't care.
   storage.urlFor.mockImplementation((key: string) =>
-    Promise.resolve(`https://s3.test/${key}?firmada`),
+    Promise.resolve(`https://s3.test/${key}?signed`),
   );
 
   const configService = {
@@ -67,9 +71,7 @@ export async function buildService<T>(
       (config[key] as V) ?? fallback,
     getOrThrow: <V>(key: string): V => {
       if (config[key] === undefined) {
-        throw new Error(
-          `Falta la variable ${key} en el ConfigService de prueba`,
-        );
+        throw new Error(`Missing variable ${key} in the test ConfigService`);
       }
       return config[key] as V;
     },
@@ -85,7 +87,8 @@ export async function buildService<T>(
       { provide: TokenService, useValue: tokens },
       PasswordService,
       ProductsService,
-      // El objetivo va después: si coincide con alguno de arriba, gana el real.
+      // The target goes last: if it collides with any of the above, the
+      // real one wins.
       target,
       ...extra,
     ],

@@ -91,9 +91,10 @@ describe('SkusService errors', () => {
 });
 
 /**
- * La FK compuesta (image_id, product_id) impide en la base que una variante
- * apunte a la imagen de otro producto. El contrato promete que el caller recibe
- * un 404 explicado en vez de un error de integridad, y eso es lo que se prueba.
+ * The composite FK (image_id, product_id) stops a variant at the database
+ * level from pointing at another product's image. The contract promises the
+ * caller gets an explained 404 instead of an integrity error, and that's
+ * what's tested here.
  */
 describe('SkusService image ownership', () => {
   let h: ServiceHarness<SkusService>;

@@ -1,7 +1,9 @@
 import type { Category, ProductImage, Sku } from '@prisma/client';
 import type { CategoryView } from './categories.service';
 
-// Tipos separados, no uno con campos opcionales: el `anyOf` del contrato valida si cualquier rama pasa, así que solo tipos distintos más un test campo a campo evitan fugas de datos (hallazgo 28).
+// Separate types, not one with optional fields: the contract's `anyOf`
+// validates if any branch passes, so only distinct types plus a
+// field-by-field test prevent data leaks (finding 28).
 
 export interface ImageView {
   id: string;
@@ -14,7 +16,7 @@ export interface PublicSkuView {
   color: Sku['color'];
   price: number;
   image?: ImageView;
-  // Exacta sólo cuando es 5 o menos; `null` significa suficiente, nunca desconocida.
+  // Exact only when it's 5 or fewer; `null` means "plenty", never "unknown".
   available: number | null;
   inStock: boolean;
 }
@@ -27,7 +29,7 @@ export interface ManagerSkuView {
   image?: ImageView;
   stock: number;
   reserved: number;
-  // Exacta siempre: al manager no se le oculta la velocidad de venta, es suya.
+  // Always exact: a manager isn't shielded from their own sales velocity.
   available: number;
   inStock: boolean;
 }
@@ -59,13 +61,14 @@ export interface ManagerProductView {
   skus: ManagerSkuView[];
 }
 
-// Umbral por debajo del cual la disponibilidad exacta sí se publica.
+// Threshold below which exact availability is actually published.
 const SCARCITY_THRESHOLD = 5;
 
 export const availableOf = (sku: Pick<Sku, 'stock' | 'reserved'>): number =>
   sku.stock - sku.reserved;
 
-// La portada es la primera imagen por orden de UUIDv7 (en la práctica, orden de subida); F8 sólo necesita una imagen sin ambigüedad, no que el manager la elija.
+// The cover is the first image by UUIDv7 order (in practice, upload order);
+// F8 only needs one unambiguous image, not one the manager gets to pick.
 export const coverOf = (images: ImageView[]): ImageView | undefined =>
   images[0];
 
@@ -102,7 +105,22 @@ export function toManagerSku(sku: Sku, image?: ImageView): ManagerSkuView {
   };
 }
 
-// Decisión deliberada, no un descuido: se agregan en memoria sobre las filas que Prisma ya trajo; con miles de productos la respuesta sería `$queryRaw` con `DISTINCT ON` (hallazgo 30).
+// Shared by ProductsService.toDetail and toManager: both need every sku's
+// image resolved by id from the same already-loaded image list.
+export function mapSkus<V>(
+  skus: Sku[],
+  images: ImageView[],
+  toView: (sku: Sku, image?: ImageView) => V,
+): V[] {
+  const byId = new Map(images.map((i) => [i.id, i]));
+  return skus.map((s) =>
+    toView(s, s.imageId ? byId.get(s.imageId) : undefined),
+  );
+}
+
+// A deliberate decision, not an oversight: aggregation happens in memory over
+// the rows Prisma already fetched; with thousands of products the answer
+// would be `$queryRaw` with `DISTINCT ON` (finding 30).
 export function aggregate(skus: Sku[]): {
   priceFrom: number | null;
   inStock: boolean;

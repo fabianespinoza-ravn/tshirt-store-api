@@ -11,11 +11,11 @@ import { AuthService } from './auth.service';
 import { PasswordService } from './password.service';
 
 /**
- * Las expectativas salen del contrato `1.0.2` y de las notas del ERD, no de leer
- * la implementación. Las tres fuentes que se citan:
+ * The expectations come from contract `1.0.2` and the ERD notes, not from
+ * reading the implementation. The three sources cited:
  *
  * - `POST /auth/sign-up`: *"the response is the same whether or not the address
- *   already has an account"* y *"a registered address receives a sign-in
+ *   already has an account"* and *"a registered address receives a sign-in
  *   reminder instead of a verification link"*.
  * - `users`: *"sign-in and account lookup require ACTIVE, email_verified_at IS
  *   NOT NULL, and deleted_at IS NULL"*.
@@ -23,10 +23,11 @@ import { PasswordService } from './password.service';
  *   until confirmation: it moves to users.password_hash in the same transaction
  *   that sets email_verified_at and state"*.
  */
+const CLARO = 'contrasena-de-prueba-larga';
+
 describe('AuthService', () => {
   let h: ServiceHarness<AuthService>;
   let passwords: PasswordService;
-  const CLARO = 'contrasena-de-prueba-larga';
 
   beforeEach(async () => {
     h = await buildService(AuthService);
@@ -51,8 +52,8 @@ describe('AuthService', () => {
       };
       expect(creado.state).toBe('GUEST');
       expect(creado.role).toBe('CLIENT');
-      // La credencial se aparca en el token hasta confirmar: escribirla aquí
-      // dejaría una cuenta con contraseña que nadie ha verificado.
+      // The credential is parked in the token until confirmation: writing it
+      // here would leave an account with a password nobody has verified.
       expect(creado).not.toHaveProperty('passwordHash');
       expect(h.mail.sendVerificationLink).toHaveBeenCalledWith(
         'nueva@ejemplo.test',
@@ -61,9 +62,9 @@ describe('AuthService', () => {
     });
 
     /**
-     * El oráculo de enumeración cerrado: una dirección ya verificada no produce
-     * ninguna escritura y recibe un correo distinto. Desde fuera, las dos
-     * respuestas son idénticas.
+     * The enumeration oracle, closed: an already-verified address produces no
+     * write at all and gets a different email. From the outside, the two
+     * responses are identical.
      */
     it('writes nothing and sends a reminder for an already verified address', async () => {
       h.prisma.user.findFirst.mockResolvedValue(aUser());
@@ -79,9 +80,9 @@ describe('AuthService', () => {
     });
 
     /**
-     * El único parcial de `email_verification_tokens` admite un solo token vivo
-     * por usuario, así que reemitir obliga a consumir el anterior primero. Sin
-     * eso el INSERT choca contra el índice.
+     * The partial unique index on `email_verification_tokens` allows only one
+     * live token per user, so reissuing forces the previous one to be
+     * consumed first. Without that, the INSERT collides with the index.
      */
     it('consumes the live token before issuing a new one', async () => {
       h.prisma.user.findFirst.mockResolvedValue(anUnverifiedUser());
@@ -97,19 +98,20 @@ describe('AuthService', () => {
     });
 
     /**
-     * La salida del encierro: quien se registró, no confirmó y olvidó la
-     * contraseña vuelve a registrarse y la credencial pendiente se reemplaza por
-     * la nueva. Es la decisión H26, que se cerró al cerrar el oráculo.
+     * The way out of the lockout: someone who signed up, never confirmed and
+     * forgot their password signs up again, and the pending credential is
+     * replaced with the new one. This is decision H26, closed together with
+     * the oracle.
      */
     it('replaces the pending credential with the newly supplied one', async () => {
-      const usuario = anUnverifiedUser();
-      h.prisma.user.findFirst.mockResolvedValue(usuario);
+      const user = anUnverifiedUser();
+      h.prisma.user.findFirst.mockResolvedValue(user);
 
-      await h.service.signUp(usuario.email, 'una-contrasena-nueva-larga');
+      await h.service.signUp(user.email, 'una-contrasena-nueva-larga');
 
       const emitido = h.prisma.emailVerificationToken.create.mock.calls[0][0]
         .data as { pendingPasswordHash: string; userId: string };
-      expect(emitido.userId).toBe(usuario.id);
+      expect(emitido.userId).toBe(user.id);
       await expect(
         passwords.verify(
           emitido.pendingPasswordHash,
@@ -119,18 +121,18 @@ describe('AuthService', () => {
     });
   });
 
-  // ------------------------------------------------------- verificación
+  // ------------------------------------------------------- verification
 
   describe('confirmEmailVerification', () => {
     /**
-     * Confirmar mueve la credencial aparcada a `users`, marca la verificación y
-     * promueve a ACTIVE. Las tres escrituras van juntas porque los CHECK del
-     * modelo las relacionan: una cuenta verificada siempre tiene contraseña y un
-     * GUEST nunca está verificado.
+     * Confirming moves the parked credential to `users`, marks verification
+     * and promotes to ACTIVE. The three writes go together because the
+     * model's CHECKs relate them: a verified account always has a password,
+     * and a GUEST is never verified.
      */
     it('moves the pending credential, verifies and promotes to ACTIVE', async () => {
-      const usuario = anUnverifiedUser();
-      const token = aOneTimeToken(usuario.id, {
+      const user = anUnverifiedUser();
+      const token = aOneTimeToken(user.id, {
         pendingPasswordHash: '$argon2id$aparcada',
       });
       h.prisma.emailVerificationToken.findUnique.mockResolvedValue(token);
@@ -138,7 +140,7 @@ describe('AuthService', () => {
       await h.service.confirmEmailVerification('token-en-claro');
 
       expect(h.prisma.user.update).toHaveBeenCalledWith({
-        where: { id: usuario.id },
+        where: { id: user.id },
         data: {
           passwordHash: '$argon2id$aparcada',
           emailVerifiedAt: expect.any(Date) as Date,
@@ -175,11 +177,11 @@ describe('AuthService', () => {
   // ------------------------------------------------------------------ signIn
 
   describe('signIn', () => {
-    const conCredencial = async (overrides = {}) =>
+    const withCredential = async (overrides = {}) =>
       aUser({ passwordHash: await passwords.hash(CLARO), ...overrides });
 
     it('opens a session for a verified account with the right password', async () => {
-      h.prisma.user.findFirst.mockResolvedValue(await conCredencial());
+      h.prisma.user.findFirst.mockResolvedValue(await withCredential());
       h.tokens.signAccessToken.mockReturnValue('jwt');
       h.tokens.startFamily.mockResolvedValue({
         token: 'refresh',
@@ -192,7 +194,7 @@ describe('AuthService', () => {
     });
 
     it('returns 401 for a wrong password', async () => {
-      h.prisma.user.findFirst.mockResolvedValue(await conCredencial());
+      h.prisma.user.findFirst.mockResolvedValue(await withCredential());
 
       await expect(
         h.service.signIn('ana@ejemplo.test', 'otra-contrasena-larga'),
@@ -208,40 +210,40 @@ describe('AuthService', () => {
     });
 
     /**
-     * **El orden de comprobaciones es lo que decide qué se filtra.** Con la
-     * contraseña equivocada sobre una cuenta sin verificar la respuesta tiene que
-     * ser 401 y no 403: si fuera 403, cualquiera podría averiguar qué direcciones
-     * están registradas probando una contraseña inventada, que es exactamente lo
-     * que sign-up y forgot-password se molestan en no decir.
+     * **The order of checks is what decides what leaks.** With the wrong
+     * password on an unverified account, the response has to be 401 and not
+     * 403: if it were 403, anyone could find out which addresses are
+     * registered just by trying a made-up password, which is exactly what
+     * sign-up and forgot-password go out of their way not to say.
      */
     it('returns 401, never 403, when the password is wrong on an unverified account', async () => {
-      const usuario = anUnverifiedUser();
-      h.prisma.user.findFirst.mockResolvedValue(usuario);
+      const user = anUnverifiedUser();
+      h.prisma.user.findFirst.mockResolvedValue(user);
       h.prisma.emailVerificationToken.findFirst.mockResolvedValue({
         pendingPasswordHash: await passwords.hash(CLARO),
       } as never);
 
       await expect(
-        h.service.signIn(usuario.email, 'contrasena-equivocada-larga'),
+        h.service.signIn(user.email, 'contrasena-equivocada-larga'),
       ).rejects.toMatchObject({ kind: Problems.unauthorized });
     });
 
     it('returns 403 only when the password is right and the email is unverified', async () => {
-      const usuario = anUnverifiedUser();
-      h.prisma.user.findFirst.mockResolvedValue(usuario);
+      const user = anUnverifiedUser();
+      h.prisma.user.findFirst.mockResolvedValue(user);
       h.prisma.emailVerificationToken.findFirst.mockResolvedValue({
         pendingPasswordHash: await passwords.hash(CLARO),
       } as never);
 
-      await expect(
-        h.service.signIn(usuario.email, CLARO),
-      ).rejects.toMatchObject({ kind: Problems.emailNotVerified });
+      await expect(h.service.signIn(user.email, CLARO)).rejects.toMatchObject({
+        kind: Problems.emailNotVerified,
+      });
     });
 
-    /** Las tres guardas del ERD, deliberadamente no fusionadas. */
+    /** The ERD's three guards, deliberately not merged. */
     it('refuses a verified account that is not ACTIVE', async () => {
       h.prisma.user.findFirst.mockResolvedValue(
-        await conCredencial({ state: 'GUEST' }),
+        await withCredential({ state: 'GUEST' }),
       );
 
       await expect(
@@ -250,9 +252,9 @@ describe('AuthService', () => {
     });
 
     /**
-     * `email` no es único en Prisma porque el único del modelo es parcial:
-     * `UNIQUE (email) WHERE deleted_at IS NULL`. Olvidar el `deletedAt: null`
-     * devolvería una cuenta borrada como si estuviera viva.
+     * `email` isn't unique in Prisma because the model's unique index is
+     * partial: `UNIQUE (email) WHERE deleted_at IS NULL`. Forgetting the
+     * `deletedAt: null` would return a deleted account as if it were live.
      */
     it('scopes the lookup to accounts that are not deleted', async () => {
       h.prisma.user.findFirst.mockResolvedValue(null);
@@ -266,30 +268,30 @@ describe('AuthService', () => {
     });
   });
 
-  // ------------------------------------------------------------ contraseña
+  // ------------------------------------------------------------ password
 
   describe('forgotPassword', () => {
     it('issues a reset token for an eligible account', async () => {
-      const usuario = aUser();
-      h.prisma.user.findFirst.mockResolvedValue(usuario);
+      const user = aUser();
+      h.prisma.user.findFirst.mockResolvedValue(user);
 
-      await h.service.forgotPassword(usuario.email);
+      await h.service.forgotPassword(user.email);
 
       expect(h.prisma.passwordResetToken.create).toHaveBeenCalled();
       expect(h.mail.sendPasswordReset).toHaveBeenCalledWith(
-        usuario.email,
+        user.email,
         'token-en-claro',
       );
     });
 
-    /** 202 siempre: no se puede distinguir desde fuera. */
+    /** 202 always: it can't be told apart from the outside. */
     it.each([
       ['unknown', null],
       ['unverified', anUnverifiedUser()],
     ])(
       'writes nothing and sends nothing for an address that is %s',
-      async (_caso, usuario) => {
-        h.prisma.user.findFirst.mockResolvedValue(usuario);
+      async (_caso, user) => {
+        h.prisma.user.findFirst.mockResolvedValue(user);
 
         await expect(
           h.service.forgotPassword('quien@ejemplo.test'),
@@ -335,25 +337,21 @@ describe('AuthService', () => {
 
   describe('changePassword', () => {
     it('revokes every family and sends the notification the brief requires', async () => {
-      const usuario = aUser({ passwordHash: await passwords.hash(CLARO) });
-      h.prisma.user.findUnique.mockResolvedValue(usuario);
+      const user = aUser({ passwordHash: await passwords.hash(CLARO) });
+      h.prisma.user.findUnique.mockResolvedValue(user);
 
-      await h.service.changePassword(usuario.id, CLARO, 'la-nueva-y-larga');
+      await h.service.changePassword(user.id, CLARO, 'la-nueva-y-larga');
 
-      expect(h.tokens.revokeAllForUser).toHaveBeenCalledWith(usuario.id);
-      expect(h.mail.sendPasswordChanged).toHaveBeenCalledWith(usuario.email);
+      expect(h.tokens.revokeAllForUser).toHaveBeenCalledWith(user.id);
+      expect(h.mail.sendPasswordChanged).toHaveBeenCalledWith(user.email);
     });
 
     it('returns 401 when the current password does not match', async () => {
-      const usuario = aUser({ passwordHash: await passwords.hash(CLARO) });
-      h.prisma.user.findUnique.mockResolvedValue(usuario);
+      const user = aUser({ passwordHash: await passwords.hash(CLARO) });
+      h.prisma.user.findUnique.mockResolvedValue(user);
 
       await expect(
-        h.service.changePassword(
-          usuario.id,
-          'la-equivocada-larga',
-          'otra-larga',
-        ),
+        h.service.changePassword(user.id, 'la-equivocada-larga', 'otra-larga'),
       ).rejects.toMatchObject({ kind: Problems.unauthorized });
       expect(h.prisma.user.update).not.toHaveBeenCalled();
       expect(h.tokens.revokeAllForUser).not.toHaveBeenCalled();

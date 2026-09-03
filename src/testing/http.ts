@@ -2,9 +2,10 @@ import type { ArgumentsHost, ExecutionContext } from '@nestjs/common';
 import type { AuthenticatedUser } from '../common/decorators/current-user.decorator';
 import type { ProblemBody } from '../common/problem/problem.exception';
 
-// Dobles del lado HTTP: ProblemDetailsFilter y los guards reciben objetos de Express y de Nest que no se pueden construir de verdad en un test unitario.
+// Doubles for the HTTP side: ProblemDetailsFilter and the guards receive
+// Express and Nest objects that can't really be constructed in a unit test.
 
-// Lo que el filtro acabó escribiendo en la respuesta.
+// What the filter ended up writing to the response.
 export interface RecordedResponse {
   status?: number;
   contentType?: string;
@@ -12,16 +13,18 @@ export interface RecordedResponse {
   headers: Record<string, unknown>;
 }
 
-// Respuesta de Express reducida a lo que ProblemDetailsFilter toca: status().type().json() encadenados, más getHeader/setHeader para decidir si ya hay un WWW-Authenticate puesto por el guard.
+// Express response reduced to what ProblemDetailsFilter touches:
+// status().type().json() chained, plus getHeader/setHeader to decide
+// whether a guard already set a WWW-Authenticate.
 export function recordingResponse(): {
   response: unknown;
   recorded: RecordedResponse;
 } {
   const recorded: RecordedResponse = { headers: {} };
 
-  // Se devuelve `response` por su nombre y no `this`: encadenar con `this` en un
-  // objeto literal lo deja tipado como `any` y arrastra el error por toda la
-  // cadena `status().type().json()`.
+  // `response` is returned by name and not as `this`: chaining with `this`
+  // in an object literal leaves it typed as `any` and drags the error
+  // through the whole `status().type().json()` chain.
   const response = {
     getHeader: (name: string) => recorded.headers[name],
     setHeader: (name: string, value: unknown) => {
@@ -63,7 +66,9 @@ export function anArgumentsHost(
   return { host, recorded };
 }
 
-// ExecutionContext para los guards: handler y controller importan porque Reflector.getAllAndOverride lee la metadata de los dos, así que hay que pasar el método y la clase reales que llevan el decorador.
+// ExecutionContext for the guards: handler and controller matter because
+// Reflector.getAllAndOverride reads metadata from both, so the real method
+// and class carrying the decorator have to be passed in.
 export function anExecutionContext(options: {
   user?: AuthenticatedUser;
   handler?: unknown;

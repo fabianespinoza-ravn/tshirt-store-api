@@ -1,6 +1,8 @@
 import { IsEmail, IsString, MinLength } from 'class-validator';
 
-// El mínimo se exige en registro, restablecimiento y cambio, pero no en el inicio de sesión: anunciar ahí la longitud mínima le recortaría gratis el espacio de búsqueda a quien prueba credenciales.
+// The minimum is enforced at sign-up, reset and change, but not at sign-in:
+// announcing the minimum length there would hand anyone testing credentials
+// a free cut to their search space.
 const MIN_PASSWORD = 12;
 
 export class SignUpDto {
@@ -50,7 +52,8 @@ export class ChangePasswordDto {
   newPassword!: string;
 }
 
-// Respuesta de sign-up, idéntica exista o no la cuenta, para que la ruta no sirva para enumerar direcciones.
+// Sign-up response, identical whether or not the account exists, so the
+// route can't be used to enumerate addresses.
 export class VerificationPendingDto {
   email!: string;
   verificationRequired!: boolean;

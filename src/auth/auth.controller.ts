@@ -40,7 +40,7 @@ import {
   VerificationPendingDto,
 } from './dto/auth.dto';
 
-/** El refresh token vive sólo bajo las rutas que lo consumen. */
+/** The refresh token only lives under the routes that consume it. */
 const REFRESH_COOKIE = 'refreshToken';
 const COOKIE_PATH = '/api/v1/auth';
 
@@ -73,7 +73,8 @@ export class AuthController {
   @HttpCode(HttpStatus.CREATED)
   async signUp(@Body() dto: SignUpDto): Promise<VerificationPendingDto> {
     await this.auth.signUp(dto.email, dto.password);
-    // Idéntico exista o no la cuenta: la respuesta no puede distinguirlas.
+    // Identical whether or not the account exists: the response can't tell
+    // the two cases apart.
     return { email: dto.email, verificationRequired: true };
   }
 
@@ -123,15 +124,16 @@ export class AuthController {
     @Req() request: Request,
     @Res({ passthrough: true }) response: Response,
   ): Promise<SessionDto> {
-    // `@Public()` porque no lleva cabecera Authorization, que no es lo mismo que
-    // ser pública: la credencial es la cookie y el servicio la exige.
+    // `@Public()` because it carries no Authorization header, which isn't the
+    // same as being public: the credential is the cookie, and the service
+    // requires it.
     const session = await this.auth.refresh(this.refreshCookie(request));
     return this.respondWithSession(session, response);
   }
 
-  // Un solo requisito con los dos esquemas, no dos requisitos: separados, el
-  // array de seguridad se lee como "bearer O cookie", y aquí la matriz exige
-  // los dos a la vez.
+  // One single requirement with both schemes, not two requirements:
+  // separated, the security array reads as "bearer OR cookie", and here the
+  // matrix requires both at once.
   @ApiSecurity({ bearerAuth: [], cookieAuth: [] })
   @ApiOperation({ summary: 'Revoke the refresh token and clear its cookie' })
   @ApiResponse({ status: 204, description: 'Session ended' })

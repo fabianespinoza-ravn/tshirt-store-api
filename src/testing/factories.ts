@@ -11,7 +11,9 @@ import {
 } from '@prisma/client';
 import { newId } from '../common/ids';
 
-// Constructores de filas válidas para los tests: los valores por defecto respetan los CHECK de la base (`price > 0`, `reserved <= stock`, GUEST nunca verificado), y cada test sólo declara la sobreescritura que le importa.
+// Constructors of valid rows for the tests: the default values respect the
+// database's CHECKs (`price > 0`, `reserved <= stock`, a GUEST is never
+// verified), and each test only declares the override it cares about.
 type Overrides<T> = Partial<T>;
 
 const now = () => new Date('2026-08-28T12:00:00.000Z');
@@ -31,7 +33,7 @@ export function aUser(overrides: Overrides<User> = {}): User {
   };
 }
 
-// Cuenta recién registrada: GUEST, sin verificar y sin credencial en users.
+// Freshly registered account: GUEST, unverified and with no credential in users.
 export const anUnverifiedUser = (overrides: Overrides<User> = {}): User =>
   aUser({
     passwordHash: null,
@@ -97,7 +99,9 @@ export function aSku(productId: string, overrides: Overrides<Sku> = {}): Sku {
   };
 }
 
-// La forma que ProductsService carga con su FULL_INCLUDE, evitando que cada test arme a mano el anidamiento y se equivoque con la envoltura `{ category }` de la tabla puente.
+// The shape ProductsService loads with its FULL_INCLUDE, so no test has to
+// hand-assemble the nesting and get the join table's `{ category }` wrapper
+// wrong.
 export function aFullProduct(
   options: {
     product?: Overrides<Product>;
@@ -125,11 +129,23 @@ export function aFullProduct(
   };
 }
 
-// Fichero subido con la forma que deja FileInterceptor; los valores por defecto pasan las tres validaciones de ImagesService, así que un test que quiera romper una la sobreescribe explícitamente.
+// Real PNG signature (the 8 bytes detectImageType requires) plus padding, so
+// the test file also passes the magic-bytes check and not just the declared
+// `mimetype`.
+const PNG_MAGIC_BYTES = Buffer.from([
+  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+]);
+
+// Uploaded file in the shape FileInterceptor produces; the default values
+// pass all four of ImagesService's validations (size, declared mimetype,
+// real magic bytes), so a test that wants to break one overrides it
+// explicitly.
 export function aMulterFile(
   overrides: Partial<Express.Multer.File> = {},
 ): Express.Multer.File {
-  const buffer = overrides.buffer ?? Buffer.from('imagen-de-prueba');
+  const buffer =
+    overrides.buffer ??
+    Buffer.concat([PNG_MAGIC_BYTES, Buffer.from('imagen-de-prueba')]);
   return {
     fieldname: 'file',
     originalname: 'camiseta.png',
@@ -145,7 +161,9 @@ export function aMulterFile(
   };
 }
 
-// Token vivo salvo que se diga lo contrario: expiresAt usa Date.now() real (no el reloj congelado de las demás columnas) porque el servicio compara la caducidad contra la hora real.
+// A live token unless said otherwise: expiresAt uses the real Date.now()
+// (not the frozen clock of the other columns) because the service compares
+// expiry against the actual time.
 export function aOneTimeToken(
   userId: string,
   overrides: Partial<{
@@ -169,7 +187,7 @@ export function aOneTimeToken(
   };
 }
 
-// Fila de refresh token; revokedAt no nulo es lo que dispara la detección de reuso.
+// A refresh token row; a non-null revokedAt is what triggers reuse detection.
 export function aRefreshToken(
   userId: string,
   overrides: Partial<{

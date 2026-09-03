@@ -1,14 +1,14 @@
-// Los demás specs lo arrastran a través de `@nestjs/testing`. Éste no monta
-// ningún módulo de Nest, y sin los metadatos de diseño class-transformer no
-// puede leer los tipos: `Reflect.getMetadata is not a function`.
+// Every other spec pulls this in through `@nestjs/testing`. This one mounts
+// no Nest module at all, and without the design metadata class-transformer
+// can't read the types: `Reflect.getMetadata is not a function`.
 import 'reflect-metadata';
 
 import { NodeEnv, validateEnv } from './env.validation';
 
 /**
- * El entorno mínimo con el que la aplicación arranca: sólo las variables que
- * no tienen valor por defecto. Cada test parte de aquí y rompe una sola cosa,
- * para que lo que falle sea siempre lo que el test dice que rompe.
+ * The minimal environment the application boots with: only the variables
+ * that have no default value. Every test starts from here and breaks a
+ * single thing, so whatever fails is always what the test says it breaks.
  */
 function anEnv(overrides: Record<string, unknown> = {}) {
   return {
@@ -26,7 +26,7 @@ function anEnv(overrides: Record<string, unknown> = {}) {
   };
 }
 
-/** El mismo entorno al que le faltan las variables que se le nombren. */
+/** The same environment, missing whichever variables are named. */
 function anEnvWithout(...missing: string[]): Record<string, unknown> {
   const env: Record<string, unknown> = anEnv();
   for (const key of missing) delete env[key];
@@ -45,10 +45,11 @@ describe('validateEnv', () => {
   });
 
   /**
-   * El entorno sólo entrega cadenas. La conversión implícita es la que hace
-   * que `@IsInt()` vea un número, y es justo lo que la cabecera del módulo
-   * advierte que se rompe si a una propiedad numérica le falta su anotación
-   * de tipo. Fijarlo aquí es lo que avisa si alguien la quita.
+   * The environment only ever hands over strings. Implicit conversion is
+   * what makes `@IsInt()` see a number, and it's exactly what the module's
+   * header warns breaks if a numeric property is missing its type
+   * annotation. Pinning it here is what raises the alarm if someone removes
+   * it.
    */
   it('converts the numeric variables the environment hands over as strings', () => {
     const env = validateEnv(anEnv({ PORT: '3010', THROTTLE_LIMIT: '25' }));
@@ -58,10 +59,11 @@ describe('validateEnv', () => {
   });
 
   /**
-   * El valor de arrancar validando el entorno está entero en este caso: si el
-   * mensaje no dice cuál falta, el proceso muere igual pero nadie sabe por
-   * qué. Se comprueba que nombra la variable, no el texto completo, que es
-   * detalle de class-validator y no contrato de este módulo.
+   * The whole value of validating the environment at boot lives in this
+   * case: if the message doesn't say which one is missing, the process dies
+   * all the same but nobody knows why. What's checked is that it names the
+   * variable, not the full text, which is class-validator's detail and not
+   * this module's contract.
    */
   it('names the missing variable instead of failing anonymously', () => {
     expect(() => validateEnv(anEnvWithout('DATABASE_URL'))).toThrow(

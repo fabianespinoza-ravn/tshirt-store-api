@@ -7,6 +7,7 @@ import {
   ACCEPTED_IMAGE_TYPES,
   MAX_IMAGE_BYTES,
   StorageService,
+  detectImageType,
 } from '../storage/storage.service';
 import type { ImageView } from './product.mappers';
 import { ProductsService } from './products.service';
@@ -23,8 +24,8 @@ export class ImagesService {
     productId: string,
     file: Express.Multer.File | undefined,
   ): Promise<ImageView> {
-    // El producto se comprueba primero: subir a S3 y luego descubrir que no
-    // existe deja un objeto huérfano que nadie va a borrar.
+    // The product is checked first: uploading to S3 and only then finding
+    // out it doesn't exist leaves an orphaned object nobody will delete.
     await this.products.loadForManager(productId);
 
     if (!file) {
@@ -43,17 +44,40 @@ export class ImagesService {
       );
     }
 
-    const s3Key = this.storage.buildKey(productId, file.originalname);
+    // `file.mimetype` is data the client declares in the multipart request;
+    // Multer never opens the file to check it. We verify the actual bytes
+    // and only proceed if they match what was declared, so we don't store a
+    // file under a label it doesn't deserve.
+    const verifiedType = detectImageType(file.buffer);
+    if (!verifiedType || verifiedType !== file.mimetype) {
+      throw new ProblemException(
+        Problems.unsupportedMediaType,
+        `Accepted types are ${ACCEPTED_IMAGE_TYPES.join(', ')}.`,
+      );
+    }
+
+    const s3Key = this.storage.buildKey(productId, verifiedType);
     await this.storage.put(s3Key, file.buffer, file.mimetype);
 
-    const row = await this.prisma.productImage.create({
-      data: { id: newId(), productId, s3Key },
-    });
+    let row;
+    try {
+      row = await this.prisma.productImage.create({
+        data: { id: newId(), productId, s3Key },
+      });
+    } catch (error) {
+      // If the row fails after uploading the object, the `put` has to be
+      // undone: without this the object stays orphaned in S3 forever,
+      // because this repository has no sweeper that reconciles objects with
+      // no row.
+      await this.storage.remove(s3Key);
+      throw error;
+    }
 
     return { id: row.id, url: await this.storage.urlFor(row.s3Key) };
   }
 
-  // El 409 distingue dos causas porque el remedio difiere: repuntar la variante a otra imagen, o subir un reemplazo antes de borrar.
+  // The 409 distinguishes two causes because the remedy differs: repoint the
+  // variant to another image, or upload a replacement before deleting.
   async remove(productId: string, imageId: string): Promise<void> {
     const product = await this.products.loadForManager(productId);
     const image = product.images.find((i) => i.id === imageId);
@@ -80,9 +104,10 @@ export class ImagesService {
       );
     }
 
-    // La fila primero: si falla el borrado en S3 queda un objeto huérfano, que es
-    // basura barata. Al revés quedaría una fila apuntando a algo que ya no está,
-    // y eso rompe el correo de reposición de F8.
+    // The row first: if the S3 delete fails, an orphaned object is left
+    // behind, which is cheap garbage. The other way around would leave a row
+    // pointing at something that's gone, and that breaks F8's restock
+    // email.
     await this.prisma.productImage.delete({ where: { id: imageId } });
     await this.storage.remove(image.s3Key);
   }

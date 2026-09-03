@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
-import type { Category } from '@prisma/client';
+import { Prisma, type Category } from '@prisma/client';
 import { newId } from '../common/ids';
+import { loadOrThrow } from '../common/load-or-throw';
 import {
   paginate,
   type Paginated,
@@ -21,7 +22,9 @@ const view = (c: Category): CategoryView => ({ id: c.id, name: c.name });
 export class CategoriesService {
   constructor(private readonly prisma: PrismaService) {}
 
-  // El nombre es único en categories, así que el orden es total y paginar no repite ni salta filas (en products no lo es, por eso allí hace falta desempatar con el id).
+  // The name is unique in categories, so the order is total and paginating
+  // doesn't repeat or skip rows (in products it isn't, which is why there
+  // the id has to break the tie).
   async list(query: PaginationQueryDto): Promise<Paginated<CategoryView>> {
     const [rows, total] = await this.prisma.$transaction([
       this.prisma.category.findMany({
@@ -35,27 +38,36 @@ export class CategoriesService {
     return paginate(rows.map(view), total, query);
   }
 
+  // The name is checked by writing and catching the unique index (P2002), not
+  // by probing with findUnique first: a probe-then-write leaves a window where
+  // two concurrent creates for the same name both pass the check and only one
+  // survives the actual insert, unreported.
   async create(name: string): Promise<CategoryView> {
-    if (await this.prisma.category.findUnique({ where: { name } })) {
+    try {
+      return view(
+        await this.prisma.category.create({ data: { id: newId(), name } }),
+      );
+    } catch (error) {
+      if (!isUniqueViolation(error)) throw error;
       throw this.nameTaken();
     }
-    return view(
-      await this.prisma.category.create({ data: { id: newId(), name } }),
-    );
   }
 
   async rename(id: string, name: string): Promise<CategoryView> {
     await this.mustExist(id);
 
-    const other = await this.prisma.category.findUnique({ where: { name } });
-    if (other && other.id !== id) throw this.nameTaken();
-
-    return view(
-      await this.prisma.category.update({ where: { id }, data: { name } }),
-    );
+    try {
+      return view(
+        await this.prisma.category.update({ where: { id }, data: { name } }),
+      );
+    } catch (error) {
+      if (!isUniqueViolation(error)) throw error;
+      throw this.nameTaken();
+    }
   }
 
-  // Borrado físico, no lógico: una categoría no aparece en ningún registro histórico (a diferencia de un producto), así que borrarla es seguro.
+  // Hard delete, not soft: a category doesn't appear in any historical
+  // record (unlike a product), so deleting it is safe.
   async remove(id: string): Promise<void> {
     await this.mustExist(id);
 
@@ -73,11 +85,11 @@ export class CategoriesService {
     await this.prisma.category.delete({ where: { id } });
   }
 
-  private async mustExist(id: string): Promise<void> {
-    const found = await this.prisma.category.findUnique({ where: { id } });
-    if (!found) {
-      throw new ProblemException(Problems.notFound, 'Category does not exist.');
-    }
+  private async mustExist(id: string): Promise<Category> {
+    return loadOrThrow(
+      () => this.prisma.category.findUnique({ where: { id } }),
+      'Category does not exist.',
+    );
   }
 
   private nameTaken(): ProblemException {
@@ -86,4 +98,13 @@ export class CategoriesService {
       'Another category already uses that name.',
     );
   }
+}
+
+function isUniqueViolation(
+  error: unknown,
+): error is Prisma.PrismaClientKnownRequestError {
+  return (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    error.code === 'P2002'
+  );
 }

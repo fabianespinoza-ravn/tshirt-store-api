@@ -6,14 +6,14 @@ import { resetPrismaMock } from '../testing/prisma.mock';
 import { ProductsService } from './products.service';
 
 /**
- * Formas exactas del contrato, `W2-API/openapi.yaml`. Se afirma el **conjunto
- * completo** de claves y no sólo la ausencia de las que uno recuerda: así una
- * fuga futura, un campo añadido sin querer a la proyección pública, también
- * rompe el test.
+ * Exact shapes from the contract, `W2-API/openapi.yaml`. What's asserted is
+ * the **complete set** of keys, not just the absence of the ones one happens
+ * to remember: that way a future leak, a field added to the public
+ * projection by accident, also breaks the test.
  */
-// `image` es opcional en PublicSku y ManagerSku, así que hay dos formas legales.
-// Los fixtures de abajo enlazan la imagen a la variante a propósito: es el caso
-// rico, y es donde una fuga tendría dónde esconderse.
+// `image` is optional on PublicSku and ManagerSku, so there are two legal
+// shapes. The fixtures below deliberately link the image to the variant:
+// it's the rich case, and it's where a leak would have somewhere to hide.
 const PUBLIC_SKU_KEYS = [
   'available',
   'color',
@@ -94,8 +94,8 @@ describe('ProductsService projections', () => {
     const detail = result as unknown as Record<string, unknown>;
     const sku = (detail.skus as Record<string, unknown>[])[0];
 
-    // El conjunto exacto cubre lo que `not.toHaveProperty` no puede: un campo
-    // nuevo filtrado a la proyección pública también rompe aquí.
+    // The exact set covers what `not.toHaveProperty` can't: a new field
+    // leaked into the public projection also breaks here.
     expect(keysOf(detail)).toEqual(PRODUCT_DETAIL_KEYS);
     expect(keysOf(sku)).toEqual(PUBLIC_SKU_KEYS);
     expect(sku.available).toBeNull();
@@ -117,10 +117,10 @@ describe('ProductsService projections', () => {
   });
 
   /**
-   * Lo que decide que un producto inactivo sea 404 para el público **es el
-   * `where`**, no lo que devuelva la consulta. Afirmar sólo sobre el resultado
-   * simulado dejaría pasar que alguien borrase el filtro de publicación: el test
-   * seguiría verde porque el mock devuelve lo que se le dijo.
+   * What decides that an inactive product is a 404 to the public **is the
+   * `where`**, not whatever the query returns. Asserting only on the mocked
+   * result would let someone delete the publication filter slip through: the
+   * test would stay green because the mock returns whatever it's told to.
    */
   it('scopes the query by visibility instead of by the caller', async () => {
     const product = aFullProduct();
@@ -142,8 +142,8 @@ describe('ProductsService projections', () => {
       images: { some: {} },
     });
 
-    // El manager ve estados que el catálogo nunca expone, así que su consulta
-    // sólo excluye lo borrado.
+    // A manager sees states the catalog never exposes, so their query only
+    // excludes what's deleted.
     expect(manager.where).toEqual({ id: product.id, deletedAt: null });
     expect(manager.where).not.toHaveProperty('isActive');
   });
@@ -179,11 +179,12 @@ describe('ProductsService list', () => {
     const row = page.data[0] as unknown as Record<string, unknown>;
 
     expect(keysOf(row)).toEqual(PRODUCT_SUMMARY_KEYS);
-    // priceFrom es el mínimo de las variantes, no el de la primera.
+    // priceFrom is the minimum across the variants, not the first one's.
     expect(row.priceFrom).toBe(2599);
-    // inStock basta con que UNA variante tenga disponible, aunque otra esté a cero.
+    // inStock only needs ONE variant to have availability, even if another
+    // one is at zero.
     expect(row.inStock).toBe(true);
-    // La portada es la primera imagen por orden de id.
+    // The cover is the first image by id order.
     expect((row.image as { id: string }).id).toBe(product.images[0].id);
     expect(page.meta).toEqual({ limit: 20, offset: 0, total: 1 });
   });
@@ -201,9 +202,9 @@ describe('ProductsService list', () => {
   });
 
   /**
-   * `products.name` NO es único en el modelo, así que ordenar sólo por nombre
-   * deja el orden indefinido entre homónimos y paginar puede repetir o saltarse
-   * una fila. El desempate por id es la corrección del hallazgo 25.
+   * `products.name` is NOT unique in the model, so ordering by name alone
+   * leaves the order undefined between homonyms, and paginating can repeat
+   * or skip a row. Breaking the tie with id is finding 25's fix.
    */
   it('breaks the name ordering tie with the id', async () => {
     h.prisma.product.findMany.mockResolvedValue([]);
@@ -269,10 +270,10 @@ describe('ProductsService writes', () => {
 });
 
 /**
- * Las escrituras. Lo que se afirma sale del contrato: `CreateProductRequest`
- * exige al menos un `categoryId`, el 404 de `POST /products` significa que
- * alguno no existe, y `DELETE /products/{id}` declara que el 409 es que una
- * variante todavía retiene unidades de pedidos pendientes.
+ * The writes. What's asserted comes from the contract: `CreateProductRequest`
+ * requires at least one `categoryId`, `POST /products`'s 404 means one of
+ * them doesn't exist, and `DELETE /products/{id}` declares that the 409
+ * means a variant still holds units from pending orders.
  */
 describe('ProductsService writes', () => {
   let h: ServiceHarness<ProductsService>;
@@ -302,8 +303,9 @@ describe('ProductsService writes', () => {
   });
 
   /**
-   * El chequeo es por conteo: si alguno de los ids no existe, el total no
-   * coincide y nada se escribe. Comprobarlo uno a uno costaría N consultas.
+   * The check works by count: if any of the ids doesn't exist, the total
+   * doesn't match and nothing gets written. Checking one by one would cost
+   * N queries.
    */
   it('returns 404 and writes nothing when a category does not exist', async () => {
     h.prisma.category.count.mockResolvedValue(1);
@@ -320,8 +322,9 @@ describe('ProductsService writes', () => {
   });
 
   /**
-   * Omitir un campo significa "no lo toques" y no "ponlo a null". Sin esta
-   * distinción, un PATCH que sólo cambia el nombre borraría la descripción.
+   * Omitting a field means "don't touch it", not "set it to null". Without
+   * this distinction, a PATCH that only changes the name would wipe out the
+   * description.
    */
   it('only writes the fields the request actually carries', async () => {
     const product = aFullProduct();
@@ -364,8 +367,8 @@ describe('ProductsService writes', () => {
   });
 
   /**
-   * El borrado es lógico y terminal: la fila sobrevive porque el historial de
-   * pedidos la referencia a través del SKU, y no hay ruta de restauración.
+   * The delete is soft and terminal: the row survives because order history
+   * references it through the SKU, and there's no restore path.
    */
   it('soft deletes and deactivates in one write', async () => {
     const product = aFullProduct({ skus: [{ stock: 5, reserved: 0 }] });

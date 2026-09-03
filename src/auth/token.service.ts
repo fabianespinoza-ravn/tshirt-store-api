@@ -31,7 +31,11 @@ export class TokenService {
     private readonly config: ConfigService,
   ) {}
 
-  // Los tokens opacos se hashean con SHA-256 y no con argon2 porque token_hash es UNIQUE y hay que buscar por él: argon2 lleva sal y el mismo token daría un hash distinto cada vez; al ser el token aleatorio de 256 bits, no hay diccionario que atacar y un hash rápido basta.
+  // Opaque tokens are hashed with SHA-256 and not argon2 because token_hash
+  // is UNIQUE and has to be looked up by it: argon2 is salted, so the same
+  // token would give a different hash every time; since the token is a
+  // random 256 bits, there's no dictionary to attack and a fast hash is
+  // enough.
   private digest(token: string): string {
     return createHash('sha256').update(token).digest('hex');
   }
@@ -57,7 +61,7 @@ export class TokenService {
     return parseDuration(this.config.get<string>('JWT_REFRESH_TTL', '7d'));
   }
 
-  // Abre una familia nueva de refresh tokens; es lo que invoca el inicio de sesión.
+  // Opens a new family of refresh tokens; this is what sign-in invokes.
   async startFamily(userId: string): Promise<IssuedRefreshToken> {
     return this.appendToFamily(userId, newId());
   }
@@ -82,7 +86,10 @@ export class TokenService {
     return { token, expiresAt };
   }
 
-  // La fila revocada se conserva porque es lo que permite detectar un reuso: si alguien presenta un token ya rotado no se puede saber cuál de las dos partes es la legítima, así que se revoca la familia entera y ambas deben autenticarse de nuevo.
+  // The revoked row is kept because it's what makes detecting reuse
+  // possible: if someone presents a token that was already rotated, there's
+  // no way to know which of the two parties is the legitimate one, so the
+  // whole family is revoked and both have to authenticate again.
   async rotate(token: string): Promise<RefreshOutcome> {
     const row = await this.prisma.refreshToken.findUnique({
       where: { tokenHash: this.digest(token) },
@@ -93,7 +100,7 @@ export class TokenService {
 
     if (row.revokedAt) {
       this.logger.warn(
-        `Reuso de refresh token detectado; se revoca la familia ${row.familyId}`,
+        `Refresh token reuse detected; revoking family ${row.familyId}`,
       );
       await this.revokeFamily(row.familyId);
       return { ok: false, reason: 'reused' };
@@ -125,7 +132,7 @@ export class TokenService {
     return { ok: true, user: row.user, refresh };
   }
 
-  // Revoca la familia del token dado; es lo que ejecuta el cierre de sesión.
+  // Revokes the family of the given token; this is what sign-out runs.
   async revokeFamilyOf(token: string): Promise<void> {
     const row = await this.prisma.refreshToken.findUnique({
       where: { tokenHash: this.digest(token) },
@@ -142,7 +149,8 @@ export class TokenService {
     });
   }
 
-  // Revoca todas las familias del usuario; lo usan el restablecimiento y el cambio de contraseña para invalidar sesiones abiertas antes del cambio.
+  // Revokes every family of the user; used by password reset and password
+  // change to invalidate sessions opened before the change.
   async revokeAllForUser(userId: string): Promise<void> {
     await this.prisma.refreshToken.updateMany({
       where: { userId, revokedAt: null },

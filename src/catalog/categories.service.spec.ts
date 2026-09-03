@@ -1,9 +1,15 @@
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { Problems } from '../common/problem/problem.catalog';
 import { buildService, type ServiceHarness } from '../testing/build-service';
 import { aCategory } from '../testing/factories';
 import { resetPrismaMock } from '../testing/prisma.mock';
 import { CategoriesService } from './categories.service';
+
+const uniqueViolation = () =>
+  new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+    code: 'P2002',
+    clientVersion: '6.19.3',
+  });
 
 describe('CategoriesService', () => {
   let h: ServiceHarness<CategoriesService>;
@@ -13,37 +19,35 @@ describe('CategoriesService', () => {
     resetPrismaMock(h.prisma);
   });
 
-  // Sin al menos un camino feliz por método, un fallo que hiciera lanzar SIEMPRE
-  // pasaría todos los tests de error.
+  // Without at least one happy path per method, a bug that made it throw
+  // ALWAYS would pass every error test.
 
   it('creates a category and returns only the contract fields', async () => {
     const created = aCategory({ name: 'Tees' });
-    h.prisma.category.findUnique.mockResolvedValue(null);
     h.prisma.category.create.mockResolvedValue(created);
 
     const result = await h.service.create('Tees');
 
-    // La proyección no arrastra createdAt ni updatedAt: `Category` en el
-    // contrato son exactamente id y name.
+    // The projection doesn't carry createdAt or updatedAt: `Category` in the
+    // contract is exactly id and name.
     expect(Object.keys(result).sort()).toEqual(['id', 'name']);
     expect(result).toEqual({ id: created.id, name: 'Tees' });
   });
 
+  // The unique index, not a findUnique probe, is what decides this: a P2002
+  // from the write is what "the name is taken" looks like now.
   it('rejects creating a category whose name is already used', async () => {
-    h.prisma.category.findUnique.mockResolvedValue(aCategory({ name: 'Tees' }));
+    h.prisma.category.create.mockRejectedValue(uniqueViolation());
 
     await expect(h.service.create('Tees')).rejects.toMatchObject({
       kind: Problems.conflict,
     });
-    expect(h.prisma.category.create).not.toHaveBeenCalled();
   });
 
   it('renames a category when the new name is free', async () => {
     const category = aCategory({ name: 'Tees' });
     const renamed = { ...category, name: 'Camisetas' };
-    h.prisma.category.findUnique
-      .mockResolvedValueOnce(category)
-      .mockResolvedValueOnce(null);
+    h.prisma.category.findUnique.mockResolvedValue(category);
     h.prisma.category.update.mockResolvedValue(renamed);
 
     const result = await h.service.rename(category.id, 'Camisetas');
@@ -52,16 +56,13 @@ describe('CategoriesService', () => {
   });
 
   /**
-   * Renombrar a su propio nombre no es un conflicto: el 409 significa que el
-   * nombre pertenece a OTRA categoría. Sin este caso, una comprobación escrita
-   * como "existe alguna con ese nombre" pasaría los demás tests y rompería el
-   * cambio idempotente.
+   * Renaming to its own name isn't a conflict: the database never fires the
+   * unique violation because the row already had that name. Without this
+   * case, the P2002 catch could be mistaken for an idempotent change.
    */
   it('lets a category keep its own name', async () => {
     const category = aCategory({ name: 'Tees' });
-    h.prisma.category.findUnique
-      .mockResolvedValueOnce(category)
-      .mockResolvedValueOnce(category);
+    h.prisma.category.findUnique.mockResolvedValue(category);
     h.prisma.category.update.mockResolvedValue(category);
 
     await expect(h.service.rename(category.id, 'Tees')).resolves.toEqual({
@@ -72,15 +73,12 @@ describe('CategoriesService', () => {
 
   it('rejects renaming a category to another category name', async () => {
     const category = aCategory({ name: 'Tees' });
-    const other = aCategory({ name: 'Hoodies' });
-    h.prisma.category.findUnique
-      .mockResolvedValueOnce(category)
-      .mockResolvedValueOnce(other);
+    h.prisma.category.findUnique.mockResolvedValue(category);
+    h.prisma.category.update.mockRejectedValue(uniqueViolation());
 
     await expect(
-      h.service.rename(category.id, other.name),
+      h.service.rename(category.id, 'Hoodies'),
     ).rejects.toMatchObject({ kind: Problems.conflict });
-    expect(h.prisma.category.update).not.toHaveBeenCalled();
   });
 
   it('returns 404 when renaming a category that does not exist', async () => {
@@ -91,8 +89,8 @@ describe('CategoriesService', () => {
     ).rejects.toMatchObject({ kind: Problems.notFound });
   });
 
-  // El borrado es físico, no lógico: una categoría no aparece en ningún registro
-  // histórico y un producto sí.
+  // The delete is hard, not soft: a category doesn't appear in any
+  // historical record, and a product does.
   it('deletes a category that no product uses', async () => {
     const category = aCategory();
     h.prisma.category.findUnique.mockResolvedValue(category);
@@ -125,9 +123,9 @@ describe('CategoriesService', () => {
   });
 
   /**
-   * `categories.name` sí es único en el modelo, así que ordenar por nombre da un
-   * orden total y paginar no repite ni salta filas. Es lo contrario que
-   * `products`, que necesita desempatar con el id.
+   * `categories.name` is indeed unique in the model, so ordering by name
+   * gives a total order and pagination doesn't repeat or skip rows. That's
+   * the opposite of `products`, which needs the id to break ties.
    */
   it('pages categories by name and returns the shared envelope', async () => {
     const rows = [aCategory({ name: 'Hoodies' }), aCategory({ name: 'Tees' })];

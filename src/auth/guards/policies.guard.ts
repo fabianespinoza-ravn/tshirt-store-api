@@ -9,7 +9,8 @@ import {
   type PolicyRequirement,
 } from '../casl/check-policies.decorator';
 
-// Una ruta protegida sin metadata @CheckPolicies se deniega por defecto, para que olvidarla no abra una operación.
+// A protected route with no @CheckPolicies metadata is denied by default, so
+// forgetting it doesn't leave an operation wide open.
 @Injectable()
 export class PoliciesGuard implements CanActivate {
   constructor(
@@ -41,7 +42,10 @@ export class PoliciesGuard implements CanActivate {
     return true;
   }
 
-  // Autoriza solo por rol: una regla CASL con condiciones necesita la fila real, aplicada en los servicios con accessibleBy(...).ofType(...); ability.can(...) no es redundante porque es lo único que atrapa un cannot sin condiciones que rulesFor por sí solo no reflejaría.
+  // Authorizes by role only: a CASL rule with conditions needs the actual
+  // row, applied in the services with accessibleBy(...).ofType(...);
+  // ability.can(...) isn't redundant because it's the only thing that
+  // catches an unconditional cannot that rulesFor alone wouldn't reflect.
   private hasRoleOnlyPermission(
     ability: ReturnType<AppAbilityFactory['createForUser']>,
     action: PolicyRequirement['action'],

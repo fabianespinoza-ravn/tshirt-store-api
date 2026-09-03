@@ -14,7 +14,10 @@ import {
 
 const PROBLEM_JSON = 'application/problem+json';
 
-// Traduce cualquier excepción al documento RFC 9457 que declara el contrato: Nest sirve {message, error, statusCode} como application/json, y el contrato exige {type, title, status, detail, instance} como application/problem+json.
+// Translates any exception into the RFC 9457 document the contract declares:
+// Nest serves {message, error, statusCode} as application/json, and the
+// contract requires {type, title, status, detail, instance} as
+// application/problem+json.
 @Catch()
 export class ProblemDetailsFilter implements ExceptionFilter {
   private readonly logger = new Logger(ProblemDetailsFilter.name);
@@ -28,8 +31,9 @@ export class ProblemDetailsFilter implements ExceptionFilter {
     const body = this.toProblem(exception, instance);
 
     if (body.status >= 500) {
-      // El detalle que se envía es genérico; el que sirve para depurar se queda
-      // aquí. Un stack trace en la respuesta es una filtración, no una ayuda.
+      // The detail sent to the client is generic; the one useful for
+      // debugging stays here. A stack trace in the response is a leak, not
+      // a courtesy.
       this.logger.error(
         `${request.method} ${instance} -> ${body.status}`,
         exception instanceof Error ? exception.stack : String(exception),
@@ -37,9 +41,10 @@ export class ProblemDetailsFilter implements ExceptionFilter {
     }
 
     if (body.status === 401 && !response.getHeader('WWW-Authenticate')) {
-      // RFC 9110 15.5.2 obliga a que un 401 lleve esta cabecera, y el contrato
-      // la declara con el valor de RFC 6750. Un guard que no la ponga la recibe
-      // aquí, sin `error=` porque a esta altura no se sabe si llegó un token.
+      // RFC 9110 15.5.2 requires a 401 to carry this header, and the contract
+      // declares it with the RFC 6750 value. A guard that didn't set it gets
+      // it here, without `error=` because at this point it isn't known
+      // whether a token even arrived.
       response.setHeader('WWW-Authenticate', 'Bearer');
     }
 
@@ -80,7 +85,9 @@ export class ProblemDetailsFilter implements ExceptionFilter {
     };
   }
 
-  // message llega como array (ValidationPipe) o como cadena (el resto de excepciones); tratar sólo una de las dos formas deja al 400 incumpliendo su propio esquema.
+  // message arrives as an array (ValidationPipe) or as a string (every other
+  // exception); handling only one of the two shapes leaves the 400 violating
+  // its own schema.
   private detailFrom(exception: HttpException): string {
     const payload = exception.getResponse();
 

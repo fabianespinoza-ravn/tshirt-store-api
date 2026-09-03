@@ -1,4 +1,6 @@
-// Catálogo de problemas RFC 9457: cada type y cada title debe coincidir con openapi.yaml, y cambiar uno rompe el contrato aunque el código siga compilando.
+// RFC 9457 problem catalog: every type and every title must match
+// openapi.yaml, and changing one breaks the contract even if the code still
+// compiles.
 export const PROBLEM_BASE = 'https://api.tshirt-store.example/problems';
 
 export interface ProblemKind {
@@ -12,7 +14,7 @@ function kind(slug: string, title: string, status: number): ProblemKind {
 }
 
 export const Problems = {
-  // Compartidos, declarados en components/responses
+  // Shared, declared in components/responses
   validation: kind('validation', 'Validation failed', 400),
   unauthorized: kind('unauthorized', 'Authentication required', 401),
   forbidden: kind('forbidden', 'Operation forbidden', 403),
@@ -33,9 +35,9 @@ export const Problems = {
   rateLimited: kind('rate-limited', 'Too many requests', 429),
   internalError: kind('internal-error', 'Internal server error', 500),
 
-  // Los siete del CheckoutConflict, agrupados por el remedio del cliente y no
-  // por la condición que los produjo. Sólo `orderAlreadyPending` lleva la
-  // extensión `expiresAt`.
+  // The seven of CheckoutConflict, grouped by the client's remedy and not by
+  // the condition that produced them. Only `orderAlreadyPending` carries the
+  // `expiresAt` extension.
   cartNotCheckoutable: kind(
     'cart-not-checkoutable',
     'Cart cannot be checked out',
@@ -73,7 +75,9 @@ export const Problems = {
   ),
 } as const;
 
-// Problema por defecto para un HttpException que nadie clasificó: un status sin entrada aquí sale como error interno en vez de como un documento a medio construir.
+// Default problem for an HttpException nobody classified: a status with no
+// entry here comes out as an internal error instead of as a half-built
+// document.
 const BY_STATUS = new Map<number, ProblemKind>(
   [
     Problems.validation,

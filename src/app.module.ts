@@ -14,9 +14,9 @@ import { validateEnv } from './config/env.validation';
       isGlobal: true,
       validate: validateEnv,
     }),
-    // Se registra el módulo pero NO su guard global: el límite se aplica por
-    // operación con @RateLimited(), porque el contrato declara 429 sólo donde
-    // lo declara. Ver common/decorators/rate-limited.decorator.ts.
+    // The module is registered but NOT its global guard: the limit is applied
+    // per operation with @RateLimited(), because the contract only declares
+    // 429 where it declares it. See common/decorators/rate-limited.decorator.ts.
     ThrottlerModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({

@@ -72,15 +72,15 @@ describe('ImagesService errors', () => {
 
     await expect(h.service.upload(product.id, file)).resolves.toEqual({
       id: 'image-2',
-      url: 'https://s3.test/products/key.png?firmada',
+      url: 'https://s3.test/products/key.png?signed',
     });
   });
 });
 
 /**
- * Las tres validaciones de subida y la garantía de orden. Cada expectativa sale
- * del contrato, `POST /products/{productId}/images`, que declara 400, 413 y 415
- * y los tipos aceptados.
+ * The three upload validations and the ordering guarantee. Every expectation
+ * comes from the contract, `POST /products/{productId}/images`, which
+ * declares 400, 413 and 415 and the accepted types.
  */
 describe('ImagesService upload validation', () => {
   let h: ServiceHarness<ImagesService>;
@@ -136,9 +136,73 @@ describe('ImagesService upload validation', () => {
   });
 
   /**
-   * El producto se valida ANTES de subir. Sin esta prueba, mover la validación
-   * después del `put` deja objetos huérfanos en S3 que nadie va a borrar, y
-   * ningún test lo nota.
+   * `file.mimetype` is declared by the client in the multipart request, and
+   * Multer never opens the file to check it. Without this byte-level
+   * verification, any file labelled `image/png` gets uploaded and stored as
+   * is.
+   */
+  it('returns 415 when the declared mimetype does not match the real bytes', async () => {
+    const file = aMulterFile({
+      mimetype: 'image/png',
+      buffer: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"></svg>'),
+    });
+
+    await expect(h.service.upload('product-1', file)).rejects.toMatchObject({
+      kind: Problems.unsupportedMediaType,
+    });
+    expect(h.storage.put).not.toHaveBeenCalled();
+    expect(h.prisma.productImage.create).not.toHaveBeenCalled();
+  });
+
+  /**
+   * `file.originalname` goes through no validation at all: without this, an
+   * `originalname: 'x.svg'` with a real `mimetype: image/png` would end up
+   * stored with a `.svg` extension in S3.
+   */
+  it('derives the S3 key from the verified type, not from originalname', async () => {
+    const file = aMulterFile({
+      originalname: 'x.svg',
+      mimetype: 'image/png',
+    });
+    h.storage.buildKey.mockReturnValue('products/key.png');
+    h.prisma.productImage.create.mockResolvedValue({
+      id: 'image-3',
+      productId: 'product-1',
+      s3Key: 'products/key.png',
+      createdAt: new Date(),
+    });
+
+    await h.service.upload('product-1', file);
+
+    expect(h.storage.buildKey).toHaveBeenCalledWith('product-1', 'image/png');
+  });
+
+  /**
+   * If the row fails after the `put`, the object stays orphaned in S3
+   * forever: this repository has no sweeper that reconciles objects with no
+   * row. The compensation has to delete what was just uploaded and let the
+   * original error keep propagating.
+   */
+  it('deletes the just-uploaded S3 object when the database create fails', async () => {
+    const file = aMulterFile();
+    h.storage.buildKey.mockReturnValue('products/huerfano.png');
+    const dbError = new Error('conexión perdida');
+    h.prisma.productImage.create.mockRejectedValue(dbError);
+
+    await expect(h.service.upload('product-1', file)).rejects.toBe(dbError);
+
+    expect(h.storage.put).toHaveBeenCalledWith(
+      'products/huerfano.png',
+      file.buffer,
+      file.mimetype,
+    );
+    expect(h.storage.remove).toHaveBeenCalledWith('products/huerfano.png');
+  });
+
+  /**
+   * The product is validated BEFORE uploading. Without this test, moving
+   * the validation after the `put` leaves objects orphaned in S3 that
+   * nobody will delete, and no test notices.
    */
   it('does not touch S3 when the product does not exist', async () => {
     products.loadForManager.mockRejectedValue(
@@ -153,9 +217,10 @@ describe('ImagesService upload validation', () => {
   });
 
   /**
-   * En el borrado el orden es el contrario y también importa: la fila cae antes
-   * que el objeto. Al revés quedaría una fila apuntando a algo que ya no está, y
-   * eso rompe el correo de F8, que adjunta la imagen.
+   * On delete the order is reversed, and it matters just as much: the row
+   * goes before the object. The other way around would leave a row pointing
+   * at something that's gone, and that breaks F8's email, which attaches
+   * the image.
    */
   it('deletes the row before the S3 object', async () => {
     const product = aFullProduct();
