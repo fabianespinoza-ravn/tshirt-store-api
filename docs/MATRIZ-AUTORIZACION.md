@@ -41,7 +41,7 @@ The 403 on `signIn` is not about role: it's `EmailNotVerified`. Don't lump it in
 | `updateCategory` | `PATCH /categories/{categoryId}` | MANAGER | 200 400 401 403 404 409 500 |
 | `deleteCategory` | `DELETE /categories/{categoryId}` | MANAGER | 204 401 403 404 409 500 |
 | `listProducts` | `GET /products` | public | 200 400 500 |
-| `getProduct` | `GET /products/{productId}` | **anonymous or authenticated** | 200 401 404 500 |
+| `getProduct` | `GET /products/{productId}` | **anonymous or authenticated** | 200 401\* 404 500 |
 | `createProduct` | `POST /products` | MANAGER | 201 400 401 403 404 500 |
 | `updateProduct` | `PATCH /products/{productId}` | MANAGER | 200 400 401 403 404 500 |
 | `deleteProduct` | `DELETE /products/{productId}` | MANAGER | 204 401 403 404 409 500 |
@@ -50,6 +50,11 @@ The 403 on `signIn` is not about role: it's `EmailNotVerified`. Don't lump it in
 | `createSku` | `POST /products/{productId}/skus` | MANAGER | 201 400 401 403 404 409 500 |
 | `updateSku` | `PATCH /skus/{skuId}` | MANAGER | 200 400 401 403 404 409 500 |
 | `setProductLike` | `PUT /products/{productId}/like` | **CLIENT** | 200 400 401 403 404 500 |
+
+\* Declared in the contract but unreachable here: `getProduct` is `@Public()`, and
+`JwtAuthGuard` only tries to attach a token when one is presented on a public route
+(`src/auth/guards/jwt-auth.guard.ts:31-34`) — an invalid or expired token is silently
+ignored instead of rejected, so this operation never actually returns 401.
 
 ## Cart
 

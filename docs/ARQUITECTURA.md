@@ -15,7 +15,7 @@ flowchart TB
     LB["Load balancer<br/>TLS termination · health checks"]
     API["API · stateless, scales on latency<br/>auth · catalog · cart<br/>orders · payments · promos"]
     AP(["Prisma pool<br/>per process, no shared pooler"])
-    RD[("Redis · BullMQ<br/>jobs · retries · rate limits")]
+    RD[("Redis · BullMQ<br/>jobs · retries · rate limits (pending)")]
     WK["Worker · scales on queue depth<br/>settlement · refunds<br/>expiry sweep · mail"]
     WP(["Prisma pool<br/>per process, no shared pooler"])
     PG[("PostgreSQL · single primary<br/>orders · stock · webhook events")]
@@ -103,9 +103,12 @@ a legitimate design. Switching to it needs two things to be true: the team is
 willing to build and operate the outbox poller and its own retry and backoff by
 hand — what BullMQ gives for free today — and nothing else in the system still
 wants a job runtime once that happens. Neither holds yet, so BullMQ stays. Redis
-earns its place twice: the rate-limit counters live there as well, because an
-in-process limiter multiplies its own limit by the number of API instances behind
-the load balancer.
+is meant to earn its place twice — the rate-limit counters should live there too,
+because an in-process limiter multiplies its own limit by the number of API
+instances behind the load balancer — but that part is **pending**: `ThrottlerModule`
+is registered without a `storage` option (`src/app.module.ts:20-31`), so today the
+counters live in each process's memory and do exactly the multiplying this design
+means to avoid.
 
 The API verifies the webhook signature, records the event and acknowledges it;
 the worker is what moves the order afterwards, so an order can still read
