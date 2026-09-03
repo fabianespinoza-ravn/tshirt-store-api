@@ -47,7 +47,7 @@ sequence diagrams for every flow live in [`docs/flows/`](docs/flows/).
 | Catalog | Categories, products, SKUs and images, with S3-backed storage |
 | Cart, orders, payments | Designed in the contract, not yet implemented |
 
-Unit tests cover the services: **11 suites, 115 tests**.
+Unit tests: **16 suites, 130 tests**, plus five `it.todo` stubs for `resendEmailVerification` whose assertions are still pending.
 
 ## Requirements
 
@@ -60,7 +60,7 @@ Unit tests cover the services: **11 suites, 115 tests**.
 npm install
 cp .env.example .env          # fill in the values
 docker compose up -d          # PostgreSQL, Redis, MinIO
-npm run prisma:push
+npm run prisma:sync           # db push, then the backfill (a no-op on a fresh database)
 npm run start:dev
 ```
 
@@ -79,14 +79,18 @@ npx jest --coverage           # with coverage
 
 ```
 src/
-  auth/       authentication, CASL abilities and guards
-  catalog/    categories, products, SKUs and images
-  common/     problem-details errors, pagination, decorators
-  config/     environment validation at bootstrap
-  mail/       outbound mail
-  prisma/     database access
-  storage/    S3-compatible object storage
-  testing/    unit-test harness and factories
-prisma/       schema, migrations and raw SQL notes
-docs/         architecture write-up and flow diagrams
+  auth/         authentication, CASL abilities and guards
+  catalog/      query fragments and response views shared by the four catalog modules
+  categories/   categories
+  common/       problem-details errors, pagination, decorators
+  config/       environment validation at bootstrap
+  images/       product images
+  mail/         outbound mail
+  prisma/       database access
+  products/     products
+  skus/         SKUs
+  storage/      S3-compatible object storage
+  testing/      unit-test harness and factories
+prisma/         schema and the one-time live-column backfill
+docs/           architecture write-up and flow diagrams
 ```

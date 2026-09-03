@@ -822,8 +822,9 @@ endpoint — that's where `$queryRaw` with `DISTINCT ON` stops being premature.
 
 ## 31. The model's guarantees only exist if the migration is hand-written
 
-**What fails.** This is already documented in `prisma/RAW-SQL.md`, and it's worth restating here
-because it's a **silent** failure mode: six partial unique constraints, one partial sweep index, and
+**What fails.** This was documented in `prisma/RAW-SQL.md` — since removed along with the
+migration history; the header of `prisma/schema.prisma` now tracks what is still pending — and it's
+worth restating here because it's a **silent** failure mode: six partial unique constraints, one partial sweep index, and
 the CHECKs on eight tables — none of which Prisma knows how to declare. Without the hand-written
 migration, the schema compiles and the model loses its guarantees without a single error.
 
