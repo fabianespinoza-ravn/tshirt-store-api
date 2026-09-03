@@ -29,5 +29,9 @@ codebase; see `docs/ARQUITECTURA.md` for the production architecture and
 - `src/common/filters/problem-details.filter.ts` is the only place an error
   response is shaped; no other code formats one.
 - Run `/preflight` before considering a change done.
-- The user's global `pre-commit` hook should run `npm run precommit --if-present`
-  from the repository root.
+- `core.hooksPath` points outside the repo, at `~/.claude/git-hooks`: its
+  `pre-commit` runs `npm run precommit --if-present` (lint-staged), and a
+  hook committed here would be shadowed by it.
+- Root-level `*.md` files other than `README.md` and `CLAUDE.md` are
+  untracked local notes; never cite one from a tracked file. `lint:ci` fails
+  on a citation of an untracked Markdown file.

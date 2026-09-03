@@ -1,3 +1,4 @@
+import { UserRole, UserState } from '@prisma/client';
 import { Problems } from '../common/problem/problem.catalog';
 import { buildService, type ServiceHarness } from '../testing/build-service';
 import {
@@ -50,8 +51,8 @@ describe('AuthService', () => {
         state: string;
         role: string;
       };
-      expect(created.state).toBe('GUEST');
-      expect(created.role).toBe('CLIENT');
+      expect(created.state).toBe(UserState.GUEST);
+      expect(created.role).toBe(UserRole.CLIENT);
       // The credential is parked in the token until confirmation: writing it
       // here would leave an account with a password nobody has verified.
       expect(created).not.toHaveProperty('passwordHash');
@@ -141,7 +142,7 @@ describe('AuthService', () => {
         data: {
           passwordHash: '$argon2id$parked',
           emailVerifiedAt: expect.any(Date) as Date,
-          state: 'ACTIVE',
+          state: UserState.ACTIVE,
         },
       });
       expect(h.prisma.emailVerificationToken.update).toHaveBeenCalledWith({
@@ -240,7 +241,7 @@ describe('AuthService', () => {
     /** The ERD's three guards, deliberately not merged. */
     it('refuses a verified account that is not ACTIVE', async () => {
       h.prisma.user.findFirst.mockResolvedValue(
-        await withCredential({ state: 'GUEST' }),
+        await withCredential({ state: UserState.GUEST }),
       );
 
       await expect(

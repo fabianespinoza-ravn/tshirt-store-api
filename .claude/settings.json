@@ -1,19 +1,54 @@
 {
   "permissions": {
     "allow": [
+      "Bash(npm run prisma:generate)",
       "Bash(npm run typecheck)",
       "Bash(npm run lint:ci)",
       "Bash(npm run format:check)",
-      "Bash(npm test -- --ci)",
+      "Bash(npm run check:citations)",
+      "Bash(npm test:*)",
       "Bash(npm run test:cov)",
       "Bash(npm run build)",
-      "Bash(npm run prisma:generate)",
       "Bash(git status)",
       "Bash(git diff:*)",
-      "Bash(git log:*)"
+      "Bash(git log:*)",
+      "Bash(gh pr view:*)",
+      "Bash(gh pr checks:*)",
+      "Bash(gh pr diff:*)",
+      "Bash(gh pr list:*)",
+      "Bash(gh run list:*)",
+      "Bash(gh run view:*)",
+      "Bash(gh api --method GET:*)"
+    ],
+    "deny": [
+      "Read(.env)"
     ]
   },
   "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Read|Edit|Write|MultiEdit|NotebookEdit|Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/deny-env-files.mjs"],
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "^(Bash|PowerShell|mcp__.*migrate[-_]reset)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/deny-destructive.mjs"],
+            "timeout": 10
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "Edit|Write",
