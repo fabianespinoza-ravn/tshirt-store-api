@@ -1,9 +1,15 @@
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { Problems } from '../common/problem/problem.catalog';
 import { buildService, type ServiceHarness } from '../testing/build-service';
 import { aCategory } from '../testing/factories';
 import { resetPrismaMock } from '../testing/prisma.mock';
 import { CategoriesService } from './categories.service';
+
+const uniqueViolation = () =>
+  new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+    code: 'P2002',
+    clientVersion: '6.19.3',
+  });
 
 describe('CategoriesService', () => {
   let h: ServiceHarness<CategoriesService>;
@@ -18,7 +24,6 @@ describe('CategoriesService', () => {
 
   it('creates a category and returns only the contract fields', async () => {
     const created = aCategory({ name: 'Tees' });
-    h.prisma.category.findUnique.mockResolvedValue(null);
     h.prisma.category.create.mockResolvedValue(created);
 
     const result = await h.service.create('Tees');
@@ -29,21 +34,20 @@ describe('CategoriesService', () => {
     expect(result).toEqual({ id: created.id, name: 'Tees' });
   });
 
+  // The unique index, not a findUnique probe, is what decides this: a P2002
+  // from the write is what "the name is taken" looks like now.
   it('rejects creating a category whose name is already used', async () => {
-    h.prisma.category.findUnique.mockResolvedValue(aCategory({ name: 'Tees' }));
+    h.prisma.category.create.mockRejectedValue(uniqueViolation());
 
     await expect(h.service.create('Tees')).rejects.toMatchObject({
       kind: Problems.conflict,
     });
-    expect(h.prisma.category.create).not.toHaveBeenCalled();
   });
 
   it('renames a category when the new name is free', async () => {
     const category = aCategory({ name: 'Tees' });
     const renamed = { ...category, name: 'Camisetas' };
-    h.prisma.category.findUnique
-      .mockResolvedValueOnce(category)
-      .mockResolvedValueOnce(null);
+    h.prisma.category.findUnique.mockResolvedValue(category);
     h.prisma.category.update.mockResolvedValue(renamed);
 
     const result = await h.service.rename(category.id, 'Camisetas');
@@ -52,16 +56,13 @@ describe('CategoriesService', () => {
   });
 
   /**
-   * Renombrar a su propio nombre no es un conflicto: el 409 significa que el
-   * nombre pertenece a OTRA categoría. Sin este caso, una comprobación escrita
-   * como "existe alguna con ese nombre" pasaría los demás tests y rompería el
-   * cambio idempotente.
+   * Renombrar a su propio nombre no es un conflicto: la base no dispara la
+   * violación de unicidad porque la fila ya tenía ese nombre. Sin este caso,
+   * el catch de P2002 podría confundirse con un cambio idempotente.
    */
   it('lets a category keep its own name', async () => {
     const category = aCategory({ name: 'Tees' });
-    h.prisma.category.findUnique
-      .mockResolvedValueOnce(category)
-      .mockResolvedValueOnce(category);
+    h.prisma.category.findUnique.mockResolvedValue(category);
     h.prisma.category.update.mockResolvedValue(category);
 
     await expect(h.service.rename(category.id, 'Tees')).resolves.toEqual({
@@ -72,15 +73,12 @@ describe('CategoriesService', () => {
 
   it('rejects renaming a category to another category name', async () => {
     const category = aCategory({ name: 'Tees' });
-    const other = aCategory({ name: 'Hoodies' });
-    h.prisma.category.findUnique
-      .mockResolvedValueOnce(category)
-      .mockResolvedValueOnce(other);
+    h.prisma.category.findUnique.mockResolvedValue(category);
+    h.prisma.category.update.mockRejectedValue(uniqueViolation());
 
     await expect(
-      h.service.rename(category.id, other.name),
+      h.service.rename(category.id, 'Hoodies'),
     ).rejects.toMatchObject({ kind: Problems.conflict });
-    expect(h.prisma.category.update).not.toHaveBeenCalled();
   });
 
   it('returns 404 when renaming a category that does not exist', async () => {

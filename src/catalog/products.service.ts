@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
-import type { Prisma, Sku } from '@prisma/client';
+import type { Prisma } from '@prisma/client';
 import { newId } from '../common/ids';
+import { loadOrThrow } from '../common/load-or-throw';
 import { paginate, type Paginated } from '../common/pagination';
 import { Problems } from '../common/problem/problem.catalog';
 import { ProblemException } from '../common/problem/problem.exception';
@@ -14,6 +15,7 @@ import type {
 import {
   aggregate,
   coverOf,
+  mapSkus,
   toCategoryViews,
   toManagerSku,
   toPublicSku,
@@ -33,13 +35,20 @@ const FULL_INCLUDE = {
 
 type FullProduct = Prisma.ProductGetPayload<{ include: typeof FULL_INCLUDE }>;
 
+// A live product: not soft-deleted. Shared with SkusService through the
+// `product` relation, so both sides of the FK agree on what "live" means.
+export const NOT_DELETED: Prisma.ProductWhereInput = { deletedAt: null };
+
 // Publicado = activo, no borrado, con al menos una variante y una imagen; la imagen no es cosmética, F8 la manda en el correo de reposición.
 const PUBLISHED: Prisma.ProductWhereInput = {
+  ...NOT_DELETED,
   isActive: true,
-  deletedAt: null,
   skus: { some: {} },
   images: { some: {} },
 };
+
+const NOT_VISIBLE_DETAIL =
+  'The requested product does not exist or is not visible to this caller.';
 
 @Injectable()
 export class ProductsService {
@@ -92,12 +101,14 @@ export class ProductsService {
     id: string,
     asManager: boolean,
   ): Promise<ProductDetailView | ManagerProductView> {
-    const product = await this.prisma.product.findFirst({
-      where: asManager ? { id, deletedAt: null } : { id, ...PUBLISHED },
-      include: FULL_INCLUDE,
-    });
-
-    if (!product) throw this.notFound();
+    const product = await loadOrThrow(
+      () =>
+        this.prisma.product.findFirst({
+          where: asManager ? { id, ...NOT_DELETED } : { id, ...PUBLISHED },
+          include: FULL_INCLUDE,
+        }),
+      NOT_VISIBLE_DETAIL,
+    );
 
     return asManager ? this.toManager(product) : this.toDetail(product);
   }
@@ -177,12 +188,14 @@ export class ProductsService {
 
   // Carga para un manager: cualquier estado salvo borrado.
   async loadForManager(id: string): Promise<FullProduct> {
-    const product = await this.prisma.product.findFirst({
-      where: { id, deletedAt: null },
-      include: FULL_INCLUDE,
-    });
-    if (!product) throw this.notFound();
-    return product;
+    return loadOrThrow(
+      () =>
+        this.prisma.product.findFirst({
+          where: { id, ...NOT_DELETED },
+          include: FULL_INCLUDE,
+        }),
+      NOT_VISIBLE_DETAIL,
+    );
   }
 
   async projectForManager(id: string): Promise<ManagerProductView> {
@@ -199,13 +212,6 @@ export class ProductsService {
         'At least one of the supplied category ids does not exist.',
       );
     }
-  }
-
-  private notFound(): ProblemException {
-    return new ProblemException(
-      Problems.notFound,
-      'The requested product does not exist or is not visible to this caller.',
-    );
   }
 
   // ------------------------------------------------------------ proyecciones
@@ -228,21 +234,17 @@ export class ProductsService {
 
   private async toDetail(p: FullProduct): Promise<ProductDetailView> {
     const images = await this.toImageViews(p.images);
-    const byId = new Map(images.map((i) => [i.id, i]));
 
     return {
       ...(await this.toSummary(p)),
       description: p.description,
       images,
-      skus: p.skus.map((s: Sku) =>
-        toPublicSku(s, s.imageId ? byId.get(s.imageId) : undefined),
-      ),
+      skus: mapSkus(p.skus, images, toPublicSku),
     };
   }
 
   private async toManager(p: FullProduct): Promise<ManagerProductView> {
     const images = await this.toImageViews(p.images);
-    const byId = new Map(images.map((i) => [i.id, i]));
     const cover = coverOf(images);
     const { priceFrom } = aggregate(p.skus);
 
@@ -255,9 +257,7 @@ export class ProductsService {
       ...(cover ? { image: cover } : {}),
       images,
       categories: toCategoryViews(p.categories),
-      skus: p.skus.map((s: Sku) =>
-        toManagerSku(s, s.imageId ? byId.get(s.imageId) : undefined),
-      ),
+      skus: mapSkus(p.skus, images, toManagerSku),
     };
   }
 }

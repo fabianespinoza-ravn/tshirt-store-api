@@ -6,7 +6,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
 import type { CreateSkuDto, UpdateSkuDto } from './dto/catalog.dto';
 import { toManagerSku, type ManagerSkuView } from './product.mappers';
-import { ProductsService } from './products.service';
+import { NOT_DELETED, ProductsService } from './products.service';
 
 @Injectable()
 export class SkusService {
@@ -52,7 +52,7 @@ export class SkusService {
   // Una variante no tiene DELETE: se retira poniendo su stock a cero; el mínimo son las unidades ya reservadas, y por eso `reserved` se publica en vez de descubrirse a base de 409.
   async update(skuId: string, dto: UpdateSkuDto): Promise<ManagerSkuView> {
     const sku = await this.prisma.sku.findFirst({
-      where: { id: skuId, product: { deletedAt: null } },
+      where: { id: skuId, product: NOT_DELETED },
       include: { product: { include: { images: true } } },
     });
 

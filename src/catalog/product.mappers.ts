@@ -102,6 +102,19 @@ export function toManagerSku(sku: Sku, image?: ImageView): ManagerSkuView {
   };
 }
 
+// Shared by ProductsService.toDetail and toManager: both need every sku's
+// image resolved by id from the same already-loaded image list.
+export function mapSkus<V>(
+  skus: Sku[],
+  images: ImageView[],
+  toView: (sku: Sku, image?: ImageView) => V,
+): V[] {
+  const byId = new Map(images.map((i) => [i.id, i]));
+  return skus.map((s) =>
+    toView(s, s.imageId ? byId.get(s.imageId) : undefined),
+  );
+}
+
 // Decisión deliberada, no un descuido: se agregan en memoria sobre las filas que Prisma ya trajo; con miles de productos la respuesta sería `$queryRaw` con `DISTINCT ON` (hallazgo 30).
 export function aggregate(skus: Sku[]): {
   priceFrom: number | null;

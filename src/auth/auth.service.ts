@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
-import { UserRole, UserState, type User } from '@prisma/client';
+import { UserRole, UserState, type Prisma, type User } from '@prisma/client';
 import { newId } from '../common/ids';
+import { loadOrThrow } from '../common/load-or-throw';
 import { Problems } from '../common/problem/problem.catalog';
 import { ProblemException } from '../common/problem/problem.exception';
 import { MailService } from '../mail/mail.service';
@@ -10,6 +11,10 @@ import { TokenService, type IssuedRefreshToken } from './token.service';
 
 const VERIFICATION_TTL_MS = 24 * 60 * 60 * 1000;
 const RESET_TTL_MS = 60 * 60 * 1000;
+
+// A live user: not soft-deleted. Same shared-fragment pattern as
+// ProductsService.NOT_DELETED, applied here to the User model.
+const NOT_DELETED: Prisma.UserWhereInput = { deletedAt: null };
 
 export interface SessionResult {
   accessToken: string;
@@ -28,7 +33,7 @@ export class AuthService {
 
   // email no es único para Prisma porque el índice del modelo es parcial (UNIQUE WHERE deleted_at IS NULL); hay que repetir aquí la condición o una cuenta borrada volvería como si estuviera viva.
   private findLiveByEmail(email: string) {
-    return this.prisma.user.findFirst({ where: { email, deletedAt: null } });
+    return this.prisma.user.findFirst({ where: { email, ...NOT_DELETED } });
   }
 
   // ---------------------------------------------------------------- registro
@@ -84,22 +89,16 @@ export class AuthService {
 
   // Mover la contraseña a users, marcar la verificación y pasar a ACTIVE van en la misma transacción porque los CHECK del modelo las relacionan: una cuenta verificada siempre tiene contraseña y un GUEST nunca está verificado.
   async confirmEmailVerification(token: string): Promise<void> {
-    const row = await this.prisma.emailVerificationToken.findUnique({
-      where: { tokenHash: this.tokens.oneTimeDigest(token) },
-    });
-
-    const usable =
-      row &&
-      !row.consumedAt &&
-      row.expiresAt > new Date() &&
-      row.pendingPasswordHash;
-
-    if (!usable) {
-      throw new ProblemException(
-        Problems.emailVerificationTokenNotFound,
-        'The token is invalid, expired, or has already been consumed.',
-      );
-    }
+    const row = await loadOrThrow(
+      () =>
+        this.prisma.emailVerificationToken.findUnique({
+          where: { tokenHash: this.tokens.oneTimeDigest(token) },
+        }),
+      'The token is invalid, expired, or has already been consumed.',
+      Problems.emailVerificationTokenNotFound,
+      (r) =>
+        !r.consumedAt && r.expiresAt > new Date() && !!r.pendingPasswordHash,
+    );
 
     await this.prisma.$transaction([
       this.prisma.user.update({
@@ -237,16 +236,15 @@ export class AuthService {
   }
 
   async resetPassword(token: string, newPassword: string): Promise<void> {
-    const row = await this.prisma.passwordResetToken.findUnique({
-      where: { tokenHash: this.tokens.oneTimeDigest(token) },
-    });
-
-    if (!row || row.consumedAt || row.expiresAt <= new Date()) {
-      throw new ProblemException(
-        Problems.notFound,
-        'The token is invalid, expired, or has already been consumed.',
-      );
-    }
+    const row = await loadOrThrow(
+      () =>
+        this.prisma.passwordResetToken.findUnique({
+          where: { tokenHash: this.tokens.oneTimeDigest(token) },
+        }),
+      'The token is invalid, expired, or has already been consumed.',
+      Problems.notFound,
+      (r) => !r.consumedAt && r.expiresAt > new Date(),
+    );
 
     const passwordHash = await this.passwords.hash(newPassword);
 
