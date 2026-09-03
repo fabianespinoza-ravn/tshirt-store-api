@@ -29,7 +29,48 @@ export default tseslint.config(
       '@typescript-eslint/no-explicit-any': 'off',
       '@typescript-eslint/no-floating-promises': 'warn',
       '@typescript-eslint/no-unsafe-argument': 'warn',
-      "prettier/prettier": ["error", { endOfLine: "auto" }],
+      'prettier/prettier': ['error', { endOfLine: 'auto' }],
+      // Encodes the conventions this repo already follows: camelCase
+      // everywhere by default, PascalCase for type-like symbols and enum
+      // members, and two named exceptions at module scope — SCREAMING_SNAKE
+      // for true constants (MAX_IMAGE_BYTES, VERIFICATION_TTL_MS) and
+      // PascalCase for decorator factories used as `@Decorator()` (CurrentUser,
+      // Public, CheckPolicies, RateLimited) and for the `Problems` catalog.
+      // Class/object/interface properties are left unchecked because several
+      // of them mirror an external contract verbatim (EnvironmentVariables'
+      // env-var names, DTO fields, Prisma payload shapes).
+      '@typescript-eslint/naming-convention': [
+        'error',
+        {
+          selector: 'default',
+          format: ['camelCase'],
+          leadingUnderscore: 'allow',
+        },
+        {
+          selector: 'typeLike',
+          format: ['PascalCase'],
+        },
+        {
+          selector: 'enumMember',
+          format: ['PascalCase'],
+        },
+        {
+          selector: 'variable',
+          modifiers: ['global', 'const'],
+          format: ['camelCase', 'UPPER_CASE', 'PascalCase'],
+        },
+        // `ApiProblems` is a decorator factory written as a function
+        // declaration rather than a const arrow function, but it plays the
+        // same role as `CurrentUser`/`Public`/`CheckPolicies`/`RateLimited`.
+        {
+          selector: 'function',
+          format: ['camelCase', 'PascalCase'],
+        },
+        {
+          selector: ['classProperty', 'objectLiteralProperty', 'typeProperty'],
+          format: null,
+        },
+      ],
     },
   },
   {

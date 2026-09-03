@@ -23,10 +23,11 @@ import { PasswordService } from './password.service';
  *   until confirmation: it moves to users.password_hash in the same transaction
  *   that sets email_verified_at and state"*.
  */
+const CLARO = 'contrasena-de-prueba-larga';
+
 describe('AuthService', () => {
   let h: ServiceHarness<AuthService>;
   let passwords: PasswordService;
-  const CLARO = 'contrasena-de-prueba-larga';
 
   beforeEach(async () => {
     h = await buildService(AuthService);
