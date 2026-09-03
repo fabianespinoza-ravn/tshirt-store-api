@@ -7,9 +7,11 @@
 // why no id carries @default. See the ERD's header.
 //
 // No migration history is versioned: the database is synced straight from
-// this file with `prisma db push`, and a push against a populated database
-// needs the matching backfill in prisma/backfill-live-columns.ts — a plain
-// push leaves any new non-defaulted column NULL on every existing row. A
+// this file by prisma/sync-schema.ts (plan with `prisma migrate diff`, refuse
+// a destructive plan, apply with `prisma db execute`), and a sync against a
+// populated database needs the matching backfill in
+// prisma/backfill-live-columns.ts — a new non-defaulted column arrives NULL
+// on every existing row. A
 // partial-unique invariant is expressed as a nullable column plus a plain
 // @@unique instead of raw SQL; see User.liveEmail and
 // EmailVerificationToken.liveUserId for the pattern. The same pattern still

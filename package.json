@@ -24,8 +24,9 @@
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "prisma:generate": "prisma generate",
     "prisma:push": "prisma db push",
+    "prisma:sync-schema": "ts-node -r tsconfig-paths/register prisma/sync-schema.ts",
     "prisma:backfill": "ts-node -r tsconfig-paths/register prisma/backfill-live-columns.ts",
-    "prisma:sync": "npm run prisma:push && npm run prisma:backfill",
+    "prisma:sync": "npm run prisma:sync-schema && npm run prisma:backfill",
     "prisma:studio": "prisma studio",
     "precommit": "lint-staged"
   },
