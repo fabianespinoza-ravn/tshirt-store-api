@@ -23,6 +23,22 @@ jobs:
         with:
           fetch-depth: 1
 
+      # The review action refuses to exchange its token against a version of
+      # this file that differs from main's, and reports that refusal as a
+      # green check with no comment. Five of the first eleven pull requests
+      # merged that way without a review. Fail here first, with the reason
+      # on the check, so a change to this file is read by a person before it
+      # lands — and keep such changes in their own pull request.
+      - name: Refuse to pass silently when this workflow changes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" \
+               --paginate --jq '.[].filename' | grep -qx '.github/workflows/claude-review.yml'; then
+            echo "::error::This pull request changes the review workflow, so the action would skip the review and still pass. Review the change by hand before merging."
+            exit 1
+          fi
+
       - uses: anthropics/claude-code-action@8251c103ac8c1d761882c86aba1412c7f583c844 # v1
         with:
           # Subscription token, not an API key: reviews aren't billed
@@ -53,9 +69,11 @@ jobs:
               environment variable or a command that `README.md` or `docs/`
               describes, the sentence that now lies is a finding.
 
-            Report only what you would block a merge on. Say nothing when the
-            diff is fine — an empty review is a valid outcome, and noise on
-            every pull request is how a reviewer gets ignored.
+            Report only what you would block a merge on. When nothing blocks
+            the merge, post a single top-level comment of one line saying you
+            reviewed the diff and found nothing blocking — no list, no praise —
+            so a review that ran is distinguishable from one that was skipped.
+            Noise on every pull request is how a reviewer gets ignored.
 
             Use `gh pr comment` for top-level feedback.
             Use `mcp__github_inline_comment__create_inline_comment` (with
