@@ -1,5 +1,5 @@
 import type { Category, ProductImage, Sku } from '@prisma/client';
-import type { CategoryView } from './categories.service';
+import type { CategoryView } from '../categories/categories.service';
 
 // Separate types, not one with optional fields: the contract's `anyOf`
 // validates if any branch passes, so only distinct types plus a

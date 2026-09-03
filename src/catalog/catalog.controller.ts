@@ -31,17 +31,14 @@ import {
   type AuthenticatedUser,
 } from '../common/decorators/current-user.decorator';
 import { Public } from '../common/decorators/public.decorator';
-import { PaginationQueryDto, type Paginated } from '../common/pagination';
+import { type Paginated } from '../common/pagination';
 import { Problems } from '../common/problem/problem.catalog';
 import { ApiProblems } from '../common/swagger';
 import { MAX_IMAGE_BYTES } from '../storage/storage.service';
-import { CategoriesService, type CategoryView } from './categories.service';
 import {
-  CreateCategoryDto,
   CreateProductDto,
   CreateSkuDto,
   ListProductsQueryDto,
-  UpdateCategoryDto,
   UpdateProductDto,
   UpdateSkuDto,
 } from './dto/catalog.dto';
@@ -63,81 +60,10 @@ const uuid = ParseUUIDPipe;
 @Controller()
 export class CatalogController {
   constructor(
-    private readonly categories: CategoriesService,
     private readonly products: ProductsService,
     private readonly images: ImagesService,
     private readonly skus: SkusService,
   ) {}
-
-  // ------------------------------------------------------------- categories
-
-  @Public()
-  @ApiOperation({ summary: 'List categories' })
-  @ApiResponse({ status: 200, description: 'A page of categories' })
-  @ApiProblems(Problems.validation, Problems.internalError)
-  @Get('categories')
-  listCategories(
-    @Query() query: PaginationQueryDto,
-  ): Promise<Paginated<CategoryView>> {
-    return this.categories.list(query);
-  }
-
-  @UseGuards(PoliciesGuard)
-  @CheckPolicies({ action: 'create', subject: 'Category' })
-  @ApiBearerAuth('bearerAuth')
-  @ApiOperation({ summary: 'Create a category' })
-  @ApiResponse({ status: 201, description: 'Category created' })
-  @ApiProblems(
-    Problems.validation,
-    Problems.unauthorized,
-    Problems.forbidden,
-    Problems.conflict,
-    Problems.internalError,
-  )
-  @Post('categories')
-  @HttpCode(HttpStatus.CREATED)
-  createCategory(@Body() dto: CreateCategoryDto): Promise<CategoryView> {
-    return this.categories.create(dto.name);
-  }
-
-  @UseGuards(PoliciesGuard)
-  @CheckPolicies({ action: 'update', subject: 'Category' })
-  @ApiBearerAuth('bearerAuth')
-  @ApiOperation({ summary: 'Rename a category' })
-  @ApiResponse({ status: 200, description: 'Category updated' })
-  @ApiProblems(
-    Problems.validation,
-    Problems.unauthorized,
-    Problems.forbidden,
-    Problems.notFound,
-    Problems.conflict,
-    Problems.internalError,
-  )
-  @Patch('categories/:categoryId')
-  updateCategory(
-    @Param('categoryId', uuid) categoryId: string,
-    @Body() dto: UpdateCategoryDto,
-  ): Promise<CategoryView> {
-    return this.categories.rename(categoryId, dto.name);
-  }
-
-  @UseGuards(PoliciesGuard)
-  @CheckPolicies({ action: 'delete', subject: 'Category' })
-  @ApiBearerAuth('bearerAuth')
-  @ApiOperation({ summary: 'Delete a category' })
-  @ApiResponse({ status: 204, description: 'Category deleted' })
-  @ApiProblems(
-    Problems.unauthorized,
-    Problems.forbidden,
-    Problems.notFound,
-    Problems.conflict,
-    Problems.internalError,
-  )
-  @Delete('categories/:categoryId')
-  @HttpCode(HttpStatus.NO_CONTENT)
-  deleteCategory(@Param('categoryId', uuid) categoryId: string): Promise<void> {
-    return this.categories.remove(categoryId);
-  }
 
   // -------------------------------------------------------------- products
 

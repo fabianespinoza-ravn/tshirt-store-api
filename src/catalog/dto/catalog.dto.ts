@@ -20,17 +20,6 @@ import { PaginationQueryDto } from '../../common/pagination';
 // Ceiling on amounts: matches the limit of PostgreSQL's integer column.
 const MAX_MONEY = 2_147_483_647;
 
-// --------------------------------------------------------------- categories
-
-export class CreateCategoryDto {
-  @IsString()
-  @MinLength(1)
-  @MaxLength(100)
-  name!: string;
-}
-
-export class UpdateCategoryDto extends CreateCategoryDto {}
-
 // ---------------------------------------------------------------- products
 
 export class ListProductsQueryDto extends PaginationQueryDto {
