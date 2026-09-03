@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { NodeEnv } from '../config/env.validation';
 
 // No real SMTP transport yet (optional variables for Week 3): it logs, and
 // the plaintext token is only printed outside production so it can be
@@ -34,7 +35,7 @@ export class MailService {
   }
 
   private devOnly(subject: string, email: string, token: string): void {
-    if (process.env.NODE_ENV === 'production') {
+    if (process.env.NODE_ENV === NodeEnv.Production) {
       this.logger.log(`[mail] ${subject} -> ${email}`);
       return;
     }

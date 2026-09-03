@@ -1,6 +1,7 @@
 import { Test } from '@nestjs/testing';
 import type { Provider, Type } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { NodeEnv } from '../config/env.validation';
 import { JwtService } from '@nestjs/jwt';
 import { mockDeep, type DeepMockProxy } from 'jest-mock-extended';
 import { PasswordService } from '../auth/password.service';
@@ -29,7 +30,7 @@ export interface ServiceHarness<T> {
 
 // What the fake ConfigService returns unless a test changes it.
 const CONFIG_DEFAULTS: Record<string, string | number> = {
-  NODE_ENV: 'test',
+  NODE_ENV: NodeEnv.Test,
   PORT: 3010,
   JWT_ACCESS_TTL: '15m',
   JWT_REFRESH_TTL: '7d',

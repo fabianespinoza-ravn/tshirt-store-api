@@ -1,4 +1,5 @@
 import { Reflector } from '@nestjs/core';
+import { UserRole } from '@prisma/client';
 import { mockDeep } from 'jest-mock-extended';
 import { Public } from '../../common/decorators/public.decorator';
 import { Problems } from '../../common/problem/problem.catalog';
@@ -30,7 +31,7 @@ describe('JwtAuthGuard', () => {
   const identity = {
     sub: 'user-1',
     email: 'ana@example.test',
-    role: 'MANAGER' as const,
+    role: UserRole.MANAGER,
   };
 
   beforeEach(() => {
@@ -88,7 +89,7 @@ describe('JwtAuthGuard', () => {
       expect(userOf(context)).toEqual({
         id: 'user-1',
         email: 'ana@example.test',
-        role: 'MANAGER',
+        role: UserRole.MANAGER,
       });
     });
 
@@ -140,7 +141,7 @@ describe('JwtAuthGuard', () => {
       });
 
       expect(guard.canActivate(context)).toBe(true);
-      expect(userOf(context)).toMatchObject({ role: 'MANAGER' });
+      expect(userOf(context)).toMatchObject({ role: UserRole.MANAGER });
     });
 
     /**
