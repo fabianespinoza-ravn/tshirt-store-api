@@ -16,6 +16,8 @@ class ProtectedHandler {
 
   @CheckPolicies({ action: 'update', subject: 'Order' })
   updateOrder(this: void): void {}
+
+  unprotected(this: void): void {}
 }
 
 function contextFor(
@@ -50,6 +52,17 @@ describe('PoliciesGuard', () => {
     }
   });
 
+  it('denies a protected route that forgot to declare any policy metadata', () => {
+    expect(() =>
+      guard.canActivate(
+        contextFor(
+          UserRole.MANAGER,
+          ProtectedHandler.prototype.unprotected,
+        ) as never,
+      ),
+    ).toThrow(ProblemException);
+  });
+
   /**
    * A guard whose ability carries one conditional rule and nothing else,
    * which is the shape every CLIENT-owned resource now has.
@@ -70,14 +83,15 @@ describe('PoliciesGuard', () => {
    * services. The harness above is ready; the assertions are the student's,
    * per CLAUDE.md, because the change under test is the assistant's.
    */
-  it.todo(
-    'lets a conditional ownership rule through the role gate, leaving the row scope to the service',
-  );
-  it.todo(
-    'still refuses a subject the ability grants no rule for, conditional or otherwise',
-  );
+  it('lets a conditional ownership rule through the role gate, leaving the row scope to the service', () => {
+    expect(
+      withConditionalRule().canActivate(updateOrderAsClient() as never),
+    ).toBe(true);
+  });
 
-  // Keeps the harness referenced while the two cases have no body.
-  void withConditionalRule;
-  void updateOrderAsClient;
+  it('still refuses a subject the ability grants no rule for, conditional or otherwise', () => {
+    expect(() =>
+      withConditionalRule().canActivate(contextFor(UserRole.CLIENT) as never),
+    ).toThrow(ProblemException);
+  });
 });

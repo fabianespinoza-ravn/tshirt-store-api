@@ -107,6 +107,14 @@ export class AppAbilityFactory {
     // wrong.
     // ------------------------------------------------------------------
 
+    if (user?.role === UserRole.CLIENT) {
+      can('read', 'Cart', { userId: user.id });
+      can(['create', 'update', 'delete'], 'CartItem', {
+        cart: { is: { userId: user.id } },
+      });
+      can(['create', 'delete'], 'ProductLike', { userId: user.id });
+    }
+
     return build();
   }
 }
