@@ -22,7 +22,7 @@ describe('TokenService', () => {
     it('refuses a token that is not in the table', async () => {
       h.prisma.refreshToken.findUnique.mockResolvedValue(null);
 
-      await expect(h.service.rotate('desconocido')).resolves.toMatchObject({
+      await expect(h.service.rotate('unknown')).resolves.toMatchObject({
         ok: false,
         reason: 'unknown',
       });
@@ -42,7 +42,7 @@ describe('TokenService', () => {
         user,
       } as never);
 
-      const outcome = await h.service.rotate('robado');
+      const outcome = await h.service.rotate('stolen');
 
       expect(outcome).toMatchObject({ ok: false, reason: 'reused' });
       expect(h.prisma.refreshToken.updateMany).toHaveBeenCalledWith({
@@ -61,7 +61,7 @@ describe('TokenService', () => {
         user,
       } as never);
 
-      const outcome = await h.service.rotate('caducado');
+      const outcome = await h.service.rotate('expired');
 
       expect(outcome).toMatchObject({ ok: false, reason: 'expired' });
       expect(h.prisma.refreshToken.updateMany).not.toHaveBeenCalled();
@@ -81,7 +81,7 @@ describe('TokenService', () => {
         user,
       } as never);
 
-      const outcome = await h.service.rotate('vigente');
+      const outcome = await h.service.rotate('current');
 
       expect(outcome.ok).toBe(true);
       expect(h.prisma.refreshToken.update).toHaveBeenCalledWith({
@@ -104,14 +104,14 @@ describe('TokenService', () => {
         user,
       } as never);
 
-      const outcome = await h.service.rotate('vigente');
-      const emitido = outcome.ok ? outcome.refresh.token : '';
-      const guardado = h.prisma.refreshToken.create.mock.calls[0][0].data as {
+      const outcome = await h.service.rotate('current');
+      const issued = outcome.ok ? outcome.refresh.token : '';
+      const stored = h.prisma.refreshToken.create.mock.calls[0][0].data as {
         tokenHash: string;
       };
 
-      expect(guardado.tokenHash).not.toBe(emitido);
-      expect(guardado.tokenHash).toHaveLength(64);
+      expect(stored.tokenHash).not.toBe(issued);
+      expect(stored.tokenHash).toHaveLength(64);
     });
   });
 
@@ -120,7 +120,7 @@ describe('TokenService', () => {
       const row = aRefreshToken(aUser().id);
       h.prisma.refreshToken.findUnique.mockResolvedValue(row);
 
-      await h.service.revokeFamilyOf('cualquiera');
+      await h.service.revokeFamilyOf('whichever');
 
       expect(h.prisma.refreshToken.updateMany).toHaveBeenCalledWith({
         where: { familyId: row.familyId, revokedAt: null },
@@ -131,7 +131,7 @@ describe('TokenService', () => {
     it('does nothing when the token is unknown', async () => {
       h.prisma.refreshToken.findUnique.mockResolvedValue(null);
 
-      await h.service.revokeFamilyOf('desconocido');
+      await h.service.revokeFamilyOf('unknown');
 
       expect(h.prisma.refreshToken.updateMany).not.toHaveBeenCalled();
     });
@@ -158,14 +158,14 @@ describe('TokenService', () => {
       const user = aUser();
 
       const issued = await h.service.startFamily(user.id);
-      const guardado = h.prisma.refreshToken.create.mock.calls[0][0].data as {
+      const stored = h.prisma.refreshToken.create.mock.calls[0][0].data as {
         userId: string;
         familyId: string;
         tokenHash: string;
       };
 
-      expect(guardado.userId).toBe(user.id);
-      expect(guardado.tokenHash).not.toBe(issued.token);
+      expect(stored.userId).toBe(user.id);
+      expect(stored.tokenHash).not.toBe(issued.token);
       expect(issued.expiresAt.getTime()).toBeGreaterThan(Date.now());
     });
   });

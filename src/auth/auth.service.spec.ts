@@ -23,7 +23,7 @@ import { PasswordService } from './password.service';
  *   until confirmation: it moves to users.password_hash in the same transaction
  *   that sets email_verified_at and state"*.
  */
-const CLARO = 'contrasena-de-prueba-larga';
+const PLAIN = 'long-test-password';
 
 describe('AuthService', () => {
   let h: ServiceHarness<AuthService>;
@@ -33,8 +33,8 @@ describe('AuthService', () => {
     h = await buildService(AuthService);
     resetPrismaMock(h.prisma);
     passwords = new PasswordService();
-    h.tokens.mintOneTime.mockReturnValue('token-en-claro');
-    h.tokens.oneTimeDigest.mockReturnValue('hash-del-token');
+    h.tokens.mintOneTime.mockReturnValue('plain-token');
+    h.tokens.oneTimeDigest.mockReturnValue('token-hash');
   });
 
   // ------------------------------------------------------------------ signUp
@@ -44,20 +44,20 @@ describe('AuthService', () => {
       h.prisma.user.findFirst.mockResolvedValue(null);
       h.prisma.user.create.mockResolvedValue(anUnverifiedUser());
 
-      await h.service.signUp('nueva@ejemplo.test', CLARO);
+      await h.service.signUp('new@example.test', PLAIN);
 
-      const creado = h.prisma.user.create.mock.calls[0][0].data as {
+      const created = h.prisma.user.create.mock.calls[0][0].data as {
         state: string;
         role: string;
       };
-      expect(creado.state).toBe('GUEST');
-      expect(creado.role).toBe('CLIENT');
+      expect(created.state).toBe('GUEST');
+      expect(created.role).toBe('CLIENT');
       // The credential is parked in the token until confirmation: writing it
       // here would leave an account with a password nobody has verified.
-      expect(creado).not.toHaveProperty('passwordHash');
+      expect(created).not.toHaveProperty('passwordHash');
       expect(h.mail.sendVerificationLink).toHaveBeenCalledWith(
-        'nueva@ejemplo.test',
-        'token-en-claro',
+        'new@example.test',
+        'plain-token',
       );
     });
 
@@ -69,10 +69,10 @@ describe('AuthService', () => {
     it('writes nothing and sends a reminder for an already verified address', async () => {
       h.prisma.user.findFirst.mockResolvedValue(aUser());
 
-      await h.service.signUp('maria@ejemplo.test', CLARO);
+      await h.service.signUp('maria@example.test', PLAIN);
 
       expect(h.mail.sendSignInReminder).toHaveBeenCalledWith(
-        'maria@ejemplo.test',
+        'maria@example.test',
       );
       expect(h.mail.sendVerificationLink).not.toHaveBeenCalled();
       expect(h.prisma.user.create).not.toHaveBeenCalled();
@@ -87,7 +87,7 @@ describe('AuthService', () => {
     it('consumes the live token before issuing a new one', async () => {
       h.prisma.user.findFirst.mockResolvedValue(anUnverifiedUser());
 
-      await h.service.signUp('sin-verificar@ejemplo.test', CLARO);
+      await h.service.signUp('unverified@example.test', PLAIN);
 
       expect(h.prisma.emailVerificationToken.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -107,16 +107,13 @@ describe('AuthService', () => {
       const user = anUnverifiedUser();
       h.prisma.user.findFirst.mockResolvedValue(user);
 
-      await h.service.signUp(user.email, 'una-contrasena-nueva-larga');
+      await h.service.signUp(user.email, 'a-new-long-password');
 
-      const emitido = h.prisma.emailVerificationToken.create.mock.calls[0][0]
+      const issued = h.prisma.emailVerificationToken.create.mock.calls[0][0]
         .data as { pendingPasswordHash: string; userId: string };
-      expect(emitido.userId).toBe(user.id);
+      expect(issued.userId).toBe(user.id);
       await expect(
-        passwords.verify(
-          emitido.pendingPasswordHash,
-          'una-contrasena-nueva-larga',
-        ),
+        passwords.verify(issued.pendingPasswordHash, 'a-new-long-password'),
       ).resolves.toBe(true);
     });
   });
@@ -133,16 +130,16 @@ describe('AuthService', () => {
     it('moves the pending credential, verifies and promotes to ACTIVE', async () => {
       const user = anUnverifiedUser();
       const token = aOneTimeToken(user.id, {
-        pendingPasswordHash: '$argon2id$aparcada',
+        pendingPasswordHash: '$argon2id$parked',
       });
       h.prisma.emailVerificationToken.findUnique.mockResolvedValue(token);
 
-      await h.service.confirmEmailVerification('token-en-claro');
+      await h.service.confirmEmailVerification('plain-token');
 
       expect(h.prisma.user.update).toHaveBeenCalledWith({
         where: { id: user.id },
         data: {
-          passwordHash: '$argon2id$aparcada',
+          passwordHash: '$argon2id$parked',
           emailVerifiedAt: expect.any(Date) as Date,
           state: 'ACTIVE',
         },
@@ -160,13 +157,13 @@ describe('AuthService', () => {
       ['unknown', null],
       ['already consumed', { consumedAt: new Date() }],
       ['expired', { expiresAt: new Date(Date.now() - 1000) }],
-    ])('returns 404 for a token that is %s', async (_caso, overrides) => {
+    ])('returns 404 for a token that is %s', async (_case, overrides) => {
       h.prisma.emailVerificationToken.findUnique.mockResolvedValue(
-        overrides === null ? null : aOneTimeToken('usuario-1', overrides),
+        overrides === null ? null : aOneTimeToken('user-1', overrides),
       );
 
       await expect(
-        h.service.confirmEmailVerification('token-en-claro'),
+        h.service.confirmEmailVerification('plain-token'),
       ).rejects.toMatchObject({
         kind: Problems.emailVerificationTokenNotFound,
       });
@@ -178,7 +175,7 @@ describe('AuthService', () => {
 
   describe('signIn', () => {
     const withCredential = async (overrides = {}) =>
-      aUser({ passwordHash: await passwords.hash(CLARO), ...overrides });
+      aUser({ passwordHash: await passwords.hash(PLAIN), ...overrides });
 
     it('opens a session for a verified account with the right password', async () => {
       h.prisma.user.findFirst.mockResolvedValue(await withCredential());
@@ -189,7 +186,7 @@ describe('AuthService', () => {
       });
 
       await expect(
-        h.service.signIn('ana@ejemplo.test', CLARO),
+        h.service.signIn('ana@example.test', PLAIN),
       ).resolves.toMatchObject({ accessToken: 'jwt' });
     });
 
@@ -197,7 +194,7 @@ describe('AuthService', () => {
       h.prisma.user.findFirst.mockResolvedValue(await withCredential());
 
       await expect(
-        h.service.signIn('ana@ejemplo.test', 'otra-contrasena-larga'),
+        h.service.signIn('ana@example.test', 'another-long-password'),
       ).rejects.toMatchObject({ kind: Problems.unauthorized });
     });
 
@@ -205,7 +202,7 @@ describe('AuthService', () => {
       h.prisma.user.findFirst.mockResolvedValue(null);
 
       await expect(
-        h.service.signIn('nadie@ejemplo.test', CLARO),
+        h.service.signIn('nobody@example.test', PLAIN),
       ).rejects.toMatchObject({ kind: Problems.unauthorized });
     });
 
@@ -220,11 +217,11 @@ describe('AuthService', () => {
       const user = anUnverifiedUser();
       h.prisma.user.findFirst.mockResolvedValue(user);
       h.prisma.emailVerificationToken.findFirst.mockResolvedValue({
-        pendingPasswordHash: await passwords.hash(CLARO),
+        pendingPasswordHash: await passwords.hash(PLAIN),
       } as never);
 
       await expect(
-        h.service.signIn(user.email, 'contrasena-equivocada-larga'),
+        h.service.signIn(user.email, 'wrong-long-password'),
       ).rejects.toMatchObject({ kind: Problems.unauthorized });
     });
 
@@ -232,10 +229,10 @@ describe('AuthService', () => {
       const user = anUnverifiedUser();
       h.prisma.user.findFirst.mockResolvedValue(user);
       h.prisma.emailVerificationToken.findFirst.mockResolvedValue({
-        pendingPasswordHash: await passwords.hash(CLARO),
+        pendingPasswordHash: await passwords.hash(PLAIN),
       } as never);
 
-      await expect(h.service.signIn(user.email, CLARO)).rejects.toMatchObject({
+      await expect(h.service.signIn(user.email, PLAIN)).rejects.toMatchObject({
         kind: Problems.emailNotVerified,
       });
     });
@@ -247,7 +244,7 @@ describe('AuthService', () => {
       );
 
       await expect(
-        h.service.signIn('ana@ejemplo.test', CLARO),
+        h.service.signIn('ana@example.test', PLAIN),
       ).rejects.toMatchObject({ kind: Problems.emailNotVerified });
     });
 
@@ -260,10 +257,10 @@ describe('AuthService', () => {
       h.prisma.user.findFirst.mockResolvedValue(null);
 
       await expect(
-        h.service.signIn('ana@ejemplo.test', CLARO),
+        h.service.signIn('ana@example.test', PLAIN),
       ).rejects.toMatchObject({ kind: Problems.unauthorized });
       expect(h.prisma.user.findFirst).toHaveBeenCalledWith({
-        where: { email: 'ana@ejemplo.test', deletedAt: null },
+        where: { email: 'ana@example.test', deletedAt: null },
       });
     });
   });
@@ -280,7 +277,7 @@ describe('AuthService', () => {
       expect(h.prisma.passwordResetToken.create).toHaveBeenCalled();
       expect(h.mail.sendPasswordReset).toHaveBeenCalledWith(
         user.email,
-        'token-en-claro',
+        'plain-token',
       );
     });
 
@@ -290,11 +287,11 @@ describe('AuthService', () => {
       ['unverified', anUnverifiedUser()],
     ])(
       'writes nothing and sends nothing for an address that is %s',
-      async (_caso, user) => {
+      async (_case, user) => {
         h.prisma.user.findFirst.mockResolvedValue(user);
 
         await expect(
-          h.service.forgotPassword('quien@ejemplo.test'),
+          h.service.forgotPassword('whoever@example.test'),
         ).resolves.toBeUndefined();
         expect(h.prisma.passwordResetToken.create).not.toHaveBeenCalled();
         expect(h.mail.sendPasswordReset).not.toHaveBeenCalled();
@@ -304,31 +301,31 @@ describe('AuthService', () => {
 
   describe('resetPassword', () => {
     it('sets the new credential and revokes every family', async () => {
-      const token = aOneTimeToken('usuario-1');
+      const token = aOneTimeToken('user-1');
       h.prisma.passwordResetToken.findUnique.mockResolvedValue(token);
 
-      await h.service.resetPassword('token-en-claro', 'la-nueva-y-larga');
+      await h.service.resetPassword('plain-token', 'new-long-password');
 
-      const escrito = h.prisma.user.update.mock.calls[0][0].data as {
+      const written = h.prisma.user.update.mock.calls[0][0].data as {
         passwordHash: string;
       };
       await expect(
-        passwords.verify(escrito.passwordHash, 'la-nueva-y-larga'),
+        passwords.verify(written.passwordHash, 'new-long-password'),
       ).resolves.toBe(true);
-      expect(h.tokens.revokeAllForUser).toHaveBeenCalledWith('usuario-1');
+      expect(h.tokens.revokeAllForUser).toHaveBeenCalledWith('user-1');
     });
 
     it.each([
       ['unknown', null],
       ['already consumed', { consumedAt: new Date() }],
       ['expired', { expiresAt: new Date(Date.now() - 1000) }],
-    ])('returns 404 for a token that is %s', async (_caso, overrides) => {
+    ])('returns 404 for a token that is %s', async (_case, overrides) => {
       h.prisma.passwordResetToken.findUnique.mockResolvedValue(
-        overrides === null ? null : aOneTimeToken('usuario-1', overrides),
+        overrides === null ? null : aOneTimeToken('user-1', overrides),
       );
 
       await expect(
-        h.service.resetPassword('token-en-claro', 'la-nueva-y-larga'),
+        h.service.resetPassword('plain-token', 'new-long-password'),
       ).rejects.toMatchObject({ kind: Problems.notFound });
       expect(h.prisma.user.update).not.toHaveBeenCalled();
       expect(h.tokens.revokeAllForUser).not.toHaveBeenCalled();
@@ -337,21 +334,25 @@ describe('AuthService', () => {
 
   describe('changePassword', () => {
     it('revokes every family and sends the notification the brief requires', async () => {
-      const user = aUser({ passwordHash: await passwords.hash(CLARO) });
+      const user = aUser({ passwordHash: await passwords.hash(PLAIN) });
       h.prisma.user.findUnique.mockResolvedValue(user);
 
-      await h.service.changePassword(user.id, CLARO, 'la-nueva-y-larga');
+      await h.service.changePassword(user.id, PLAIN, 'new-long-password');
 
       expect(h.tokens.revokeAllForUser).toHaveBeenCalledWith(user.id);
       expect(h.mail.sendPasswordChanged).toHaveBeenCalledWith(user.email);
     });
 
     it('returns 401 when the current password does not match', async () => {
-      const user = aUser({ passwordHash: await passwords.hash(CLARO) });
+      const user = aUser({ passwordHash: await passwords.hash(PLAIN) });
       h.prisma.user.findUnique.mockResolvedValue(user);
 
       await expect(
-        h.service.changePassword(user.id, 'la-equivocada-larga', 'otra-larga'),
+        h.service.changePassword(
+          user.id,
+          'wrong-current-long-password',
+          'another-long-password',
+        ),
       ).rejects.toMatchObject({ kind: Problems.unauthorized });
       expect(h.prisma.user.update).not.toHaveBeenCalled();
       expect(h.tokens.revokeAllForUser).not.toHaveBeenCalled();
@@ -361,12 +362,14 @@ describe('AuthService', () => {
   describe('signOut', () => {
     it('revokes the family the presented cookie belongs to', async () => {
       h.prisma.refreshToken.findUnique.mockResolvedValue(
-        aRefreshToken('usuario-1'),
+        aRefreshToken('user-1'),
       );
 
-      await h.service.signOut('refresh-en-claro');
+      await h.service.signOut('plain-refresh-token');
 
-      expect(h.tokens.revokeFamilyOf).toHaveBeenCalledWith('refresh-en-claro');
+      expect(h.tokens.revokeFamilyOf).toHaveBeenCalledWith(
+        'plain-refresh-token',
+      );
     });
 
     it('does nothing without a cookie', async () => {

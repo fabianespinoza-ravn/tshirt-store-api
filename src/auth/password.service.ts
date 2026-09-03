@@ -10,7 +10,7 @@ export class PasswordService {
   // Hash to compare against when the user doesn't exist: without this, a
   // nonexistent account would respond faster than a real one, and the timing
   // would give away which ones are registered.
-  private readonly decoy = hash('contraseña-que-no-es-de-nadie');
+  private readonly decoy = hash('password-that-belongs-to-nobody');
 
   async hash(plain: string): Promise<string> {
     return hash(plain);

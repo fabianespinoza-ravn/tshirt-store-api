@@ -185,18 +185,18 @@ describe('ImagesService upload validation', () => {
    */
   it('deletes the just-uploaded S3 object when the database create fails', async () => {
     const file = aMulterFile();
-    h.storage.buildKey.mockReturnValue('products/huerfano.png');
-    const dbError = new Error('conexión perdida');
+    h.storage.buildKey.mockReturnValue('products/orphaned.png');
+    const dbError = new Error('connection lost');
     h.prisma.productImage.create.mockRejectedValue(dbError);
 
     await expect(h.service.upload('product-1', file)).rejects.toBe(dbError);
 
     expect(h.storage.put).toHaveBeenCalledWith(
-      'products/huerfano.png',
+      'products/orphaned.png',
       file.buffer,
       file.mimetype,
     );
-    expect(h.storage.remove).toHaveBeenCalledWith('products/huerfano.png');
+    expect(h.storage.remove).toHaveBeenCalledWith('products/orphaned.png');
   });
 
   /**
@@ -227,25 +227,25 @@ describe('ImagesService upload validation', () => {
     const extra = {
       id: 'image-2',
       productId: product.id,
-      s3Key: 'products/segunda.png',
+      s3Key: 'products/second.png',
       createdAt: new Date(),
     };
     product.images.push(extra);
     products.loadForManager.mockResolvedValue(product);
     h.prisma.sku.count.mockResolvedValue(0);
 
-    const orden: string[] = [];
+    const order: string[] = [];
     h.prisma.productImage.delete.mockImplementation((() => {
-      orden.push('fila');
+      order.push('row');
       return Promise.resolve(extra);
     }) as never);
     h.storage.remove.mockImplementation(() => {
-      orden.push('s3');
+      order.push('s3');
       return Promise.resolve();
     });
 
     await h.service.remove(product.id, extra.id);
 
-    expect(orden).toEqual(['fila', 's3']);
+    expect(order).toEqual(['row', 's3']);
   });
 });

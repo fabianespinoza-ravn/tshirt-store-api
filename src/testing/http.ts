@@ -52,7 +52,7 @@ export function anArgumentsHost(
 ): { host: ArgumentsHost; recorded: RecordedResponse } {
   const { response, recorded } = recordingResponse();
   const request = {
-    originalUrl: options.url ?? '/api/v1/recurso',
+    originalUrl: options.url ?? '/api/v1/resource',
     method: options.method ?? 'GET',
   };
 
@@ -79,13 +79,13 @@ export function anExecutionContext(options: {
   const request = {
     user: options.user,
     headers: options.headers ?? {},
-    originalUrl: '/api/v1/recurso',
+    originalUrl: '/api/v1/resource',
     method: 'GET',
   };
 
   const context = {
     getHandler: () => options.handler ?? (() => undefined),
-    getClass: () => options.controller ?? class Anonima {},
+    getClass: () => options.controller ?? class Anonymous {},
     switchToHttp: () => ({
       getRequest: () => request,
       getResponse: () => response,

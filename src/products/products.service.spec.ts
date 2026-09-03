@@ -129,12 +129,12 @@ describe('ProductsService projections', () => {
     await h.service.getOne(product.id, false);
     await h.service.getOne(product.id, true);
 
-    const publico = h.prisma.product.findFirst.mock
+    const publicArgs = h.prisma.product.findFirst.mock
       .calls[0][0] as Prisma.ProductFindFirstArgs;
     const manager = h.prisma.product.findFirst.mock
       .calls[1][0] as Prisma.ProductFindFirstArgs;
 
-    expect(publico.where).toMatchObject({
+    expect(publicArgs.where).toMatchObject({
       id: product.id,
       isActive: true,
       deletedAt: null,
@@ -284,22 +284,22 @@ describe('ProductsService writes', () => {
   });
 
   it('links one row per supplied category', async () => {
-    const creado = aFullProduct();
+    const created = aFullProduct();
     h.prisma.category.count.mockResolvedValue(2);
-    h.prisma.product.create.mockResolvedValue(creado);
-    h.prisma.product.findFirst.mockResolvedValue(creado);
+    h.prisma.product.create.mockResolvedValue(created);
+    h.prisma.product.findFirst.mockResolvedValue(created);
 
     await h.service.create({
-      name: 'Camiseta',
-      description: 'Algodón',
+      name: 'Tee',
+      description: 'Cotton',
       categoryIds: ['cat-1', 'cat-2'],
     });
 
-    const enlaces = h.prisma.productCategory.createMany.mock.calls[0][0]
+    const links = h.prisma.productCategory.createMany.mock.calls[0][0]
       ?.data as { categoryId: string; productId: string }[];
-    expect(enlaces).toHaveLength(2);
-    expect(enlaces.map((e) => e.categoryId)).toEqual(['cat-1', 'cat-2']);
-    expect(new Set(enlaces.map((e) => e.productId)).size).toBe(1);
+    expect(links).toHaveLength(2);
+    expect(links.map((e) => e.categoryId)).toEqual(['cat-1', 'cat-2']);
+    expect(new Set(links.map((e) => e.productId)).size).toBe(1);
   });
 
   /**
@@ -312,9 +312,9 @@ describe('ProductsService writes', () => {
 
     await expect(
       h.service.create({
-        name: 'Camiseta',
-        description: 'Algodón',
-        categoryIds: ['cat-1', 'cat-inexistente'],
+        name: 'Tee',
+        description: 'Cotton',
+        categoryIds: ['cat-1', 'cat-missing'],
       }),
     ).rejects.toMatchObject({ kind: Problems.notFound });
     expect(h.prisma.product.create).not.toHaveBeenCalled();
@@ -330,13 +330,13 @@ describe('ProductsService writes', () => {
     const product = aFullProduct();
     h.prisma.product.findFirst.mockResolvedValue(product);
 
-    await h.service.update(product.id, { name: 'Nuevo nombre' });
+    await h.service.update(product.id, { name: 'New name' });
 
-    const escrito = h.prisma.product.update.mock.calls[0][0].data as Record<
+    const written = h.prisma.product.update.mock.calls[0][0].data as Record<
       string,
       unknown
     >;
-    expect(escrito).toEqual({ name: 'Nuevo nombre' });
+    expect(written).toEqual({ name: 'New name' });
     expect(h.prisma.productCategory.deleteMany).not.toHaveBeenCalled();
   });
 
@@ -345,14 +345,14 @@ describe('ProductsService writes', () => {
     h.prisma.product.findFirst.mockResolvedValue(product);
     h.prisma.category.count.mockResolvedValue(1);
 
-    await h.service.update(product.id, { categoryIds: ['cat-nueva'] });
+    await h.service.update(product.id, { categoryIds: ['cat-new'] });
 
     expect(h.prisma.productCategory.deleteMany).toHaveBeenCalledWith({
       where: { productId: product.id },
     });
-    const enlaces = h.prisma.productCategory.createMany.mock.calls[0][0]
+    const links = h.prisma.productCategory.createMany.mock.calls[0][0]
       ?.data as { categoryId: string }[];
-    expect(enlaces.map((e) => e.categoryId)).toEqual(['cat-nueva']);
+    expect(links.map((e) => e.categoryId)).toEqual(['cat-new']);
   });
 
   it('can disable a product without deleting it', async () => {

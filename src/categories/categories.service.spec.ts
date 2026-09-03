@@ -46,13 +46,13 @@ describe('CategoriesService', () => {
 
   it('renames a category when the new name is free', async () => {
     const category = aCategory({ name: 'Tees' });
-    const renamed = { ...category, name: 'Camisetas' };
+    const renamed = { ...category, name: 'Hoodies' };
     h.prisma.category.findUnique.mockResolvedValue(category);
     h.prisma.category.update.mockResolvedValue(renamed);
 
-    const result = await h.service.rename(category.id, 'Camisetas');
+    const result = await h.service.rename(category.id, 'Hoodies');
 
-    expect(result).toEqual({ id: category.id, name: 'Camisetas' });
+    expect(result).toEqual({ id: category.id, name: 'Hoodies' });
   });
 
   /**

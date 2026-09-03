@@ -48,7 +48,7 @@ export const aManager = (overrides: Overrides<User> = {}): User =>
 export function aCategory(overrides: Overrides<Category> = {}): Category {
   return {
     id: newId(),
-    name: `Categoría ${Math.random().toString(36).slice(2, 6)}`,
+    name: `Category ${Math.random().toString(36).slice(2, 6)}`,
     createdAt: now(),
     updatedAt: now(),
     ...overrides,
@@ -58,8 +58,8 @@ export function aCategory(overrides: Overrides<Category> = {}): Category {
 export function aProduct(overrides: Overrides<Product> = {}): Product {
   return {
     id: newId(),
-    name: 'Camiseta de prueba',
-    description: 'Algodón',
+    name: 'Test T-shirt',
+    description: 'Cotton',
     isActive: true,
     deletedAt: null,
     createdAt: now(),
@@ -145,10 +145,10 @@ export function aMulterFile(
 ): Express.Multer.File {
   const buffer =
     overrides.buffer ??
-    Buffer.concat([PNG_MAGIC_BYTES, Buffer.from('imagen-de-prueba')]);
+    Buffer.concat([PNG_MAGIC_BYTES, Buffer.from('test-image')]);
   return {
     fieldname: 'file',
-    originalname: 'camiseta.png',
+    originalname: 'tshirt.png',
     encoding: '7bit',
     mimetype: 'image/png',
     size: buffer.length,
@@ -179,7 +179,7 @@ export function aOneTimeToken(
     id: newId(),
     userId,
     tokenHash: `hash-${Math.random().toString(36).slice(2, 8)}`,
-    pendingPasswordHash: '$argon2id$pendiente',
+    pendingPasswordHash: '$argon2id$pending',
     expiresAt: new Date(Date.now() + 3_600_000),
     consumedAt: null,
     createdAt: now(),

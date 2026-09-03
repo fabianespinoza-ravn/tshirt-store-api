@@ -7,11 +7,11 @@ import { anExecutionContext } from '../../testing/http';
 import { TokenService } from '../token.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
 
-class Rutas {
+class Routes {
   @Public()
-  publica(this: void): void {}
+  openRoute(this: void): void {}
 
-  protegida(this: void): void {}
+  restrictedRoute(this: void): void {}
 }
 
 /**
@@ -27,9 +27,9 @@ class Rutas {
 describe('JwtAuthGuard', () => {
   const tokens = mockDeep<TokenService>();
   const guard = new JwtAuthGuard(new Reflector(), tokens);
-  const identidad = {
+  const identity = {
     sub: 'user-1',
-    email: 'ana@ejemplo.test',
+    email: 'ana@example.test',
     role: 'MANAGER' as const,
   };
 
@@ -44,8 +44,8 @@ describe('JwtAuthGuard', () => {
   describe('protected routes', () => {
     it('rejects a request with no Authorization header', () => {
       const { context, recorded } = anExecutionContext({
-        handler: Rutas.prototype.protegida,
-        controller: Rutas,
+        handler: Routes.prototype.restrictedRoute,
+        controller: Routes,
       });
 
       expect(() => guard.canActivate(context)).toThrow(ProblemException);
@@ -60,9 +60,9 @@ describe('JwtAuthGuard', () => {
         throw new Error('jwt expired');
       });
       const { context, recorded } = anExecutionContext({
-        handler: Rutas.prototype.protegida,
-        controller: Rutas,
-        headers: { authorization: 'Bearer caducado' },
+        handler: Routes.prototype.restrictedRoute,
+        controller: Routes,
+        headers: { authorization: 'Bearer expired' },
       });
 
       try {
@@ -77,17 +77,17 @@ describe('JwtAuthGuard', () => {
     });
 
     it('attaches the identity carried by a valid token', () => {
-      tokens.verifyAccessToken.mockReturnValue(identidad);
+      tokens.verifyAccessToken.mockReturnValue(identity);
       const { context } = anExecutionContext({
-        handler: Rutas.prototype.protegida,
-        controller: Rutas,
-        headers: { authorization: 'Bearer valido' },
+        handler: Routes.prototype.restrictedRoute,
+        controller: Routes,
+        headers: { authorization: 'Bearer valid' },
       });
 
       expect(guard.canActivate(context)).toBe(true);
       expect(userOf(context)).toEqual({
         id: 'user-1',
-        email: 'ana@ejemplo.test',
+        email: 'ana@example.test',
         role: 'MANAGER',
       });
     });
@@ -97,12 +97,12 @@ describe('JwtAuthGuard', () => {
      * as an invalid one: `Basic` or a bare value aren't credentials for this
      * API.
      */
-    it.each([['Basic dXNlcjpwYXNz'], ['valorsuelto'], ['Bearer']])(
+    it.each([['Basic dXNlcjpwYXNz'], ['bare-value'], ['Bearer']])(
       'treats %s as no token at all',
       (authorization) => {
         const { context, recorded } = anExecutionContext({
-          handler: Rutas.prototype.protegida,
-          controller: Rutas,
+          handler: Routes.prototype.restrictedRoute,
+          controller: Routes,
           headers: { authorization },
         });
 
@@ -116,8 +116,8 @@ describe('JwtAuthGuard', () => {
   describe('public routes', () => {
     it('lets an anonymous caller through with no user attached', () => {
       const { context } = anExecutionContext({
-        handler: Rutas.prototype.publica,
-        controller: Rutas,
+        handler: Routes.prototype.openRoute,
+        controller: Routes,
       });
 
       expect(guard.canActivate(context)).toBe(true);
@@ -132,11 +132,11 @@ describe('JwtAuthGuard', () => {
      * own catalog.
      */
     it('still attaches the identity when a public route carries a valid token', () => {
-      tokens.verifyAccessToken.mockReturnValue(identidad);
+      tokens.verifyAccessToken.mockReturnValue(identity);
       const { context } = anExecutionContext({
-        handler: Rutas.prototype.publica,
-        controller: Rutas,
-        headers: { authorization: 'Bearer valido' },
+        handler: Routes.prototype.openRoute,
+        controller: Routes,
+        headers: { authorization: 'Bearer valid' },
       });
 
       expect(guard.canActivate(context)).toBe(true);
@@ -153,9 +153,9 @@ describe('JwtAuthGuard', () => {
         throw new Error('jwt malformed');
       });
       const { context } = anExecutionContext({
-        handler: Rutas.prototype.publica,
-        controller: Rutas,
-        headers: { authorization: 'Bearer roto' },
+        handler: Routes.prototype.openRoute,
+        controller: Routes,
+        headers: { authorization: 'Bearer broken' },
       });
 
       expect(guard.canActivate(context)).toBe(true);
