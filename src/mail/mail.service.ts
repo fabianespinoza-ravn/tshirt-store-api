@@ -1,46 +1,55 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { NodeEnv } from '../config/env.validation';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Injectable } from '@nestjs/common';
+import type { Queue } from 'bullmq';
+import { JobName, QueueName } from '../queue/queue.constants';
+import { MailKind, type MailJobData } from './mail.jobs';
 
-// No real SMTP transport yet (optional variables for Week 3): it logs, and
-// the plaintext token is only printed outside production so it can be
-// tested.
+/**
+ * A producer, since block 4. It decides that a message should be sent and
+ * stops there; the worker decides what it says and delivers it.
+ *
+ * The four method signatures are unchanged from the version that logged, so
+ * `AuthService` did not have to know that any of this happened — which is
+ * the shape the architecture write-up describes and the reason the change
+ * is confined to this file.
+ *
+ * What did change is when the caller's promise resolves. It used to mean
+ * "the message was handled"; it now means "the job was accepted". A sign-up
+ * that returns 201 is promising that an email will be sent, not that it has
+ * been — and if Redis is unreachable, `add` rejects and the sign-up fails
+ * rather than silently swallowing the account's only way to be verified.
+ */
 @Injectable()
 export class MailService {
-  private readonly logger = new Logger(MailService.name);
+  constructor(
+    @InjectQueue(QueueName.Mail) private readonly queue: Queue<MailJobData>,
+  ) {}
 
-  // Verification link: used both for a new account and for a resend.
   sendVerificationLink(email: string, token: string): Promise<void> {
-    this.devOnly('email verification', email, token);
-    return Promise.resolve();
+    return this.enqueue({ kind: MailKind.Verification, to: email, token });
   }
 
-  // Notice to an already-verified account trying to sign up again: it lets
-  // sign-up always respond the same way, leaving the email, not the
-  // response, to tell the cases apart.
   sendSignInReminder(email: string): Promise<void> {
-    this.logger.log(`[mail] sign-in reminder -> ${email}`);
-    return Promise.resolve();
+    return this.enqueue({ kind: MailKind.SignInReminder, to: email });
   }
 
   sendPasswordReset(email: string, token: string): Promise<void> {
-    this.devOnly('password reset', email, token);
-    return Promise.resolve();
+    return this.enqueue({ kind: MailKind.PasswordReset, to: email, token });
   }
 
-  // Notification the brief requires after a password change, even though
-  // the code doesn't give that away.
   sendPasswordChanged(email: string): Promise<void> {
-    this.logger.log(`[mail] password changed -> ${email}`);
-    return Promise.resolve();
+    return this.enqueue({ kind: MailKind.PasswordChanged, to: email });
   }
 
-  private devOnly(subject: string, email: string, token: string): void {
-    if (process.env.NODE_ENV === NodeEnv.Production) {
-      this.logger.log(`[mail] ${subject} -> ${email}`);
-      return;
-    }
-    this.logger.warn(
-      `[mail] ${subject} -> ${email} | token=${token} (outside production only)`,
-    );
+  /**
+   * No `jobId`, deliberately, where the rest of block 4 uses one for
+   * idempotency. Two verification emails to the same address are two
+   * different messages carrying two different tokens — a resend is a
+   * feature of the contract, not a duplicate to be collapsed. The
+   * idempotency that matters in this block belongs to settlement, where
+   * repeating the job would move money twice.
+   */
+  private async enqueue(data: MailJobData): Promise<void> {
+    await this.queue.add(JobName.SendMail, data);
   }
 }
