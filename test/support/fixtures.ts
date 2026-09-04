@@ -2,7 +2,6 @@ import { JwtService } from '@nestjs/jwt';
 import { UserRole } from '@prisma/client';
 import type { AccessTokenPayload } from '../../src/auth/token.service';
 import type { E2eApp } from './app';
-import { MailKind } from './mail-recorder';
 
 const AUTH = '/api/v1/auth';
 const REFRESH_COOKIE = 'refreshToken';
@@ -55,9 +54,12 @@ export async function signUpVerified(
     .send(credentials);
   expectStatus('sign-up', signedUp.status, 201);
 
-  const token = e2e.mail.lastTokenFor(credentials.email, MailKind.Verification);
+  // Waits for the worker to deliver, rather than reading a recorder the
+  // request filled synchronously: since block 4 the send is a job, and the
+  // response returns before it is processed.
+  const token = await e2e.mail.tokenFor(credentials.email);
   if (!token) {
-    throw new Error('sign-up: no verification token was recorded');
+    throw new Error('sign-up: the verification message carried no token');
   }
 
   const confirmed = await e2e

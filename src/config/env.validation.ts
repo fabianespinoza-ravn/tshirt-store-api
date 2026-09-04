@@ -44,6 +44,17 @@ export class EnvironmentVariables {
   @Max(65535)
   REDIS_PORT: number = 6379;
 
+  /**
+   * Namespaces every BullMQ key. Optional because one value is right for
+   * development and production alike; the end-to-end suite sets its own so
+   * a test run and a developer's worker on the same Redis cannot consume
+   * each other's jobs.
+   */
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  QUEUE_PREFIX?: string;
+
   @IsString()
   @IsNotEmpty()
   JWT_ACCESS_SECRET!: string;
