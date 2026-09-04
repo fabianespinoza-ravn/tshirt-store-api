@@ -26,8 +26,13 @@ export class MailTransport {
     this.transporter = createTransport({
       host: config.getOrThrow<string>('SMTP_HOST'),
       port,
-      // Implicit TLS on 465; everything else negotiates STARTTLS.
+      // Implicit TLS on 465; everything else negotiates STARTTLS — and
+      // must get it. Without `requireTLS` nodemailer's negotiation is
+      // opportunistic: a server that does not offer STARTTLS gets the
+      // credentials and the one-time token in clear text, on a connection
+      // nothing warns about.
       secure: port === 465,
+      requireTLS: port !== 465,
       auth: {
         user: config.getOrThrow<string>('SMTP_USER'),
         pass: config.getOrThrow<string>('SMTP_PASSWORD'),

@@ -53,9 +53,17 @@ describe('MailTransport', () => {
       host: 'smtp.example.test',
       port: 587,
       secure: false,
+      requireTLS: true,
       auth: { user: 'mailer', pass: 'password' },
     });
   });
+
+  /**
+   * Opportunistic negotiation is not enough: without `requireTLS` a server
+   * that does not offer STARTTLS gets the credentials and the one-time token
+   * in clear text, and nothing warns.
+   */
+  it.todo('refuses to send in clear text when STARTTLS is not offered');
 
   it('asks for an implicit TLS connection on 465 and negotiates on 587', () => {
     makeTransport({ SMTP_PORT: 465 });

@@ -1,4 +1,4 @@
-import { Processor, WorkerHost } from '@nestjs/bullmq';
+import { OnWorkerEvent, Processor, WorkerHost } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
 import type { Job } from 'bullmq';
 import {
@@ -44,6 +44,7 @@ export class MaintenanceProcessor extends WorkerHost {
    * that fails silently every minute while the queue looks busy — is the
    * failure mode this block exists to avoid.
    */
+  @OnWorkerEvent('failed')
   onFailed(job: Job, error: Error): void {
     this.logger.error(`${job.name} failed: ${error.message}`, error.stack);
   }

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { UserRole, UserState, type User } from '@prisma/client';
 import { newId } from '../common/ids';
 import { loadOrThrow } from '../common/load-or-throw';
@@ -20,6 +20,8 @@ export interface SessionResult {
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly passwords: PasswordService,
@@ -156,7 +158,10 @@ export class AuthService {
       }),
     ]);
 
-    await this.mail.sendVerificationLink(email, token);
+    await this.notify(
+      this.mail.sendVerificationLink(email, token),
+      'verification resend',
+    );
   }
 
   // ------------------------------------------------------------------ session
@@ -248,7 +253,10 @@ export class AuthService {
       },
     });
 
-    await this.mail.sendPasswordReset(email, token);
+    await this.notify(
+      this.mail.sendPasswordReset(email, token),
+      'password reset',
+    );
   }
 
   async resetPassword(token: string, newPassword: string): Promise<void> {
@@ -298,7 +306,10 @@ export class AuthService {
     });
 
     await this.tokens.revokeAllForUser(userId);
-    await this.mail.sendPasswordChanged(user.email);
+    await this.notify(
+      this.mail.sendPasswordChanged(user.email),
+      'password changed',
+    );
   }
 
   private invalidCredentials(): ProblemException {
@@ -306,5 +317,33 @@ export class AuthService {
       Problems.unauthorized,
       'The supplied credentials are not valid.',
     );
+  }
+  /**
+   * Sends something whose failure must not reach the caller.
+   *
+   * Since block 4 these methods enqueue rather than log, so they can reject
+   * — and three endpoints here promise a response that does not depend on
+   * whether the address exists. Each of them reaches the mail call **only**
+   * for an address that is registered, so letting a rejection through would
+   * answer 500 for those and 202 for everyone else: a queue hiccup would
+   * turn the endpoint into exactly the oracle its uniform response exists to
+   * prevent.
+   *
+   * What is given up is telling the client their message was not sent. That
+   * is the smaller harm, and the log is where it goes. `signUp` is
+   * deliberately not routed through here: it sends on both of its branches,
+   * so a rejection is symmetric and reveals nothing, and an account whose
+   * verification was never enqueued is better reported than pretended.
+   */
+  private async notify(send: Promise<void>, what: string): Promise<void> {
+    try {
+      await send;
+    } catch (error) {
+      this.logger.error(
+        `Could not enqueue the ${what} message: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
   }
 }

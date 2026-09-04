@@ -463,4 +463,25 @@ describe('AuthService', () => {
       expect(h.tokens.revokeFamilyOf).not.toHaveBeenCalled();
     });
   });
+  /**
+   * The regression this branch introduced and then closed, which is the
+   * kind worth a permanent guard.
+   *
+   * Since mail is enqueued rather than logged, these methods can reject —
+   * and each of the three below reaches the mail call **only** for an
+   * address that is registered. A rejection reaching the caller would
+   * answer 500 for those and 202 for everyone else, turning a queue hiccup
+   * into the account-enumeration oracle the uniform response exists to
+   * prevent. Assert that each still resolves when the queue rejects.
+   *
+   * `signUp` is deliberately the other way round: it sends on both of its
+   * branches, so a rejection reveals nothing and an account whose
+   * verification was never enqueued is better reported than pretended.
+   */
+  describe('when the mail queue is unreachable', () => {
+    it.todo('forgotPassword still resolves for a registered address');
+    it.todo('resendEmailVerification still resolves for a pending address');
+    it.todo('changePassword still resolves, since the change already happened');
+    it.todo('signUp rejects instead, because both of its branches send');
+  });
 });

@@ -1,4 +1,4 @@
-import { Processor, WorkerHost } from '@nestjs/bullmq';
+import { OnWorkerEvent, Processor, WorkerHost } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
 import type { Job } from 'bullmq';
 import { renderMail } from '../../mail/mail.content';
@@ -41,6 +41,7 @@ export class MailProcessor extends WorkerHost {
    *
    * **Never `job.data`.** It holds the token.
    */
+  @OnWorkerEvent('failed')
   onFailed(job: Job<MailJobData>, error: Error): void {
     this.logger.error(
       `${job.data.kind} to ${job.data.to} failed after ${job.attemptsMade} attempt(s): ${error.message}`,
