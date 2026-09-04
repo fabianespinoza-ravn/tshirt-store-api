@@ -149,6 +149,14 @@ export default tseslint.config(
           selector: 'function',
           format: ['camelCase', 'PascalCase'],
         },
+        // An import carries the name the package gave it, and a package that
+        // default-exports a class gives it a PascalCase one — `Redis` from
+        // ioredis is the case here. Renaming it to satisfy a convention
+        // would say it is not a class.
+        {
+          selector: 'import',
+          format: ['camelCase', 'PascalCase'],
+        },
         {
           selector: ['classProperty', 'objectLiteralProperty', 'typeProperty'],
           format: null,
