@@ -242,7 +242,14 @@ export class OrdersService {
    * work nobody did. It is cancelled here, inside the caller's transaction,
    * and its reservations go back before the new order takes any. Without
    * this a client is locked out of their own cart by an order that lapsed an
-   * hour ago, since nothing else releases it until block 4's sweep exists.
+   * hour ago.
+   *
+   * The release is conditional on the cancellation having moved the row, and
+   * that is not defensive noise: the sweep cancels expired orders too, so
+   * from block 4 onwards there are two writers for this transition. Whoever
+   * loses the race must give nothing back, or the same units are returned
+   * twice and the store invents stock it does not have. Only the writer that
+   * actually moved PENDING away from the row owns its reservations.
    */
   private async settlePendingOrder(
     tx: Tx,
@@ -272,10 +279,16 @@ export class OrdersService {
       );
     }
 
-    await tx.order.updateMany({
+    const cancelled = await tx.order.updateMany({
       where: { id: pending.id, status: OrderStatus.PENDING },
       data: { status: OrderStatus.CANCELLED, expiresAt: null },
     });
+
+    // Somebody else got there first — the sweep, or another checkout. They
+    // released what this order was holding, so releasing it again would
+    // hand the same units back twice.
+    if (cancelled.count === 0) return;
+
     await this.releaseReservations(tx, pending.items);
     await this.recordStatus(tx, pending.id, OrderStatus.CANCELLED);
   }
