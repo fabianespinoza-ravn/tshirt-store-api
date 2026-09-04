@@ -5,11 +5,13 @@ import { aCategory } from '../testing/factories';
 import { resetPrismaMock } from '../testing/prisma.mock';
 import { CategoriesService } from './categories.service';
 
+// Kept for the two it.todo below: the P2002 the service now lets through.
 const uniqueViolation = () =>
   new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
     code: 'P2002',
     clientVersion: '6.19.3',
   });
+void uniqueViolation;
 
 describe('CategoriesService', () => {
   let h: ServiceHarness<CategoriesService>;
@@ -34,15 +36,22 @@ describe('CategoriesService', () => {
     expect(result).toEqual({ id: created.id, name: 'Tees' });
   });
 
-  // The unique index, not a findUnique probe, is what decides this: a P2002
-  // from the write is what "the name is taken" looks like now.
-  it('rejects creating a category whose name is already used', async () => {
-    h.prisma.category.create.mockRejectedValue(uniqueViolation());
-
-    await expect(h.service.create('Tees')).rejects.toMatchObject({
-      kind: Problems.conflict,
-    });
-  });
+  /**
+   * These two asserted that the service caught the P2002 and rewrote it as a
+   * conflict. It no longer does: the mapping moved to the `Category:name`
+   * entry of src/common/problem/translators/prisma.translator.ts, so the
+   * service lets the error through and the filter serves the same 409 with
+   * the same detail — verified against a real duplicate insert.
+   *
+   * What is left to assert here is the half that is still the service's: that
+   * it does not swallow, wrap or rewrite the error on its way out, because a
+   * translator can only classify what reaches it. The harness above is ready
+   * — `uniqueViolation()` still builds the P2002 — and the assertions are the
+   * student's (CLAUDE.md, Tests), since the change under test is generated.
+   */
+  it.todo(
+    'lets the unique violation from create reach the translator untouched',
+  );
 
   it('renames a category when the new name is free', async () => {
     const category = aCategory({ name: 'Tees' });
@@ -71,15 +80,9 @@ describe('CategoriesService', () => {
     });
   });
 
-  it('rejects renaming a category to another category name', async () => {
-    const category = aCategory({ name: 'Tees' });
-    h.prisma.category.findUnique.mockResolvedValue(category);
-    h.prisma.category.update.mockRejectedValue(uniqueViolation());
-
-    await expect(
-      h.service.rename(category.id, 'Hoodies'),
-    ).rejects.toMatchObject({ kind: Problems.conflict });
-  });
+  it.todo(
+    'lets the unique violation from rename reach the translator untouched',
+  );
 
   it('returns 404 when renaming a category that does not exist', async () => {
     h.prisma.category.findUnique.mockResolvedValue(null);
