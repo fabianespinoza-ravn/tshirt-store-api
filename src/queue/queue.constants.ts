@@ -25,41 +25,61 @@ export enum JobName {
  * the review's question — *what happens to a job that fails twice?* — with a
  * different sentence.
  *
- * `removeOnFail: false` is common to all of them and is what makes the
- * answer sayable at all: a failed job stays in the failed set, where it can
- * be counted, alerted on and retried by hand. A job that deletes itself on
- * failure has no answer to that question.
+ * None of them deletes a failure on the spot, which is what makes the answer
+ * sayable at all: a failed job stays in the failed set, where it can be
+ * counted, alerted on and retried by hand. How long it stays differs, and
+ * the difference is what the payload carries — a settlement holds an
+ * identifier, a mail job holds a live one-time token, and only one of those
+ * is safe to keep indefinitely.
  */
 
 /**
- * Mail. Three attempts, then it parks.
+ * Mail. Three attempts, then it parks — and it keeps nothing it does not
+ * have to.
  *
  * Losing a verification email is bad and recoverable — the client can ask
- * for another — so the retries exist to ride out a transient SMTP refusal,
- * not to guarantee delivery. Completed jobs are trimmed because they carry
- * an address and there is no reason to keep it.
+ * for another — so the retries ride out a transient SMTP refusal rather than
+ * guaranteeing delivery.
+ *
+ * The retention is the part worth reading twice. A mail job's payload
+ * carries the recipient and, for verification and password reset, the
+ * **one-time token in plain text** — the database keeps only its hash, so
+ * the job is the only place the usable value exists. Keeping the last
+ * hundred completed jobs would keep a hundred live tokens in Redis, readable
+ * by anything with access to it, which is a worse exposure than the one the
+ * hashing was for. Completed jobs go immediately; failed ones are bounded to
+ * a day, long enough to diagnose a broken transport and short enough that a
+ * token cannot sit there indefinitely.
  */
 export const MAIL_JOB_OPTIONS: JobsOptions = {
   attempts: 3,
   backoff: { type: 'exponential', delay: 5_000 },
-  removeOnComplete: 100,
-  removeOnFail: false,
+  removeOnComplete: true,
+  removeOnFail: { age: 86_400 },
 };
 
 /**
  * Settlement. Retries for about a day, then parks and is alerted on.
  *
  * There is no number of attempts after which losing a payment is
- * acceptable, so this never gives up quietly: twenty-four attempts with the
- * backoff capped at an hour spans a working day, and what happens after
- * that is a human being looking at the failed set — which is why the count
- * of failures on this queue is a monitored value and not just a number.
+ * acceptable, so this never gives up quietly. What happens after the
+ * attempts run out is a human being looking at the failed set, which is why
+ * the count of failures on this queue is a monitored value and not just a
+ * number.
  *
- * The job itself has no consumer until block 5, when the webhook produces
- * it. The policy is here because it is a decision, not an implementation.
+ * The attempt count is arithmetic and not a round number. BullMQ's
+ * exponential strategy has **no cap**: with a 10s seed the nth retry waits
+ * 10s × 2^(n-1), so the delays sum to 10s × (2^retries − 1). Twenty-four
+ * attempts would therefore span about 970 days, not the day it was meant
+ * to. Fourteen attempts — thirteen retries — sum to 81,910 seconds, a
+ * little under twenty-three hours, with the first few retries still quick
+ * enough to ride out a blip.
+ *
+ * The job has no consumer until block 5, when the webhook produces it. The
+ * policy is here because it is a decision, not an implementation.
  */
 export const SETTLEMENT_JOB_OPTIONS: JobsOptions = {
-  attempts: 24,
+  attempts: 14,
   backoff: { type: 'exponential', delay: 10_000 },
   removeOnComplete: 1_000,
   removeOnFail: false,
@@ -95,6 +115,8 @@ export const SWEEP_EVERY_MS = 60_000;
 export const STOCK_NOTIFICATION_JOB_OPTIONS: JobsOptions = {
   attempts: 3,
   backoff: { type: 'exponential', delay: 5_000 },
-  removeOnComplete: 500,
-  removeOnFail: false,
+  // A recipient list is not a token, but it is still personal data with no
+  // reason to outlive the send.
+  removeOnComplete: true,
+  removeOnFail: { age: 86_400 },
 };

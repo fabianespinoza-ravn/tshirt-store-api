@@ -308,7 +308,20 @@ describe('OrdersSweepService', () => {
       await expect(h.service.sweep(now)).resolves.toEqual({
         examined: 2,
         cancelled: 1,
+        // Losing the precondition is not a failure: the row moved, just not
+        // by us. Only a rejected transaction counts here.
+        failed: 0,
       });
     });
+
+    /**
+     * The branch the review found missing: a rejected transaction, which is
+     * what `Serializable` does to the loser of a genuine conflict. The sweep
+     * runs once with no retries because the next minute's run is the retry —
+     * and that only holds if one rejection costs one order rather than the
+     * rest of the batch behind it.
+     */
+    it.todo('carries on with the batch when one order transaction is rejected');
+    it.todo('counts a rejected transaction as failed, not as cancelled');
   });
 });

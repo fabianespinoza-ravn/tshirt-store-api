@@ -15,8 +15,15 @@ export const SWEEP_BATCH_SIZE = 100;
 export interface SweepOutcome {
   /** Expired orders this run looked at. */
   examined: number;
-  /** How many it actually cancelled — the rest were taken by someone else. */
+  /** How many it actually cancelled. */
   cancelled: number;
+  /**
+   * How many it could not settle because their transaction was rejected —
+   * a conflict with a concurrent checkout, almost always. Reported rather
+   * than swallowed, so a run that quietly settled nothing is
+   * distinguishable from one that had nothing to settle.
+   */
+  failed: number;
 }
 
 /**
@@ -68,29 +75,51 @@ export class OrdersSweepService {
     });
 
     let cancelled = 0;
+    let failed = 0;
 
     for (const order of expired) {
-      const settled = await this.prisma.$transaction(
-        async (tx) => {
-          const moved = await tx.order.updateMany({
-            where: {
-              id: order.id,
-              status: OrderStatus.PENDING,
-              expiresAt: { lte: now },
-            },
-            data: { status: OrderStatus.CANCELLED, expiresAt: null },
-          });
+      // Each order's failure is caught here, and that is what makes the
+      // sentence above true. `Serializable` rejects a conflicting
+      // transaction as P2034, and an uncaught rejection would leave the
+      // loop at the first collision — the batch abandoned, and the orders
+      // behind it still holding their stock until a later run happens to
+      // reach them. The job runs once with no retries precisely because
+      // the next minute's run is the retry; that only works if a single
+      // conflict costs one order.
+      try {
+        const settled = await this.prisma.$transaction(
+          async (tx) => {
+            const moved = await tx.order.updateMany({
+              where: {
+                id: order.id,
+                status: OrderStatus.PENDING,
+                expiresAt: { lte: now },
+              },
+              data: { status: OrderStatus.CANCELLED, expiresAt: null },
+            });
 
-          if (moved.count === 0) return false;
+            if (moved.count === 0) return false;
 
-          await releaseReservations(tx, order.items);
-          await recordStatus(tx, order.id, OrderStatus.CANCELLED);
-          return true;
-        },
-        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
-      );
+            await releaseReservations(tx, order.items);
+            await recordStatus(tx, order.id, OrderStatus.CANCELLED);
+            return true;
+          },
+          { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+        );
 
-      if (settled) cancelled += 1;
+        if (settled) cancelled += 1;
+      } catch (error) {
+        failed += 1;
+        // Logged per order rather than counted silently: a sweep that fails
+        // on the same order every minute forever is a different problem
+        // from one that loses a race occasionally, and only the message
+        // tells them apart.
+        this.logger.warn(
+          `Could not settle expired order ${order.id}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
     }
 
     // Only when it did something: this runs 1,440 times a day and a line per
@@ -101,6 +130,6 @@ export class OrdersSweepService {
       );
     }
 
-    return { examined: expired.length, cancelled };
+    return { examined: expired.length, cancelled, failed };
   }
 }

@@ -81,4 +81,19 @@ describe('validateEnv', () => {
     expect(() => validateEnv(incomplete)).toThrow(/JWT_ACCESS_SECRET/);
     expect(() => validateEnv(incomplete)).toThrow(/AWS_S3_BUCKET/);
   });
+  /**
+   * The mail variables became required in block 4, and the review is right
+   * that nothing exercised them. The one worth writing carefully is the
+   * MAIL_FROM pattern: a display name alone has to be refused, and so does a
+   * value carrying a newline, because that string reaches the `From` header
+   * verbatim and a newline there starts a header somebody else chose.
+   */
+  it.todo('refuses an environment with no SMTP host, user or password');
+  it.todo('refuses an SMTP_PORT outside the range of a port');
+  it.todo('defaults SMTP_PORT to 587 when it is absent');
+  it.todo(
+    'accepts a bare address and an address with a display name in MAIL_FROM',
+  );
+  it.todo('refuses a MAIL_FROM that is only a display name');
+  it.todo('refuses a MAIL_FROM carrying a carriage return or a newline');
 });

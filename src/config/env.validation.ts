@@ -124,11 +124,22 @@ export class EnvironmentVariables {
    * display name alone passes `@IsString()` and produces a `From` header no
    * strict server accepts. Either `someone@example.test` or
    * `Name <someone@example.test>`.
+   *
+   * **Both alternatives are anchored at both ends, and the display name
+   * refuses CR and LF.** A pattern that only pinned the closing `>` would
+   * accept a value beginning with a newline and a header of its own —
+   * `"\r\nBcc: someone-else@example.test <us@example.test>"` — which is
+   * header injection, because this string goes into the `From` header
+   * verbatim and a newline there starts the next header.
    */
   @IsString()
-  @Matches(/<[^@\s]+@[^@\s]+\.[^@\s>]+>\s*$|^[^@\s]+@[^@\s]+\.[^@\s]+$/, {
-    message: 'MAIL_FROM must contain an email address',
-  })
+  @Matches(
+    /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$|^[^\r\n<>]{1,64}<[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+>$/,
+    {
+      message:
+        'MAIL_FROM must be an email address, optionally with a display name',
+    },
+  )
   MAIL_FROM!: string;
 
   // Stripe comes in when its feature does. Optional until then so the week 3
