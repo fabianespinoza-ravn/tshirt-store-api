@@ -32,7 +32,9 @@
           {
             "type": "command",
             "command": "node",
-            "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/deny-env-files.mjs"],
+            "args": [
+              "${CLAUDE_PROJECT_DIR}/.claude/hooks/deny-env-files.mjs"
+            ],
             "timeout": 10
           }
         ]
@@ -43,7 +45,22 @@
           {
             "type": "command",
             "command": "node",
-            "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/deny-destructive.mjs"],
+            "args": [
+              "${CLAUDE_PROJECT_DIR}/.claude/hooks/deny-destructive.mjs"
+            ],
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit|Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PROJECT_DIR}/.claude/hooks/deny-secret-literals.mjs"
+            ],
             "timeout": 10
           }
         ]
