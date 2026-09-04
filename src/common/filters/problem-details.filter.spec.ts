@@ -145,4 +145,25 @@ describe('ProblemDetailsFilter', () => {
 
     expect(recorded.headers['WWW-Authenticate']).toBeUndefined();
   });
+
+  /**
+   * The branch the translators added. The harness above works unchanged —
+   * `catchIt` takes any thrown value — and the assertions are the student's
+   * (CLAUDE.md, Tests), because the branch under test is generated code.
+   *
+   * The case that matters is the last one: a `ProblemException` and a Nest
+   * `HttpException` must never reach a translator. They were built here on
+   * purpose and there is nothing to classify; a translator that got its
+   * hands on one could rewrite a deliberate 409 into something else.
+   */
+  it.todo(
+    'serves the catalog entry a translator chose instead of a generic 500',
+  );
+  it.todo(
+    'keeps the five required fields when the problem came from a translator',
+  );
+  it.todo('still serves the generic 500 for an error no translator claims');
+  it.todo(
+    'does not hand a ProblemException or an HttpException to a translator',
+  );
 });
