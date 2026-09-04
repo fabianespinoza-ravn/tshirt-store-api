@@ -57,8 +57,12 @@ jobs:
       # `node dist/main`. A build can succeed while emitting the entrypoint
       # somewhere else (widening tsconfig's `include` past src/ once moved it
       # to dist/src/main.js), so the path is checked explicitly.
-      - name: Production entrypoint
-        run: test -f dist/main.js
+      # Both entrypoints, for the same reason: render.yaml runs
+      # `node dist/main` for the web service and `node dist/worker` for the
+      # worker, and a build can succeed while emitting either one somewhere
+      # else.
+      - name: Production entrypoints
+        run: test -f dist/main.js && test -f dist/worker.js
 
   # Real HTTP requests against the real application over a real Postgres.
   # Its own job so a failing flow reads as "the flow broke", not as a red
@@ -67,6 +71,20 @@ jobs:
     runs-on: ubuntu-latest
 
     services:
+      # BullMQ connects at boot from block 4 on, so the suite no longer runs
+      # without Redis. The port is the usual one here and 6380 locally,
+      # because docker-compose.yml publishes it shifted — test/support/e2e-redis.ts
+      # is what reconciles the two.
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
       postgres:
         image: postgres:17-alpine
         env:
@@ -86,6 +104,8 @@ jobs:
       # the same plan-refuse-apply step a deploy runs, then truncates every
       # table before each test. DATABASE_URL only lets `prisma generate`
       # resolve; test/support/env.ts overwrites it in the test process.
+      E2E_REDIS_HOST: localhost
+      E2E_REDIS_PORT: 6379
       E2E_DATABASE_URL: postgresql://ci:ci@localhost:5432/tshirt_store_test?schema=public
       DATABASE_URL: postgresql://ci:ci@localhost:5432/tshirt_store_test?schema=public
 

@@ -29,7 +29,9 @@
     "prisma:sync": "npm run prisma:sync-schema && npm run prisma:backfill",
     "prisma:studio": "prisma studio",
     "precommit": "lint-staged",
-    "check:coverage-floor": "node scripts/check-coverage-floor.mjs"
+    "check:coverage-floor": "node scripts/check-coverage-floor.mjs",
+    "start:worker": "node dist/worker",
+    "start:worker:dev": "nest start --watch --entryFile worker"
   },
   "lint-staged": {
     "*.ts": [
