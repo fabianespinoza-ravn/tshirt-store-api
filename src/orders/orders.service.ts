@@ -13,6 +13,7 @@ import { paginate, type Paginated } from '../common/pagination';
 import { Problems } from '../common/problem/problem.catalog';
 import { ProblemException } from '../common/problem/problem.exception';
 import { PrismaService } from '../prisma/prisma.service';
+import { recordStatus, releaseReservations } from './order-writes';
 import type { CheckoutDto, ListOrdersQueryDto } from './dto/orders.dto';
 import {
   destinationsFor,
@@ -25,12 +26,15 @@ import { ORDER_INCLUDE, toOrder, type OrderView } from './orders.views';
 /**
  * How long a PENDING order holds its stock.
  *
- * Nothing sweeps on a timer yet — that arrives with the queue in block 4 —
- * so an expired order is released the next time its owner checks out, and
- * not before. That closes the case where a client is locked out of their own
- * cart by an order that expired an hour ago; it does not close the case
- * where the owner never comes back and the units stay reserved for everyone
- * else. The sweep is what closes that one.
+ * Two things release it, from opposite directions. `settlePendingOrder`
+ * below catches the owner coming back to buy again, in that request's own
+ * transaction. `OrdersSweepService` catches the owner who never comes back,
+ * once a minute, which is the case that would otherwise keep units reserved
+ * against everybody else forever.
+ *
+ * They race on purpose and it is safe: both carry `status: PENDING` as a
+ * precondition on the write, so whichever moves the row owns its
+ * reservations and the other returns nothing.
  */
 export const PENDING_ORDER_TTL_MS = parseDuration('30m');
 
@@ -175,10 +179,10 @@ export class OrdersService {
         }
 
         if (releasesStock(status)) {
-          await this.releaseReservations(tx, order.items);
+          await releaseReservations(tx, order.items);
         }
 
-        await this.recordStatus(tx, order.id, status);
+        await recordStatus(tx, order.id, status);
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
@@ -242,7 +246,14 @@ export class OrdersService {
    * work nobody did. It is cancelled here, inside the caller's transaction,
    * and its reservations go back before the new order takes any. Without
    * this a client is locked out of their own cart by an order that lapsed an
-   * hour ago, since nothing else releases it until block 4's sweep exists.
+   * hour ago.
+   *
+   * The release is conditional on the cancellation having moved the row, and
+   * that is not defensive noise: the sweep cancels expired orders too, so
+   * from block 4 onwards there are two writers for this transition. Whoever
+   * loses the race must give nothing back, or the same units are returned
+   * twice and the store invents stock it does not have. Only the writer that
+   * actually moved PENDING away from the row owns its reservations.
    */
   private async settlePendingOrder(
     tx: Tx,
@@ -272,12 +283,18 @@ export class OrdersService {
       );
     }
 
-    await tx.order.updateMany({
+    const cancelled = await tx.order.updateMany({
       where: { id: pending.id, status: OrderStatus.PENDING },
       data: { status: OrderStatus.CANCELLED, expiresAt: null },
     });
-    await this.releaseReservations(tx, pending.items);
-    await this.recordStatus(tx, pending.id, OrderStatus.CANCELLED);
+
+    // Somebody else got there first — the sweep, or another checkout. They
+    // released what this order was holding, so releasing it again would
+    // hand the same units back twice.
+    if (cancelled.count === 0) return;
+
+    await releaseReservations(tx, pending.items);
+    await recordStatus(tx, pending.id, OrderStatus.CANCELLED);
   }
 
   private async loadCheckoutableCart(
@@ -388,7 +405,7 @@ export class OrdersService {
       },
     });
 
-    await this.recordStatus(tx, orderId, OrderStatus.PENDING);
+    await recordStatus(tx, orderId, OrderStatus.PENDING);
 
     // The cart is spent. `status` is in the `where` and not only in the
     // data: it is the precondition that makes two overlapping checkouts
@@ -408,35 +425,6 @@ export class OrdersService {
     }
 
     return orderId;
-  }
-
-  private async releaseReservations(
-    tx: Tx,
-    items: readonly { skuId: string; quantity: number }[],
-  ): Promise<void> {
-    for (const item of items) {
-      await tx.sku.update({
-        where: { id: item.skuId },
-        data: { reserved: { decrement: item.quantity } },
-      });
-    }
-  }
-
-  /**
-   * Every status the order has held, in order. `sequence` is unique per
-   * order, so counting the rows already written is what the next one gets —
-   * inside the transaction, where the count cannot move underneath.
-   */
-  private async recordStatus(
-    tx: Tx,
-    orderId: string,
-    status: OrderStatus,
-  ): Promise<void> {
-    const sequence = await tx.orderStatusHistory.count({ where: { orderId } });
-
-    await tx.orderStatusHistory.create({
-      data: { id: newId(), orderId, status, sequence },
-    });
   }
 }
 

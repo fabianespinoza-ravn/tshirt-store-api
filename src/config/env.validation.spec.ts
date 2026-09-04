@@ -22,6 +22,10 @@ function anEnv(overrides: Record<string, unknown> = {}) {
     AWS_S3_BUCKET: 'tshirt-store-images',
     AWS_ACCESS_KEY_ID: 'access-key',
     AWS_SECRET_ACCESS_KEY: 'secret-key',
+    SMTP_HOST: 'smtp.example.test',
+    SMTP_USER: 'mailer',
+    SMTP_PASSWORD: 'mailer-password',
+    MAIL_FROM: 'T-Shirt Store <store@example.test>',
     ...overrides,
   };
 }
@@ -76,5 +80,77 @@ describe('validateEnv', () => {
 
     expect(() => validateEnv(incomplete)).toThrow(/JWT_ACCESS_SECRET/);
     expect(() => validateEnv(incomplete)).toThrow(/AWS_S3_BUCKET/);
+  });
+  /**
+   * The mail variables became required in block 4, and the review is right
+   * that nothing exercised them. The one worth writing carefully is the
+   * MAIL_FROM pattern: a display name alone has to be refused, and so does a
+   * value carrying a newline, because that string reaches the `From` header
+   * verbatim and a newline there starts a header somebody else chose.
+   */
+  it('refuses an environment with no SMTP host, user or password', () => {
+    expect(() =>
+      validateEnv(anEnvWithout('SMTP_HOST', 'SMTP_USER', 'SMTP_PASSWORD')),
+    ).toThrow(/SMTP_HOST.*SMTP_USER.*SMTP_PASSWORD/s);
+  });
+
+  it('refuses an SMTP_PORT outside the range of a port', () => {
+    expect(() => validateEnv(anEnv({ SMTP_PORT: 0 }))).toThrow(/SMTP_PORT/);
+    expect(() => validateEnv(anEnv({ SMTP_PORT: 70_000 }))).toThrow(
+      /SMTP_PORT/,
+    );
+  });
+
+  it('defaults SMTP_PORT to 587 when it is absent', () => {
+    expect(validateEnv(anEnv()).SMTP_PORT).toBe(587);
+  });
+
+  it('accepts a bare address and an address with a display name in MAIL_FROM', () => {
+    expect(
+      validateEnv(anEnv({ MAIL_FROM: 'store@example.test' })).MAIL_FROM,
+    ).toBe('store@example.test');
+    expect(
+      validateEnv(anEnv({ MAIL_FROM: 'T-Shirt Store <store@example.test>' }))
+        .MAIL_FROM,
+    ).toBe('T-Shirt Store <store@example.test>');
+  });
+
+  it('refuses a MAIL_FROM that is only a display name', () => {
+    expect(() => validateEnv(anEnv({ MAIL_FROM: 'Alford White' }))).toThrow(
+      /MAIL_FROM/,
+    );
+  });
+
+  /**
+   * Separately, and not only as the pair. The character class that rejects
+   * them is `[^
+<>]`, and a regression dropping one of the two would
+   * still fail the combined case — the other character is enough to reject
+   * that string — while leaving the injection open for the one that was
+   * removed. A bare carriage return is a line break to enough parsers to
+   * matter.
+   */
+  it('refuses a MAIL_FROM carrying a lone carriage return', () => {
+    expect(() =>
+      validateEnv(
+        anEnv({ MAIL_FROM: '\rBcc: victim@example.test <us@example.test>' }),
+      ),
+    ).toThrow(/MAIL_FROM/);
+  });
+
+  it('refuses a MAIL_FROM carrying a lone line feed', () => {
+    expect(() =>
+      validateEnv(
+        anEnv({ MAIL_FROM: '\nBcc: victim@example.test <us@example.test>' }),
+      ),
+    ).toThrow(/MAIL_FROM/);
+  });
+
+  it('refuses a MAIL_FROM carrying a carriage return or a newline', () => {
+    expect(() =>
+      validateEnv(
+        anEnv({ MAIL_FROM: '\r\nBcc: victim@example.test <us@example.test>' }),
+      ),
+    ).toThrow(/MAIL_FROM/);
   });
 });

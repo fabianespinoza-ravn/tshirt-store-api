@@ -29,7 +29,9 @@
     "prisma:sync": "npm run prisma:sync-schema && npm run prisma:backfill",
     "prisma:studio": "prisma studio",
     "precommit": "lint-staged",
-    "check:coverage-floor": "node scripts/check-coverage-floor.mjs"
+    "check:coverage-floor": "node scripts/check-coverage-floor.mjs",
+    "start:worker": "node dist/worker",
+    "start:worker:dev": "nest start --watch --entryFile worker"
   },
   "lint-staged": {
     "*.ts": [
@@ -42,6 +44,7 @@
     "@aws-sdk/s3-request-presigner": "^3.1121.0",
     "@casl/ability": "^7.0.1",
     "@casl/prisma": "^2.0.2",
+    "@nestjs/bullmq": "^11.0.5",
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^4.0.4",
     "@nestjs/core": "^11.0.1",
@@ -51,10 +54,13 @@
     "@nestjs/throttler": "^6.5.0",
     "@node-rs/argon2": "^2.2.0",
     "@prisma/client": "6.19.3",
+    "bullmq": "^6.3.4",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
     "cookie-parser": "^1.4.7",
     "helmet": "^8.3.0",
+    "ioredis": "^6.0.0",
+    "nodemailer": "^10.0.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "uuid": "^10.0.0"
@@ -70,6 +76,7 @@
     "@types/jest": "^30.0.0",
     "@types/multer": "^2.2.0",
     "@types/node": "^24.0.0",
+    "@types/nodemailer": "^8.0.1",
     "@types/supertest": "^7.0.0",
     "@types/uuid": "^10.0.0",
     "eslint": "^9.18.0",
