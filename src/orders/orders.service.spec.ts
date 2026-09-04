@@ -308,9 +308,20 @@ describe('OrdersService', () => {
       );
     });
 
-    it.todo(
-      'treats a pending order with no expiry as live: refuses it without cancelling or releasing anything',
-    );
+    it('treats a pending order with no expiry as live: refuses it without cancelling or releasing anything', async () => {
+      const pending = {
+        ...anOrder(client.id, { expiresAt: null }),
+        items: [anOrderItem('old-order', 'old-sku', { quantity: 3 })],
+      };
+      arrangeCheckout({ pending });
+
+      await expect(h.service.checkout(client, address)).rejects.toMatchObject({
+        kind: Problems.orderAlreadyPending,
+        extensions: { expiresAt: null },
+      });
+      expect(h.prisma.order.updateMany).not.toHaveBeenCalled();
+      expect(h.prisma.sku.update).not.toHaveBeenCalled();
+    });
   });
 
   describe('list', () => {
@@ -568,9 +579,26 @@ describe('OrdersService', () => {
       );
     });
 
-    it.todo(
-      'records the courier and the moment on a delivery, so the ability keeps letting them read it',
-    );
+    it('records the courier and the moment on a delivery, so the ability keeps letting them read it', async () => {
+      const delivery: AuthenticatedUser = {
+        id: 'delivery-1',
+        email: 'delivery@example.test',
+        role: UserRole.DELIVERY,
+      };
+      const order = arrangeStatusChange(OrderStatus.SHIPPED);
+
+      await h.service.updateStatus(delivery, order.id, OrderStatus.DELIVERED);
+
+      expect(h.prisma.order.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            status: OrderStatus.DELIVERED,
+            deliveredById: delivery.id,
+            deliveredAt: expect.any(Date),
+          }),
+        }),
+      );
+    });
   });
 
   describe('without the Order rules in the ability', () => {
