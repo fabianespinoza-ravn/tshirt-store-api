@@ -1,8 +1,11 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { validateEnv } from './config/env.validation';
+import { OrdersSweepService } from './orders/orders-sweep.service';
 import { PrismaModule } from './prisma/prisma.module';
+import { MaintenanceProcessor } from './queue/processors/maintenance.processor';
 import { QueueModule } from './queue/queue.module';
+import { SweepScheduler } from './queue/sweep.scheduler';
 
 /**
  * What the worker process loads, and nothing more.
@@ -18,7 +21,7 @@ import { QueueModule } from './queue/queue.module';
  * halves import `QueueModule`, which carries the connection and the queues
  * and no consumer at all.
  *
- * Processors arrive one at a time as their jobs do — the sweep next.
+ * Processors arrive one at a time as their jobs do.
  */
 @Module({
   imports: [
@@ -26,5 +29,6 @@ import { QueueModule } from './queue/queue.module';
     PrismaModule,
     QueueModule,
   ],
+  providers: [OrdersSweepService, MaintenanceProcessor, SweepScheduler],
 })
 export class WorkerModule {}
