@@ -52,6 +52,12 @@ export class OrdersController {
     Problems.stockUnavailable,
     Problems.orderAlreadyPending,
     Problems.itemWithdrawn,
+    // The retryable 409, which is a different answer from the four above.
+    // At `Serializable` the database refuses the losing concurrent checkout
+    // as P2034 and the translator serves it as a plain conflict; a client
+    // reading only `order-already-pending` would take every 409 here to mean
+    // "do not retry", which is the opposite of what this one says.
+    Problems.conflict,
     Problems.internalError,
     Problems.serviceUnavailable,
   )

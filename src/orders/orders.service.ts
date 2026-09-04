@@ -1,11 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { accessibleBy } from '@casl/prisma';
-import {
-  CartStatus,
-  OrderStatus,
-  Prisma,
-  type PrismaClient,
-} from '@prisma/client';
+import { CartStatus, OrderStatus, Prisma } from '@prisma/client';
 import {
   AppAbilityFactory,
   type AppAction,
@@ -28,19 +23,19 @@ import {
 import { ORDER_INCLUDE, toOrder, type OrderView } from './orders.views';
 
 /**
- * How long a PENDING order holds its stock. Nothing sweeps expired orders
- * yet — that arrives with the queue in block 4 — so today this column is
- * written and read and never acted on, which means an abandoned checkout
- * keeps its units reserved. Said out loud because it is a real hole, not a
- * detail.
+ * How long a PENDING order holds its stock.
+ *
+ * Nothing sweeps on a timer yet — that arrives with the queue in block 4 —
+ * so an expired order is released the next time its owner checks out, and
+ * not before. That closes the case where a client is locked out of their own
+ * cart by an order that expired an hour ago; it does not close the case
+ * where the owner never comes back and the units stay reserved for everyone
+ * else. The sweep is what closes that one.
  */
 export const PENDING_ORDER_TTL_MS = parseDuration('30m');
 
-/** The transaction client, which is not the same type as PrismaService. */
-type Tx = Omit<
-  PrismaClient,
-  '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'
->;
+/** The client inside `$transaction`, which is not the same type as PrismaService. */
+type Tx = Prisma.TransactionClient;
 
 @Injectable()
 export class OrdersService {
@@ -70,45 +65,29 @@ export class OrdersService {
   }
 
   /**
-   * Reserving the stock and writing the order are one transaction, and the
-   * isolation level is `Serializable` on purpose.
+   * Everything the checkout decides happens inside one `Serializable`
+   * transaction, and that placement is the point rather than a detail.
    *
    * Availability is `stock - reserved`, which Prisma cannot express as a
    * `where` on an atomic update, so the check and the increment are two
-   * statements. At a weaker isolation level two concurrent checkouts can
-   * both read the same `reserved`, both decide there is room, and both
-   * write — one unit oversold, with no error anywhere. Serializable makes
-   * the database refuse the second one instead, as P2034, which
-   * `prisma.translator.ts` already turns into the 409 that tells the client
-   * to try again.
+   * statements. `Serializable` only protects a decision whose reads are in
+   * the transaction's read set: a precondition read *before* `$transaction`
+   * opens is invisible to it, and the database will happily let a concurrent
+   * request invalidate it. So the pending-order check, the cart read, the
+   * SKU re-reads and every write are all in here — two overlapping checkouts
+   * cannot turn one cart into two orders, and the loser is refused as P2034,
+   * which `prisma.translator.ts` already serves as the 409 that says retry.
    */
   async checkout(
     user: AuthenticatedUser,
     dto: CheckoutDto,
   ): Promise<OrderView> {
-    await this.refusePendingOrder(user);
-
-    const cart = await this.prisma.cart.findFirst({
-      where: {
-        AND: [
-          accessibleBy(this.abilities.createForUser(user), 'read').ofType(
-            'Cart',
-          ),
-          { status: CartStatus.ACTIVE },
-        ],
-      },
-      include: { items: { include: { sku: { include: { product: true } } } } },
-    });
-
-    if (!cart || cart.items.length === 0) {
-      throw new ProblemException(
-        Problems.cartNotCheckoutable,
-        'The cart is empty.',
-      );
-    }
-
     const orderId = await this.prisma.$transaction(
-      async (tx) => this.placeOrder(tx, user, cart, dto),
+      async (tx) => {
+        await this.settlePendingOrder(tx, user);
+        const cart = await this.loadCheckoutableCart(tx, user);
+        return this.placeOrder(tx, user, cart, dto);
+      },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
 
@@ -147,8 +126,15 @@ export class OrdersService {
 
   /**
    * The status change, with the two refusals kept apart: a role that can
-   * never reach the destination is a 403, a role that can but not from
-   * here is a 409. `order-state-machine.ts` decides both.
+   * never reach the destination is a 403, a role that can but not from here
+   * is a 409. `order-state-machine.ts` decides both.
+   *
+   * The write carries the status it was judged against as a precondition,
+   * for the same reason the checkout moved its reads inside the transaction:
+   * the row was read before this one opened, so `Serializable` cannot refuse
+   * a concurrent request that moved it in between. Two overlapping
+   * cancellations would otherwise both pass the state machine and give the
+   * same reservation back twice.
    */
   async updateStatus(
     user: AuthenticatedUser,
@@ -160,8 +146,8 @@ export class OrdersService {
 
     await this.prisma.$transaction(
       async (tx) => {
-        await tx.order.update({
-          where: { id: order.id },
+        const moved = await tx.order.updateMany({
+          where: { id: order.id, status: order.status },
           data: {
             status,
             // A PENDING order is the only one holding an expiry. Once it
@@ -171,6 +157,13 @@ export class OrdersService {
             expiresAt: null,
           },
         });
+
+        if (moved.count === 0) {
+          throw new ProblemException(
+            Problems.conflict,
+            'The order changed status while the request was running. Read it again.',
+          );
+        }
 
         if (releasesStock(status)) {
           await this.releaseReservations(tx, order.items);
@@ -232,25 +225,76 @@ export class OrdersService {
 
   /**
    * One pending order at a time, which is what the contract's
-   * `order-already-pending` says and the only 409 of the seven that carries
-   * an extension: the client needs to know when the hold expires to decide
-   * between waiting and paying.
+   * `order-already-pending` says, and the only 409 of the seven carrying an
+   * extension: the client needs the expiry to choose between waiting and
+   * paying.
+   *
+   * An order that already expired is not a reason to refuse anyone — it is
+   * work nobody did. It is cancelled here, inside the caller's transaction,
+   * and its reservations go back before the new order takes any. Without
+   * this a client is locked out of their own cart by an order that lapsed an
+   * hour ago, since nothing else releases it until block 4's sweep exists.
    */
-  private async refusePendingOrder(user: AuthenticatedUser): Promise<void> {
-    const pending = await this.prisma.order.findFirst({
+  private async settlePendingOrder(
+    tx: Tx,
+    user: AuthenticatedUser,
+  ): Promise<void> {
+    const pending = await tx.order.findFirst({
       where: {
         AND: [this.scope(user, 'read'), { status: OrderStatus.PENDING }],
       },
+      include: { items: true },
       orderBy: { createdAt: 'desc' },
     });
 
-    if (pending) {
+    if (!pending) return;
+
+    // A PENDING order with no expiry is a row we should never have written.
+    // Treating it as live is the safe reading: releasing stock we cannot
+    // prove is stale would oversell.
+    const lapsed =
+      pending.expiresAt !== null && pending.expiresAt <= new Date();
+
+    if (!lapsed) {
       throw new ProblemException(
         Problems.orderAlreadyPending,
         'Pay the pending order or wait for it to expire.',
         { expiresAt: pending.expiresAt?.toISOString() ?? null },
       );
     }
+
+    await tx.order.updateMany({
+      where: { id: pending.id, status: OrderStatus.PENDING },
+      data: { status: OrderStatus.CANCELLED, expiresAt: null },
+    });
+    await this.releaseReservations(tx, pending.items);
+    await this.recordStatus(tx, pending.id, OrderStatus.CANCELLED);
+  }
+
+  private async loadCheckoutableCart(
+    tx: Tx,
+    user: AuthenticatedUser,
+  ): Promise<CartWithLines> {
+    const cart = await tx.cart.findFirst({
+      where: {
+        AND: [
+          accessibleBy(this.abilities.createForUser(user), 'read').ofType(
+            'Cart',
+          ),
+          { status: CartStatus.ACTIVE },
+        ],
+      },
+      include: { items: { include: { sku: true } } },
+    });
+
+    if (!cart || cart.items.length === 0) {
+      throw new ProblemException(
+        Problems.cartNotCheckoutable,
+        'The cart is empty.',
+      );
+    }
+
+    return cart;
   }
 
   private async placeOrder(
@@ -260,21 +304,28 @@ export class OrdersService {
     dto: CheckoutDto,
   ): Promise<string> {
     const orderId = newId();
+    const lines: Prisma.OrderItemCreateWithoutOrderInput[] = [];
     let subtotal = 0;
 
     for (const line of cart.items) {
-      // Re-read inside the transaction: the availability the cart showed
-      // was true when the line was added, which may have been days ago.
+      // Re-read the SKU *and its product* inside the transaction. The cart
+      // was filled at some point in the past, so its copy of both is stale;
+      // checking availability against a fresh row and withdrawal against the
+      // old one would leave the exact gap this re-read exists to close.
       const sku = await loadOrThrow(
-        () => tx.sku.findUnique({ where: { id: line.skuId } }),
+        () =>
+          tx.sku.findUnique({
+            where: { id: line.skuId },
+            include: { product: true },
+          }),
         'A cart line refers to a SKU that no longer exists.',
         Problems.itemWithdrawn,
       );
 
-      if (line.sku.product.deletedAt || !line.sku.product.isActive) {
+      if (sku.product.deletedAt || !sku.product.isActive) {
         throw new ProblemException(
           Problems.itemWithdrawn,
-          `${line.sku.product.name} is no longer for sale.`,
+          `${sku.product.name} is no longer for sale.`,
         );
       }
 
@@ -282,7 +333,7 @@ export class OrdersService {
       if (line.quantity > available) {
         throw new ProblemException(
           Problems.stockUnavailable,
-          `Only ${available} unit(s) of ${line.sku.product.name} are available.`,
+          `Only ${available} unit(s) of ${sku.product.name} are available.`,
         );
       }
 
@@ -293,20 +344,20 @@ export class OrdersService {
 
       subtotal += sku.price * line.quantity;
 
-      await tx.orderItem.create({
-        data: {
-          id: newId(),
-          orderId,
-          skuId: sku.id,
-          // Frozen here, on purpose: this is what makes the history survive
-          // a rename or a price change.
-          productName: line.sku.product.name,
-          unitPrice: sku.price,
-          quantity: line.quantity,
-        },
+      lines.push({
+        id: newId(),
+        sku: { connect: { id: sku.id } },
+        // Frozen here, on purpose: this is what makes the history survive a
+        // rename, a price change or a product taken off sale.
+        productName: sku.product.name,
+        unitPrice: sku.price,
+        quantity: line.quantity,
       });
     }
 
+    // The lines are nested in the parent's create rather than written first:
+    // `OrderItem.orderId` references `Order.id`, so an item inserted before
+    // its order violates the foreign key.
     await tx.order.create({
       data: {
         id: orderId,
@@ -324,18 +375,28 @@ export class OrdersService {
         city: dto.city,
         region: dto.region ?? null,
         postalCode: dto.postalCode,
+        items: { create: lines },
       },
     });
 
     await this.recordStatus(tx, orderId, OrderStatus.PENDING);
 
-    // The cart is spent. Clearing the mirror column is what frees the user
-    // to start another one: uq_carts_user_active is a plain unique on a
-    // nullable column, so only an ACTIVE cart occupies it.
-    await tx.cart.update({
-      where: { id: cart.id },
+    // The cart is spent. `status` is in the `where` and not only in the
+    // data: it is the precondition that makes two overlapping checkouts
+    // impossible to settle from the same cart. Clearing the mirror column is
+    // what frees the user to start another one, since uq_carts_user_active
+    // is a plain unique on a nullable column.
+    const spent = await tx.cart.updateMany({
+      where: { id: cart.id, status: CartStatus.ACTIVE },
       data: { status: CartStatus.CHECKED_OUT, activeUserId: null },
     });
+
+    if (spent.count === 0) {
+      throw new ProblemException(
+        Problems.cartNotCheckoutable,
+        'The cart was checked out while the request was running.',
+      );
+    }
 
     return orderId;
   }
@@ -354,8 +415,8 @@ export class OrdersService {
 
   /**
    * Every status the order has held, in order. `sequence` is unique per
-   * order, so counting the rows already written is what the next one gets
-   * — inside the transaction, where the count cannot move underneath.
+   * order, so counting the rows already written is what the next one gets —
+   * inside the transaction, where the count cannot move underneath.
    */
   private async recordStatus(
     tx: Tx,
@@ -371,7 +432,7 @@ export class OrdersService {
 }
 
 type CartWithLines = Prisma.CartGetPayload<{
-  include: { items: { include: { sku: { include: { product: true } } } } };
+  include: { items: { include: { sku: true } } };
 }>;
 
 /** The three filters the brief names, plus nothing else. */

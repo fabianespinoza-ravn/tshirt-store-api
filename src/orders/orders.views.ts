@@ -46,7 +46,14 @@ export interface OrderView {
 
 export const ORDER_INCLUDE = {
   items: true,
-  payments: { select: { method: true, status: true, createdAt: true } },
+  // Ordered, because `Payment[]` allows more than one attempt and an
+  // unordered relation would make `paymentMethod` depend on whatever the
+  // database happened to return. Newest first, so the view reads the first
+  // element rather than trusting a position.
+  payments: {
+    select: { method: true, status: true, createdAt: true },
+    orderBy: { createdAt: 'desc' },
+  },
 } satisfies Prisma.OrderInclude;
 
 export type OrderRow = Prisma.OrderGetPayload<{
@@ -80,10 +87,11 @@ export function toOrder(order: OrderRow): OrderView {
       region: order.region,
       postalCode: order.postalCode,
     },
-    // The most recent payment is the one that describes the order. There is
-    // never more than one here yet, and the partial unique index that will
-    // guarantee at most one SUCCEEDED per order is still pending.
-    paymentMethod: order.payments.at(-1)?.method ?? null,
+    // The most recent payment is the one that describes the order, and the
+    // include above is what makes "most recent" mean anything. A succeeded
+    // one would be the better answer, but `uq_payments_order_succeeded_partial`
+    // is still pending, so nothing yet guarantees there is at most one.
+    paymentMethod: order.payments[0]?.method ?? null,
     expiresAt: order.expiresAt?.toISOString() ?? null,
     createdAt: order.createdAt.toISOString(),
   };
