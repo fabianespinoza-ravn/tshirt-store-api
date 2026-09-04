@@ -27,17 +27,31 @@ describe('MaintenanceProcessor', () => {
 
   beforeEach(() => jest.clearAllMocks());
 
-  it.todo('runs the sweep when the job is the one it answers to');
-  it.todo('returns what the sweep reported, unchanged');
-  it.todo(
-    'throws on a job name it does not recognise, rather than ignoring it',
-  );
-  it.todo(
-    'names the unrecognised job in the error, so the failed entry says what it was',
-  );
+  it('runs the sweep when the job is the one it answers to', async () => {
+    sweep.sweep.mockResolvedValue({ examined: 2, cancelled: 1 });
 
-  void sweep;
-  void processor;
-  void aJob;
-  void JobName;
+    await processor.process(aJob(JobName.SweepExpiredOrders));
+
+    expect(sweep.sweep).toHaveBeenCalledWith();
+  });
+
+  it('returns what the sweep reported, unchanged', async () => {
+    const outcome = { examined: 2, cancelled: 1 };
+    sweep.sweep.mockResolvedValue(outcome);
+
+    await expect(
+      processor.process(aJob(JobName.SweepExpiredOrders)),
+    ).resolves.toBe(outcome);
+  });
+
+  it('throws on a job name it does not recognise, rather than ignoring it', async () => {
+    await expect(processor.process(aJob('renamed-job'))).rejects.toThrow();
+    expect(sweep.sweep).not.toHaveBeenCalled();
+  });
+
+  it('names the unrecognised job in the error, so the failed entry says what it was', async () => {
+    await expect(processor.process(aJob('renamed-job'))).rejects.toThrow(
+      'Unknown maintenance job: renamed-job',
+    );
+  });
 });

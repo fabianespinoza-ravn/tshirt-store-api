@@ -1,5 +1,5 @@
 import type { Queue } from 'bullmq';
-import { JobName, QueueName, SWEEP_EVERY_MS } from './queue.constants';
+import { JobName, SWEEP_EVERY_MS } from './queue.constants';
 import { SweepScheduler, SWEEP_SCHEDULER_ID } from './sweep.scheduler';
 
 /**
@@ -25,17 +25,39 @@ describe('SweepScheduler', () => {
 
   beforeEach(() => jest.clearAllMocks());
 
-  it.todo('registers the sweep when the application boots');
-  it.todo(
-    'registers it under a stable id, so a reboot replaces rather than adds',
-  );
-  it.todo('asks for the interval the constant declares');
-  it.todo('names the job the maintenance processor answers to');
+  it('registers the sweep when the application boots', async () => {
+    await scheduler.onApplicationBootstrap();
 
-  void queue;
-  void scheduler;
-  void JobName;
-  void QueueName;
-  void SWEEP_EVERY_MS;
-  void SWEEP_SCHEDULER_ID;
+    expect(queue.upsertJobScheduler).toHaveBeenCalledTimes(1);
+  });
+
+  it('registers it under a stable id, so a reboot replaces rather than adds', async () => {
+    await scheduler.onApplicationBootstrap();
+
+    expect(queue.upsertJobScheduler).toHaveBeenCalledWith(
+      SWEEP_SCHEDULER_ID,
+      expect.any(Object),
+      expect.any(Object),
+    );
+  });
+
+  it('asks for the interval the constant declares', async () => {
+    await scheduler.onApplicationBootstrap();
+
+    expect(queue.upsertJobScheduler).toHaveBeenCalledWith(
+      expect.any(String),
+      { every: SWEEP_EVERY_MS },
+      expect.any(Object),
+    );
+  });
+
+  it('names the job the maintenance processor answers to', async () => {
+    await scheduler.onApplicationBootstrap();
+
+    expect(queue.upsertJobScheduler).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(Object),
+      { name: JobName.SweepExpiredOrders },
+    );
+  });
 });
