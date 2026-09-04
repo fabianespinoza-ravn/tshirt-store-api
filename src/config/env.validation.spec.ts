@@ -121,6 +121,18 @@ describe('validateEnv', () => {
     );
   });
 
+  /**
+   * Separately, and not only as the pair. The character class that rejects
+   * them is `[^
+<>]`, and a regression dropping one of the two would
+   * still fail the combined case — the other character is enough to reject
+   * that string — while leaving the injection open for the one that was
+   * removed. A bare carriage return is a line break to enough parsers to
+   * matter.
+   */
+  it.todo('refuses a MAIL_FROM carrying a lone carriage return');
+  it.todo('refuses a MAIL_FROM carrying a lone line feed');
+
   it('refuses a MAIL_FROM carrying a carriage return or a newline', () => {
     expect(() =>
       validateEnv(
