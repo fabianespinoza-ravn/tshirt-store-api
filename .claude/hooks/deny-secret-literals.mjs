@@ -37,9 +37,17 @@ const SECRETS = [
     // value to hold an upper-case letter and a digit, which real key
     // material does and the placeholders in .env.example
     // (`tshirt-local-dev`, `change-me`) do not.
+    // Case-sensitive on purpose, and it was not at first. The `i` flag made
+    // the `[A-Z]` lookahead — there to require the upper case real key
+    // material has and a placeholder usually does not — match lower case as
+    // well, so the entropy check did nothing. The rule then fired on an
+    // ordinary lower-case local variable holding a printable fixture value,
+    // which is how this was found. Without the flag the name has to be the
+    // SCREAMING_SNAKE that configuration actually uses, which is where a
+    // pasted credential lands.
     label: 'a secret assigned to a credential-named variable',
     pattern:
-      /(?:SECRET|TOKEN|PASSWORD|PASSWD|API_?KEY|PRIVATE_?KEY)[A-Z_]*\s*[:=]\s*["']?(?=[A-Za-z0-9/+=_-]{20,})(?=[A-Za-z0-9/+=_-]*[A-Z])(?=[A-Za-z0-9/+=_-]*[0-9])[A-Za-z0-9/+=_-]{20,}/i,
+      /(?:SECRET|TOKEN|PASSWORD|PASSWD|API_?KEY|PRIVATE_?KEY)[A-Z_]*\s*[:=]\s*["']?(?=[A-Za-z0-9/+=_-]{20,})(?=[A-Za-z0-9/+=_-]*[A-Z])(?=[A-Za-z0-9/+=_-]*[0-9])[A-Za-z0-9/+=_-]{20,}/,
   },
   {
     label: 'a private key block',
