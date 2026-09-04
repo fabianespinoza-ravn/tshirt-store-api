@@ -155,6 +155,15 @@ export class OrdersService {
             // stale date would make the sweep in block 4 act on an order it
             // has no business touching.
             expiresAt: null,
+            // The one transition that records who performed it, and the
+            // ability is the reason. DELIVERY reaches an order two ways —
+            // any SHIPPED one, or a DELIVERED one it delivered — so a
+            // courier who completes a delivery without this loses sight of
+            // the order in the same statement that completes it: no longer
+            // SHIPPED, and nobody's delivery.
+            ...(status === OrderStatus.DELIVERED
+              ? { deliveredById: user.id, deliveredAt: new Date() }
+              : {}),
           },
         });
 

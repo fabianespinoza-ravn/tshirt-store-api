@@ -307,6 +307,10 @@ describe('OrdersService', () => {
         Date.now() + 1_801_000,
       );
     });
+
+    it.todo(
+      'treats a pending order with no expiry as live: refuses it without cancelling or releasing anything',
+    );
   });
 
   describe('list', () => {
@@ -563,6 +567,10 @@ describe('OrdersService', () => {
         }),
       );
     });
+
+    it.todo(
+      'records the courier and the moment on a delivery, so the ability keeps letting them read it',
+    );
   });
 
   describe('without the Order rules in the ability', () => {
