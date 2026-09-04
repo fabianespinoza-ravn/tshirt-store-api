@@ -25,12 +25,13 @@ export enum JobName {
  * the review's question — *what happens to a job that fails twice?* — with a
  * different sentence.
  *
- * None of them deletes a failure on the spot, which is what makes the answer
- * sayable at all: a failed job stays in the failed set, where it can be
- * counted, alerted on and retried by hand. How long it stays differs, and
- * the difference is what the payload carries — a settlement holds an
- * identifier, a mail job holds a live one-time token, and only one of those
- * is safe to keep indefinitely.
+ * Whether a failure is kept is decided by what its payload carries, not by
+ * a house style. A settlement job holds a Stripe identifier: it stays in the
+ * failed set forever, where it can be counted, alerted on and retried by
+ * hand, and losing one is unacceptable. A mail job holds a live one-time
+ * token, so it is dropped the moment it fails and its diagnosis lives in the
+ * log instead. Keeping everything would have been the tidier rule and the
+ * wrong one.
  */
 
 /**
@@ -44,18 +45,26 @@ export enum JobName {
  * The retention is the part worth reading twice. A mail job's payload
  * carries the recipient and, for verification and password reset, the
  * **one-time token in plain text** — the database keeps only its hash, so
- * the job is the only place the usable value exists. Keeping the last
- * hundred completed jobs would keep a hundred live tokens in Redis, readable
- * by anything with access to it, which is a worse exposure than the one the
- * hashing was for. Completed jobs go immediately; failed ones are bounded to
- * a day, long enough to diagnose a broken transport and short enough that a
- * token cannot sit there indefinitely.
+ * the job is the only place the usable value exists.
+ *
+ * So this queue keeps nothing at all, completed or failed. An age bound was
+ * the first answer and it is not enough: BullMQ prunes by age *lazily*, when
+ * the next job of that kind finishes, so on a queue that goes quiet the last
+ * failures — the ones holding live tokens — sit there until something else
+ * fails. On a queue nobody is failing, that is forever.
+ *
+ * What is given up is retrying a failed send by hand, and for mail that is
+ * an acceptable trade: three attempts have already happened, and a client
+ * who never got their verification link asks for another one. The diagnosis
+ * lives in the consumer's log, which records the recipient and the error and
+ * never the token — that is a requirement of whoever writes the mail
+ * processor, not an optional nicety.
  */
 export const MAIL_JOB_OPTIONS: JobsOptions = {
   attempts: 3,
   backoff: { type: 'exponential', delay: 5_000 },
   removeOnComplete: true,
-  removeOnFail: { age: 86_400 },
+  removeOnFail: true,
 };
 
 /**
@@ -116,7 +125,7 @@ export const STOCK_NOTIFICATION_JOB_OPTIONS: JobsOptions = {
   attempts: 3,
   backoff: { type: 'exponential', delay: 5_000 },
   // A recipient list is not a token, but it is still personal data with no
-  // reason to outlive the send.
+  // reason to outlive the send, and the same lazy-pruning problem applies.
   removeOnComplete: true,
-  removeOnFail: { age: 86_400 },
+  removeOnFail: true,
 };
