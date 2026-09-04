@@ -1,4 +1,9 @@
 import { OrderStatus } from '@prisma/client';
+
+/* Jest's asymmetric matchers are typed as `any`; these are partial checks of
+ * Prisma calls and are never values passed to production code. */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+
 import { buildService, type ServiceHarness } from '../testing/build-service';
 import { anOrder, anOrderItem } from '../testing/factories';
 import { resetPrismaMock } from '../testing/prisma.mock';
@@ -30,29 +35,280 @@ describe('OrdersSweepService', () => {
   });
 
   describe('what it selects', () => {
-    it.todo('takes only PENDING orders whose expiry has passed');
-    it.todo('ignores a PENDING order carrying no expiry at all');
-    it.todo('takes the oldest first, so a backlog drains in order');
-    it.todo(`stops at ${SWEEP_BATCH_SIZE} orders in one run`);
+    const now = new Date('2026-09-04T12:00:00.000Z');
+
+    it('takes only PENDING orders whose expiry has passed', async () => {
+      h.prisma.order.findMany.mockResolvedValue([]);
+
+      await h.service.sweep(now);
+
+      expect(h.prisma.order.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            status: OrderStatus.PENDING,
+            expiresAt: { not: null, lte: now },
+          },
+        }),
+      );
+    });
+
+    it('ignores a PENDING order carrying no expiry at all', async () => {
+      h.prisma.order.findMany.mockResolvedValue([]);
+
+      await h.service.sweep(now);
+
+      expect(h.prisma.order.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            expiresAt: { not: null, lte: now },
+          }),
+        }),
+      );
+    });
+
+    it('takes the oldest first, so a backlog drains in order', async () => {
+      h.prisma.order.findMany.mockResolvedValue([]);
+
+      await h.service.sweep(now);
+
+      expect(h.prisma.order.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ orderBy: { expiresAt: 'asc' } }),
+      );
+    });
+
+    it(`stops at ${SWEEP_BATCH_SIZE} orders in one run`, async () => {
+      h.prisma.order.findMany.mockResolvedValue([]);
+
+      await h.service.sweep(now);
+
+      expect(h.prisma.order.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ take: SWEEP_BATCH_SIZE }),
+      );
+    });
   });
 
   describe('what it writes', () => {
-    it.todo('cancels each order in its own transaction, not one for the batch');
-    it.todo('runs each of those transactions at the serializable level');
-    it.todo('repeats status and expiry as preconditions on the update');
-    it.todo('gives the units of a cancelled order back to the shelf');
-    it.todo('appends a CANCELLED row to the order history');
-    it.todo('clears the expiry it acted on');
+    const now = new Date('2026-09-04T12:00:00.000Z');
+
+    function expiredOrder(
+      id: string,
+      items = [anOrderItem(`${id}-item`, `${id}-sku`, { quantity: 3 })],
+    ) {
+      return {
+        ...anOrder('user-1', {
+          id,
+          status: OrderStatus.PENDING,
+          expiresAt: new Date('2026-09-04T11:00:00.000Z'),
+        }),
+        items,
+      };
+    }
+
+    function arrangeSweep(orders: ReturnType<typeof expiredOrder>[]) {
+      h.prisma.order.findMany.mockResolvedValue(orders);
+      h.prisma.order.updateMany.mockResolvedValue({ count: 1 });
+      h.prisma.orderStatusHistory.count.mockResolvedValue(4);
+      return orders;
+    }
+
+    it('cancels each order in its own transaction, not one for the batch', async () => {
+      const orders = arrangeSweep([
+        expiredOrder('order-1'),
+        expiredOrder('order-2'),
+      ]);
+
+      await h.service.sweep(now);
+
+      expect(h.prisma.$transaction).toHaveBeenCalledTimes(2);
+      expect(h.prisma.order.updateMany).toHaveBeenCalledTimes(2);
+      expect(h.prisma.order.updateMany).toHaveBeenNthCalledWith(1, {
+        where: {
+          id: orders[0].id,
+          status: OrderStatus.PENDING,
+          expiresAt: { lte: now },
+        },
+        data: { status: OrderStatus.CANCELLED, expiresAt: null },
+      });
+    });
+
+    it('runs each of those transactions at the serializable level', async () => {
+      arrangeSweep([expiredOrder('order-1'), expiredOrder('order-2')]);
+
+      await h.service.sweep(now);
+
+      expect(h.prisma.$transaction).toHaveBeenNthCalledWith(
+        1,
+        expect.any(Function),
+        { isolationLevel: 'Serializable' },
+      );
+      expect(h.prisma.$transaction).toHaveBeenNthCalledWith(
+        2,
+        expect.any(Function),
+        { isolationLevel: 'Serializable' },
+      );
+    });
+
+    it('repeats status and expiry as preconditions on the update', async () => {
+      const [order] = arrangeSweep([expiredOrder('order-1')]);
+
+      await h.service.sweep(now);
+
+      expect(h.prisma.order.updateMany).toHaveBeenCalledWith({
+        where: {
+          id: order.id,
+          status: OrderStatus.PENDING,
+          expiresAt: { lte: now },
+        },
+        data: expect.any(Object),
+      });
+    });
+
+    it('gives the units of a cancelled order back to the shelf', async () => {
+      const items = [
+        anOrderItem('order-1', 'sku-1', { quantity: 3 }),
+        anOrderItem('order-1', 'sku-2', { quantity: 2 }),
+      ];
+      arrangeSweep([expiredOrder('order-1', items)]);
+
+      await h.service.sweep(now);
+
+      expect(h.prisma.sku.update).toHaveBeenCalledTimes(items.length);
+      expect(h.prisma.sku.update).toHaveBeenNthCalledWith(1, {
+        where: { id: 'sku-1' },
+        data: { reserved: { decrement: 3 } },
+      });
+      expect(h.prisma.sku.update).toHaveBeenNthCalledWith(2, {
+        where: { id: 'sku-2' },
+        data: { reserved: { decrement: 2 } },
+      });
+    });
+
+    it('appends a CANCELLED row to the order history', async () => {
+      const [order] = arrangeSweep([expiredOrder('order-1')]);
+
+      await h.service.sweep(now);
+
+      expect(h.prisma.orderStatusHistory.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            orderId: order.id,
+            status: OrderStatus.CANCELLED,
+            sequence: 4,
+          }),
+        }),
+      );
+    });
+
+    it('clears the expiry it acted on', async () => {
+      arrangeSweep([expiredOrder('order-1')]);
+
+      await h.service.sweep(now);
+
+      expect(h.prisma.order.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: { status: OrderStatus.CANCELLED, expiresAt: null },
+        }),
+      );
+    });
   });
 
   describe('when it loses the race', () => {
-    it.todo('releases nothing when the update moved no row');
-    it.todo('writes no history when the update moved no row');
-    it.todo('keeps settling the rest of the batch after losing one');
-    it.todo('reports how many it examined and how many it actually cancelled');
-  });
+    const now = new Date('2026-09-04T12:00:00.000Z');
 
-  void anOrder;
-  void anOrderItem;
-  void OrderStatus;
+    it('releases nothing when the update moved no row', async () => {
+      h.prisma.order.findMany.mockResolvedValue([
+        {
+          ...anOrder('user-1', {
+            id: 'order-1',
+            status: OrderStatus.PENDING,
+            expiresAt: new Date('2026-09-04T11:00:00.000Z'),
+          }),
+          items: [anOrderItem('order-1', 'sku-1', { quantity: 3 })],
+        },
+      ] as never);
+      h.prisma.order.updateMany.mockResolvedValue({ count: 0 });
+
+      await h.service.sweep(now);
+
+      expect(h.prisma.sku.update).not.toHaveBeenCalled();
+    });
+
+    it('writes no history when the update moved no row', async () => {
+      h.prisma.order.findMany.mockResolvedValue([
+        {
+          ...anOrder('user-1', {
+            id: 'order-1',
+            status: OrderStatus.PENDING,
+            expiresAt: new Date('2026-09-04T11:00:00.000Z'),
+          }),
+          items: [anOrderItem('order-1', 'sku-1', { quantity: 3 })],
+        },
+      ] as never);
+      h.prisma.order.updateMany.mockResolvedValue({ count: 0 });
+
+      await h.service.sweep(now);
+
+      expect(h.prisma.orderStatusHistory.create).not.toHaveBeenCalled();
+    });
+
+    it('keeps settling the rest of the batch after losing one', async () => {
+      const first = {
+        ...anOrder('user-1', {
+          id: 'order-1',
+          status: OrderStatus.PENDING,
+          expiresAt: new Date('2026-09-04T11:00:00.000Z'),
+        }),
+        items: [anOrderItem('order-1', 'sku-1', { quantity: 3 })],
+      };
+      const second = {
+        ...anOrder('user-1', {
+          id: 'order-2',
+          status: OrderStatus.PENDING,
+          expiresAt: new Date('2026-09-04T11:00:00.000Z'),
+        }),
+        items: [anOrderItem('order-2', 'sku-2', { quantity: 2 })],
+      };
+      h.prisma.order.findMany.mockResolvedValue([first, second] as never);
+      h.prisma.order.updateMany
+        .mockResolvedValueOnce({ count: 0 })
+        .mockResolvedValueOnce({ count: 1 });
+      h.prisma.orderStatusHistory.count.mockResolvedValue(0);
+
+      await h.service.sweep(now);
+
+      expect(h.prisma.sku.update).toHaveBeenCalledWith({
+        where: { id: 'sku-2' },
+        data: { reserved: { decrement: 2 } },
+      });
+    });
+
+    it('reports how many it examined and how many it actually cancelled', async () => {
+      const first = {
+        ...anOrder('user-1', {
+          id: 'order-1',
+          status: OrderStatus.PENDING,
+          expiresAt: new Date('2026-09-04T11:00:00.000Z'),
+        }),
+        items: [],
+      };
+      const second = {
+        ...anOrder('user-1', {
+          id: 'order-2',
+          status: OrderStatus.PENDING,
+          expiresAt: new Date('2026-09-04T11:00:00.000Z'),
+        }),
+        items: [],
+      };
+      h.prisma.order.findMany.mockResolvedValue([first, second] as never);
+      h.prisma.order.updateMany
+        .mockResolvedValueOnce({ count: 0 })
+        .mockResolvedValueOnce({ count: 1 });
+      h.prisma.orderStatusHistory.count.mockResolvedValue(0);
+
+      await expect(h.service.sweep(now)).resolves.toEqual({
+        examined: 2,
+        cancelled: 1,
+      });
+    });
+  });
 });
