@@ -56,10 +56,13 @@ describe('OrdersService', () => {
     it.todo('refuses a caller with no active cart');
     it.todo('refuses an active cart with no lines');
     it.todo(
+      'settles a pending order that already lapsed, giving its units back before reserving new ones',
+    );
+    it.todo(
       'refuses when a pending order already exists, and says when it expires',
     );
     it.todo(
-      'runs the reservation and the insert in one serializable transaction',
+      'runs every precondition, the reservation and the insert in one serializable transaction',
     );
     it.todo(
       'reserves each line by incrementing the SKU rather than writing a total',
@@ -69,7 +72,11 @@ describe('OrdersService', () => {
     it.todo('refuses a line that no longer fits in the available stock');
     it.todo('freezes productName and unitPrice on the order line');
     it.todo('totals the order from the prices it froze');
-    it.todo('leaves the cart CHECKED_OUT with its mirror column cleared');
+    it.todo(
+      'spends the cart with its ACTIVE status as a precondition, not only in the data',
+    );
+    it.todo('clears the mirror column so the client can start another cart');
+    it.todo('refuses when a concurrent request already spent the cart');
     it.todo('writes the first status history row at sequence 0');
     it.todo('gives the order an expiry');
   });
@@ -93,7 +100,13 @@ describe('OrdersService', () => {
   describe('updateStatus', () => {
     it.todo('answers 403 when the role can never reach that destination');
     it.todo('answers 409 when the role cannot reach it from this status');
-    it.todo('writes the new status and appends the history row after it');
+    it.todo(
+      'writes the new status with the judged status as a precondition in the where',
+    );
+    it.todo(
+      'answers 409 when the order moved between the read and the write, and changes nothing',
+    );
+    it.todo('appends the history row after the status is written');
     it.todo('numbers the history row after the ones already written');
     it.todo('clears the expiry once the order stops being PENDING');
     it.todo('gives the reserved units back when the order is cancelled');
