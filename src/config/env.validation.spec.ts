@@ -22,6 +22,10 @@ function anEnv(overrides: Record<string, unknown> = {}) {
     AWS_S3_BUCKET: 'tshirt-store-images',
     AWS_ACCESS_KEY_ID: 'access-key',
     AWS_SECRET_ACCESS_KEY: 'secret-key',
+    SMTP_HOST: 'smtp.example.test',
+    SMTP_USER: 'mailer',
+    SMTP_PASSWORD: 'mailer-password',
+    MAIL_FROM: 'T-Shirt Store <store@example.test>',
     ...overrides,
   };
 }

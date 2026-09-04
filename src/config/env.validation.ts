@@ -5,6 +5,7 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  Matches,
   Max,
   Min,
   validateSync,
@@ -97,8 +98,41 @@ export class EnvironmentVariables {
   @IsNotEmpty()
   AWS_SECRET_ACCESS_KEY!: string;
 
-  // Stripe and email come in when their features do. Optional until then so
-  // the week 3 checkpoint can boot without them.
+  // Mail stopped being optional in block 4: the stock notification the brief
+  // marks (MUST) is delivered by email, and `MailService` is a queue producer
+  // rather than a logger. A boot that cannot send is a boot that silently
+  // drops account verification.
+  @IsString()
+  @IsNotEmpty()
+  SMTP_HOST!: string;
+
+  @IsInt()
+  @Min(1)
+  @Max(65535)
+  SMTP_PORT: number = 587;
+
+  @IsString()
+  @IsNotEmpty()
+  SMTP_USER!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  SMTP_PASSWORD!: string;
+
+  /**
+   * Validated as an address and not merely as a non-empty string, because a
+   * display name alone passes `@IsString()` and produces a `From` header no
+   * strict server accepts. Either `someone@example.test` or
+   * `Name <someone@example.test>`.
+   */
+  @IsString()
+  @Matches(/<[^@\s]+@[^@\s]+\.[^@\s>]+>\s*$|^[^@\s]+@[^@\s]+\.[^@\s]+$/, {
+    message: 'MAIL_FROM must contain an email address',
+  })
+  MAIL_FROM!: string;
+
+  // Stripe comes in when its feature does. Optional until then so the week 3
+  // checkpoint can boot without it.
   @IsOptional()
   @IsString()
   STRIPE_SECRET_KEY?: string;
