@@ -40,12 +40,16 @@ the columns that exist rather than the ones you expect.
   `stripeCheckoutSessionId` are unique, which is the handle a webhook has for
   making a repeated delivery a no-op. Stripe retries; a handler that is not
   idempotent charges or transitions twice.
-- **Three partial unique indexes are still pending**, and the schema says so
-  in comments: `uq_payments_order_succeeded_partial` (one SUCCEEDED payment
-  per order), `uq_orders_pending_expires_partial`, and
-  `uq_promo_codes_code_live_partial`. Until they exist the database does not
-  enforce those invariants, so code that relies on the constraint to catch a
-  double write is relying on something that is not there yet.
+- **Three partial unique indexes are still pending**, and the schema header
+  says which: `uq_payments_order_succeeded_partial` (one SUCCEEDED payment
+  per order), `uq_payment_links_sku_active_partial` (one active link per SKU)
+  and `uq_promo_codes_code_live_partial` (one live row per code). Until each
+  is expressed — as a nullable mirror column plus a plain `@@unique`, the way
+  `Cart.activeUserId` is — the database does not enforce that invariant, so
+  code relying on the constraint to catch a double write is relying on
+  something that is not there yet. `idx_orders_pending_expires_partial` is
+  pending as well but is not one of them: it is a plain partial index that
+  lets the expiry sweep scan, and it enforces nothing.
 - **The order's state machine belongs in one function.** A transition
   decided partly in a controller and partly in a service is how an illegal
   one arrives; `PENDING → PAID → PROCESSING → SHIPPED` plus `CANCELLED` and
