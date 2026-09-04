@@ -16,6 +16,8 @@ class ProtectedHandler {
 
   @CheckPolicies({ action: 'update', subject: 'Order' })
   updateOrder(this: void): void {}
+
+  unprotected(this: void): void {}
 }
 
 function contextFor(
@@ -50,24 +52,46 @@ describe('PoliciesGuard', () => {
     }
   });
 
-  it('does not treat a conditional ownership rule as a role-only grant', () => {
-    const { can, build } = new AbilityBuilder<AppAbility>(createPrismaAbility);
-    can('update', 'Order', { userId: 'ana' });
-    const conditionalFactory = {
-      createForUser: () => build(),
-    } as AppAbilityFactory;
-    const conditionalGuard = new PoliciesGuard(
-      new Reflector(),
-      conditionalFactory,
-    );
-
+  it('denies a protected route that forgot to declare any policy metadata', () => {
     expect(() =>
-      conditionalGuard.canActivate(
+      guard.canActivate(
         contextFor(
-          UserRole.CLIENT,
-          ProtectedHandler.prototype.updateOrder,
+          UserRole.MANAGER,
+          ProtectedHandler.prototype.unprotected,
         ) as never,
       ),
+    ).toThrow(ProblemException);
+  });
+
+  /**
+   * A guard whose ability carries one conditional rule and nothing else,
+   * which is the shape every CLIENT-owned resource now has.
+   */
+  const withConditionalRule = () => {
+    const { can, build } = new AbilityBuilder<AppAbility>(createPrismaAbility);
+    can('update', 'Order', { userId: 'ana' });
+    return new PoliciesGuard(new Reflector(), { createForUser: () => build() });
+  };
+
+  const updateOrderAsClient = () =>
+    contextFor(UserRole.CLIENT, ProtectedHandler.prototype.updateOrder);
+
+  /**
+   * These two reverse what the guard did until the cart landed: a
+   * conditional rule used to fail the check, so a route whose rule carried
+   * an owner condition answered 403 to everyone. The row scope moved to the
+   * services, which is why CartService and LikesService assert the `where`
+   * they send to Prisma.
+   */
+  it('lets a conditional ownership rule through the role gate, leaving the row scope to the service', () => {
+    expect(
+      withConditionalRule().canActivate(updateOrderAsClient() as never),
+    ).toBe(true);
+  });
+
+  it('still refuses a subject the ability grants no rule for, conditional or otherwise', () => {
+    expect(() =>
+      withConditionalRule().canActivate(contextFor(UserRole.CLIENT) as never),
     ).toThrow(ProblemException);
   });
 });

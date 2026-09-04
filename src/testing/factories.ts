@@ -1,11 +1,15 @@
 import {
+  CartStatus,
   Color,
   Size,
   UserRole,
   UserState,
+  type Cart,
+  type CartItem,
   type Category,
   type Product,
   type ProductImage,
+  type ProductLike,
   type Sku,
   type User,
 } from '@prisma/client';
@@ -84,6 +88,51 @@ export function anImage(
     id,
     productId,
     s3Key: `products/${productId}/${id}.png`,
+    createdAt: now(),
+    ...overrides,
+  };
+}
+
+export function aCart(userId: string, overrides: Overrides<Cart> = {}): Cart {
+  const status = overrides.status ?? CartStatus.ACTIVE;
+  return {
+    id: newId(),
+    userId,
+    status,
+    // Mirrors userId only while the cart is ACTIVE, which is the invariant
+    // behind uq_carts_user_active that CartService relies on.
+    activeUserId: status === CartStatus.ACTIVE ? userId : null,
+    createdAt: now(),
+    updatedAt: now(),
+    ...overrides,
+  };
+}
+
+export function aCartItem(
+  cartId: string,
+  skuId: string,
+  overrides: Overrides<CartItem> = {},
+): CartItem {
+  return {
+    id: newId(),
+    cartId,
+    skuId,
+    quantity: 1,
+    createdAt: now(),
+    updatedAt: now(),
+    ...overrides,
+  };
+}
+
+export function aProductLike(
+  userId: string,
+  productId: string,
+  overrides: Overrides<ProductLike> = {},
+): ProductLike {
+  return {
+    id: newId(),
+    userId,
+    productId,
     createdAt: now(),
     ...overrides,
   };

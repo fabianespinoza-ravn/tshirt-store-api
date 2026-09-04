@@ -45,9 +45,10 @@ sequence diagrams for every flow live in [`docs/flows/`](docs/flows/).
 | Authentication | Sign up, email verification, sign in, refresh rotation, sign out, password reset and change |
 | Authorization | CASL abilities, policy guard, roles for client, manager and delivery |
 | Catalog | Categories, products, SKUs and images, with S3-backed storage |
-| Cart, orders, payments | Designed in the contract, not yet implemented |
+| Cart and likes | One active cart per client, lines added, updated and removed, and the product like |
+| Orders, payments | Designed in the contract, not yet implemented |
 
-Unit tests: **16 suites, 135 tests**.
+Unit tests: **20 suites, 172 tests**.
 
 ## Requirements
 
