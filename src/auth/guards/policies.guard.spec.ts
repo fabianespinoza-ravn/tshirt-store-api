@@ -77,11 +77,11 @@ describe('PoliciesGuard', () => {
     contextFor(UserRole.CLIENT, ProtectedHandler.prototype.updateOrder);
 
   /**
-   * This branch reverses what the guard did until the cart landed: a
+   * These two reverse what the guard did until the cart landed: a
    * conditional rule used to fail the check, so a route whose rule carried
    * an owner condition answered 403 to everyone. The row scope moved to the
-   * services. The harness above is ready; the assertions are the student's,
-   * per CLAUDE.md, because the change under test is the assistant's.
+   * services, which is why CartService and LikesService assert the `where`
+   * they send to Prisma.
    */
   it('lets a conditional ownership rule through the role gate, leaving the row scope to the service', () => {
     expect(

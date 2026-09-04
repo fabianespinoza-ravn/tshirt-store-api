@@ -7,8 +7,6 @@ import { resetPrismaMock } from '../testing/prisma.mock';
 import { LikesService } from './likes.service';
 
 /**
- * Harness only: the assertions are the student's (CLAUDE.md, Tests).
- *
  * The like has no row scope to assert, because it is addressed by the
  * caller's own id plus the product. What is worth asserting instead is the
  * pair of writes: an upsert keyed on `userId_productId`, so a double click

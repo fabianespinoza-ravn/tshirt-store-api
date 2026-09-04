@@ -15,20 +15,16 @@ import { CartService } from './cart.service';
 import type { CartLineRow } from './cart.views';
 
 /**
- * Harness only: the cases below name one branch of the service each, and
- * the assertions are the student's (CLAUDE.md, Tests).
- *
- * Two of them decide whether this module is safe, so they are worth more
- * than the rest put together. Since `PoliciesGuard` stopped rejecting a
+ * Two of these cases decide whether this module is safe, and they are worth
+ * more than the rest put together. Since `PoliciesGuard` stopped rejecting a
  * conditional rule, the only thing keeping one client out of another's cart
- * is the scope this service folds into its Prisma `where`. Assert the
- * `where` itself — `expect(h.prisma.cart.findFirst).toHaveBeenCalledWith(...)`
- * — and not merely that a Problem was thrown: a service that dropped the
- * scope would still throw for a missing row while happily returning
- * somebody else's.
+ * is the scope this service folds into its Prisma `where`, so the cases that
+ * matter assert the `where` itself and not merely that a Problem was thrown:
+ * a service that dropped the scope would still throw for a missing row while
+ * happily returning somebody else's.
  *
- * The ability is the real one, so until the CLIENT rules exist every scope
- * here is `{ OR: [] }`. That is itself worth one case.
+ * The ability is the real one, so a role the matrix grants nothing to gets
+ * `{ OR: [] }` and reaches no row at all. That is worth a case of its own.
  */
 describe('CartService', () => {
   let h: ServiceHarness<CartService>;
