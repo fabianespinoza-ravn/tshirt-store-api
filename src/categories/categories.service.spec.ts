@@ -42,11 +42,9 @@ describe('CategoriesService', () => {
    * service lets the error through and the filter serves the same 409 with
    * the same detail — verified against a real duplicate insert.
    *
-   * What is left to assert here is the half that is still the service's: that
-   * it does not swallow, wrap or rewrite the error on its way out, because a
-   * translator can only classify what reaches it. The harness above is ready
-   * — `uniqueViolation()` still builds the P2002 — and the assertions are the
-   * student's (CLAUDE.md, Tests), since the change under test is generated.
+   * What these two assert is the half that is still the service's: that it
+   * does not swallow, wrap or rewrite the error on its way out, because a
+   * translator can only classify what reaches it.
    */
   it('lets the unique violation from create reach the translator untouched', async () => {
     const error = uniqueViolation();

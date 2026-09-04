@@ -175,9 +175,8 @@ describe('ProblemDetailsFilter', () => {
 
   /**
    * The branch the translators added. `catchIt` takes any thrown value, and
-   * `aDependencyFailure` and `anUnclaimedFailure` above build the two inputs
-   * these three need; the assertions are the student's (CLAUDE.md, Tests),
-   * because the branch under test is generated code.
+   * `aDependencyFailure` and `anUnclaimedFailure` above build its two
+   * inputs.
    *
    * The first is about the whole document and not only its status: a
    * translated problem must carry the `type` of the catalog entry the

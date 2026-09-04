@@ -2,9 +2,6 @@ import { translateAwsError } from './aws-s3.translator';
 import { Problems } from '../problem.catalog';
 
 /**
- * Harness only: each case names one branch, and the assertions are the
- * student's (CLAUDE.md, Tests).
- *
  * The cases that matter are the two that encode the rule the module exists
  * for: an upstream 403 or 404 becomes a **500 of ours**, never a 4xx, because
  * the caller did not talk to S3 and did nothing wrong — we sent a key or a

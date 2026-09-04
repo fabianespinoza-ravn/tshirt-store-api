@@ -3,10 +3,7 @@ import { Problems } from '../problem.catalog';
 import { translatePrismaError } from './prisma.translator';
 
 /**
- * Harness only: each case below names one branch of the translator, and the
- * assertions are the student's (CLAUDE.md, Tests).
- *
- * Two of them are worth more than the rest together, and both are about what
+ * Two of these cases are worth more than the rest together, and both are about what
  * the translator refuses to do. `uq_users_email_live` must stay untranslated:
  * the moment a unique-email violation becomes a 409, sign-up answers
  * differently for a registered address than for a free one and the route is

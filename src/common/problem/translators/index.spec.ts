@@ -3,8 +3,6 @@ import { Problems } from '../problem.catalog';
 import { translateProblem } from './index';
 
 /**
- * Harness only: the assertions are the student's (CLAUDE.md, Tests).
- *
  * The registry itself has one job worth testing — that an error no
  * translator claims comes back as `undefined`, so the filter keeps serving
  * the generic 500 it served before any of this existed. That is the property
