@@ -60,8 +60,20 @@ jobs:
               the client; the problem-details filter is the only place that
               shapes a response.
             - Money and stock. Order state transitions, payment webhooks and
-              stock decrements: look for race conditions and for a path that
-              charges twice or oversells.
+              stock movements. Ask, in this order: are the stock reservation
+              and the order row written in one transaction, or can a crash
+              between them oversell? Does every failure path release what it
+              reserved, or only the happy one? Is a repeated webhook delivery
+              a no-op — Stripe retries the delivery, so what a careless
+              handler duplicates is a payment row or a transition, not the
+              charge — and is the check against the Stripe identifier in the
+              same write as the effect? Are the counters `reserved`,
+              `usageReserved` and `usageCount` moved atomically rather than
+              read in one statement and written in the next? Is every amount
+              an integer number of cents? A cancellation that does not free
+              `reserved` is the same bug as an oversell, arriving later.
+              `.claude/agents/money-and-stock.md` holds the long form, the
+              schema's pending constraints included.
             - Data exposure. No secret, token or connection string in code,
               logs or fixtures.
             - Tests. New behaviour without a test is a finding.
