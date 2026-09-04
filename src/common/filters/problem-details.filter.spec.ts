@@ -7,6 +7,7 @@ import {
 import { anArgumentsHost } from '../../testing/http';
 import { Problems } from '../problem/problem.catalog';
 import { ProblemException } from '../problem/problem.exception';
+import * as translators from '../problem/translators';
 import { ProblemDetailsFilter } from './problem-details.filter';
 
 /**
@@ -22,6 +23,32 @@ describe('ProblemDetailsFilter', () => {
     filter.catch(error, host);
     return recorded;
   };
+
+  /**
+   * A dependency failure shaped the way the AWS SDK shapes one: the upstream
+   * code in `name`, the upstream status in `$metadata`. This is what reaches
+   * the filter from `StorageService` when the bucket answers badly, and the
+   * kind of value a translator will claim.
+   *
+   * The default is a retryable upstream status on purpose. It is the case
+   * worth exercising through the filter, because the document that comes out
+   * differs from the untranslated one in its `status` and `type` and not only
+   * in its wording — a test that used a case translating to 500 could pass
+   * while the translation did nothing at all.
+   */
+  const aDependencyFailure = (name = 'SlowDown', httpStatusCode = 503): Error =>
+    Object.assign(new Error('from the harness'), {
+      name,
+      $metadata: { httpStatusCode },
+    });
+
+  /**
+   * A failure no translator claims: no `$metadata`, and not a Prisma error.
+   * A socket-level code is exactly the case the AWS translator declines on
+   * purpose, because it could as easily have come from the mail transport.
+   */
+  const anUnclaimedFailure = (): Error =>
+    Object.assign(new Error('from the harness'), { code: 'ECONNREFUSED' });
 
   it('serves every error as application/problem+json', () => {
     const recorded = catchIt(new NotFoundException());
@@ -147,23 +174,50 @@ describe('ProblemDetailsFilter', () => {
   });
 
   /**
-   * The branch the translators added. The harness above works unchanged —
-   * `catchIt` takes any thrown value — and the assertions are the student's
-   * (CLAUDE.md, Tests), because the branch under test is generated code.
+   * The branch the translators added. `catchIt` takes any thrown value, and
+   * `aDependencyFailure` and `anUnclaimedFailure` above build the two inputs
+   * these three need; the assertions are the student's (CLAUDE.md, Tests),
+   * because the branch under test is generated code.
    *
-   * The case that matters is the last one: a `ProblemException` and a Nest
-   * `HttpException` must never reach a translator. They were built here on
-   * purpose and there is nothing to classify; a translator that got its
-   * hands on one could rewrite a deliberate 409 into something else.
+   * The first is about the whole document and not only its status: a
+   * translated problem must carry the `type` of the catalog entry the
+   * translator chose, because two entries can share a status and only the
+   * type tells a client which one it got.
    */
-  it.todo(
-    'serves the catalog entry a translator chose instead of a generic 500',
-  );
-  it.todo(
-    'keeps the five required fields when the problem came from a translator',
-  );
-  it.todo('still serves the generic 500 for an error no translator claims');
-  it.todo(
-    'does not hand a ProblemException or an HttpException to a translator',
-  );
+  it('serves the catalog entry a translator chose instead of a generic 500', () => {
+    const recorded = catchIt(aDependencyFailure());
+
+    expect(recorded.body?.type).toBe(Problems.serviceUnavailable.type);
+  });
+
+  it('keeps the five required fields when the problem came from a translator', () => {
+    const recorded = catchIt(aDependencyFailure());
+
+    expect(Object.keys(recorded.body ?? {}).sort()).toEqual([
+      'detail',
+      'instance',
+      'status',
+      'title',
+      'type',
+    ]);
+  });
+
+  it('still serves the generic 500 for an error no translator claims', () => {
+    const unclaimed = catchIt(anUnclaimedFailure());
+    const unhandled = catchIt(
+      new Error('from the existing unhandled-error test'),
+    );
+
+    expect(unclaimed.status).toBe(500);
+    expect(unclaimed.body).toEqual(unhandled.body);
+  });
+  it('does not hand a ProblemException or an HttpException to a translator', () => {
+    const translateProblem = jest.spyOn(translators, 'translateProblem');
+
+    catchIt(new ProblemException(Problems.conflict, 'from the harness'));
+    catchIt(new ForbiddenException('from the harness'));
+
+    expect(translateProblem).not.toHaveBeenCalled();
+    translateProblem.mockRestore();
+  });
 });

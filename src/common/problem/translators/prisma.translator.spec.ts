@@ -1,4 +1,5 @@
 import { Prisma } from '@prisma/client';
+import { Problems } from '../problem.catalog';
 import { translatePrismaError } from './prisma.translator';
 
 /**
@@ -37,40 +38,130 @@ describe('translatePrismaError', () => {
     known('P2002', { modelName, target });
 
   describe('the database is unreachable or overloaded', () => {
-    it.todo('answers 503 when the database cannot be reached (P1001)');
-    it.todo('answers 503 when the database does not respond in time (P1002)');
-    it.todo('answers 503 when the operation times out (P1008)');
-    it.todo('answers 503 when the connection is closed mid-query (P1017)');
-    it.todo('answers 503 when the connection pool is saturated (P2024)');
+    it.each([
+      ['P1001', 'The database could not be reached.'],
+      ['P1002', 'The database did not answer in time.'],
+      ['P1008', 'The database operation timed out.'],
+      ['P1017', 'The database closed the connection.'],
+      ['P2024', 'The database connection pool is saturated.'],
+    ])('answers 503 when %s occurs', (code, detail) => {
+      expect(translatePrismaError(known(code))).toEqual({
+        kind: Problems.serviceUnavailable,
+        detail,
+      });
+    });
   });
 
   describe('a write that lost a race', () => {
-    it.todo('answers 409 for a write conflict or deadlock (P2034)');
-    it.todo('tells the client to retry rather than reporting a failure');
+    it('answers 409 for a write conflict or deadlock (P2034)', () => {
+      expect(translatePrismaError(known('P2034'))).toMatchObject({
+        kind: Problems.conflict,
+      });
+    });
+
+    it('tells the client to retry rather than reporting a failure', () => {
+      expect(translatePrismaError(known('P2034'))?.detail).toContain(
+        'Try again',
+      );
+    });
   });
 
   describe('a unique violation, by constraint', () => {
-    it.todo('translates a duplicate category name into the contract 409');
-    it.todo('translates a duplicate size and colour on a product into 409');
-    it.todo('translates a duplicate product-category assignment into 409');
-    it.todo(
-      'translates the three concurrency constraints into a retryable 409',
-    );
-    it.todo(
-      'leaves the live-email constraint untranslated, so sign-up cannot be used to enumerate addresses',
-    );
-    it.todo('leaves a token-hash collision untranslated');
-    it.todo('declines a constraint that is not in the allowlist');
-    it.todo('declines when meta carries no modelName or no target array');
+    it('translates a duplicate category name into the contract 409', () => {
+      expect(translatePrismaError(uniqueOn('Category', 'name'))).toEqual({
+        kind: Problems.conflict,
+        detail: 'Another category already uses that name.',
+      });
+    });
+
+    it('translates a duplicate size and colour on a product into 409', () => {
+      expect(
+        translatePrismaError(uniqueOn('Sku', 'productId', 'size', 'color')),
+      ).toEqual({
+        kind: Problems.conflict,
+        detail: 'That size and colour already exist for this product.',
+      });
+    });
+
+    it('translates a duplicate product-category assignment into 409', () => {
+      expect(
+        translatePrismaError(
+          uniqueOn('ProductCategory', 'productId', 'categoryId'),
+        ),
+      ).toEqual({
+        kind: Problems.conflict,
+        detail: 'The product is already assigned to that category.',
+      });
+    });
+
+    it('translates the three concurrency constraints into a retryable 409', () => {
+      expect(translatePrismaError(uniqueOn('Cart', 'activeUserId'))).toEqual({
+        kind: Problems.conflict,
+        detail: 'The cart changed while the request was running.',
+      });
+      expect(
+        translatePrismaError(uniqueOn('CartItem', 'cartId', 'skuId')),
+      ).toEqual({
+        kind: Problems.conflict,
+        detail: 'The line changed while the request was running.',
+      });
+      expect(
+        translatePrismaError(uniqueOn('ProductLike', 'userId', 'productId')),
+      ).toEqual({
+        kind: Problems.conflict,
+        detail: 'The like changed while the request was running.',
+      });
+    });
+
+    it('leaves the live-email constraint untranslated, so sign-up cannot be used to enumerate addresses', () => {
+      expect(
+        translatePrismaError(uniqueOn('User', 'liveEmail')),
+      ).toBeUndefined();
+    });
+
+    it('leaves a token-hash collision untranslated', () => {
+      expect(
+        translatePrismaError(uniqueOn('RefreshToken', 'tokenHash')),
+      ).toBeUndefined();
+    });
+
+    it('declines a constraint that is not in the allowlist', () => {
+      expect(
+        translatePrismaError(uniqueOn('ProductImage', 'id', 'productId')),
+      ).toBeUndefined();
+    });
+
+    it('declines when meta carries no modelName or no target array', () => {
+      expect(
+        translatePrismaError(known('P2002', { target: ['name'] })),
+      ).toBeUndefined();
+      expect(
+        translatePrismaError(
+          known('P2002', { modelName: 'Category', target: 'name' }),
+        ),
+      ).toBeUndefined();
+    });
   });
 
   describe('what it deliberately does not touch', () => {
-    it.todo('declines P2025, which the services answer as their own 404');
-    it.todo('declines a validation error, which means our query is wrong');
-    it.todo('declines an error that did not come from Prisma');
-  });
+    it('declines P2025, which the services answer as their own 404', () => {
+      expect(translatePrismaError(known('P2025'))).toBeUndefined();
+    });
 
-  void translatePrismaError;
-  void known;
-  void uniqueOn;
+    it('declines a validation error, which means our query is wrong', () => {
+      expect(
+        translatePrismaError(
+          new Prisma.PrismaClientValidationError('from the harness', {
+            clientVersion: Prisma.prismaVersion.client,
+          }),
+        ),
+      ).toBeUndefined();
+    });
+
+    it('declines an error that did not come from Prisma', () => {
+      expect(
+        translatePrismaError(new Error('from the harness')),
+      ).toBeUndefined();
+    });
+  });
 });

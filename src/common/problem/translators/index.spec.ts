@@ -1,4 +1,5 @@
 import { Prisma } from '@prisma/client';
+import { Problems } from '../problem.catalog';
 import { translateProblem } from './index';
 
 /**
@@ -27,15 +28,36 @@ describe('translateProblem', () => {
     return error;
   };
 
-  it.todo(
-    'returns the translation of the first translator that claims the error',
-  );
-  it.todo('returns undefined when no translator recognises the error');
-  it.todo('labels the origin with the error code when there is one');
-  it.todo('labels the origin with the error name when there is no code');
-  it.todo('never puts the original message in the label');
+  it('returns the translation of the first translator that claims the error', () => {
+    expect(translateProblem(known('P1001'))).toEqual({
+      kind: Problems.serviceUnavailable,
+      detail: 'The database could not be reached.',
+      origin: 'P1001',
+    });
+  });
 
-  void translateProblem;
-  void known;
-  void anAwsError;
+  it('returns undefined when no translator recognises the error', () => {
+    expect(translateProblem(new Error('from the harness'))).toBeUndefined();
+  });
+
+  it('labels the origin with the error code when there is one', () => {
+    const error = known('P2002');
+    Object.assign(error, { meta: { modelName: 'Category', target: ['name'] } });
+
+    expect(translateProblem(error)?.origin).toBe('P2002');
+  });
+
+  it('labels the origin with the error name when there is no code', () => {
+    expect(translateProblem(anAwsError('SlowDown', 503))?.origin).toBe(
+      'SlowDown',
+    );
+  });
+
+  it('never puts the original message in the label', () => {
+    const error = known('P1001');
+    error.message = 'connect host=db.internal port=5432 user=app';
+
+    expect(translateProblem(error)?.origin).toBe('P1001');
+    expect(translateProblem(error)?.origin).not.toContain('db.internal');
+  });
 });

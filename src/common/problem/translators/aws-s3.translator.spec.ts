@@ -1,4 +1,5 @@
 import { translateAwsError } from './aws-s3.translator';
+import { Problems } from '../problem.catalog';
 
 /**
  * Harness only: each case names one branch, and the assertions are the
@@ -32,25 +33,66 @@ describe('translateAwsError', () => {
     Object.assign(new Error('from the harness'), { code });
 
   describe('the dependency is busy or down', () => {
-    it.todo('answers 503 for a throttle the SDK names SlowDown');
-    it.todo('answers 503 for an upstream 429');
-    it.todo('answers 503 for an upstream 503');
-    it.todo('answers 503 for an upstream 500, 502 and 504');
-    it.todo('serves a detail that does not name the failing subsystem');
+    it('answers 503 for a throttle the SDK names SlowDown', () => {
+      expect(translateAwsError(anAwsError('SlowDown'))).toMatchObject({
+        kind: Problems.serviceUnavailable,
+      });
+    });
+
+    it('answers 503 for an upstream 429', () => {
+      expect(translateAwsError(anAwsError('AccessDenied', 429))).toMatchObject({
+        kind: Problems.serviceUnavailable,
+      });
+    });
+
+    it('answers 503 for an upstream 503', () => {
+      expect(translateAwsError(anAwsError('AccessDenied', 503))).toMatchObject({
+        kind: Problems.serviceUnavailable,
+      });
+    });
+
+    it('answers 503 for an upstream 500, 502 and 504', () => {
+      for (const status of [500, 502, 504]) {
+        expect(
+          translateAwsError(anAwsError('AccessDenied', status)),
+        ).toMatchObject({ kind: Problems.serviceUnavailable });
+      }
+    });
+
+    it('serves a detail that does not name the failing subsystem', () => {
+      expect(translateAwsError(anAwsError('SlowDown'))?.detail).not.toMatch(
+        /aws|s3/i,
+      );
+    });
   });
 
   describe('the upstream status is never passed through', () => {
-    it.todo('turns an upstream 403 into a 500 of ours, not a 403');
-    it.todo('turns an upstream 404 into a 500 of ours, not a 404');
-    it.todo('answers 500 for an SDK error carrying no upstream status');
+    it('turns an upstream 403 into a 500 of ours, not a 403', () => {
+      expect(translateAwsError(anAwsError('AccessDenied', 403))).toMatchObject({
+        kind: Problems.internalError,
+      });
+    });
+
+    it('turns an upstream 404 into a 500 of ours, not a 404', () => {
+      expect(translateAwsError(anAwsError('NoSuchKey', 404))).toMatchObject({
+        kind: Problems.internalError,
+      });
+    });
+
+    it('answers 500 for an SDK error carrying no upstream status', () => {
+      expect(translateAwsError(anAwsError('AccessDenied'))).toMatchObject({
+        kind: Problems.internalError,
+      });
+    });
   });
 
   describe('what it declines', () => {
-    it.todo('declines a socket error that carries no $metadata');
-    it.todo('declines an error that did not come from the AWS SDK');
-  });
+    it('declines a socket error that carries no $metadata', () => {
+      expect(translateAwsError(aSocketError('ECONNREFUSED'))).toBeUndefined();
+    });
 
-  void translateAwsError;
-  void anAwsError;
-  void aSocketError;
+    it('declines an error that did not come from the AWS SDK', () => {
+      expect(translateAwsError(new Error('from the harness'))).toBeUndefined();
+    });
+  });
 });
