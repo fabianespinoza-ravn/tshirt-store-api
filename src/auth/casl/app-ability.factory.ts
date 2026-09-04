@@ -10,6 +10,7 @@ import {
   type ProductLike,
   type PromoCode,
   type Sku,
+  OrderStatus,
   UserRole,
 } from '@prisma/client';
 import { AbilityBuilder } from '@casl/ability';
@@ -61,6 +62,7 @@ export class AppAbilityFactory {
       can(['create', 'update', 'delete'], 'Product');
       can(['create', 'delete'], 'ProductImage');
       can(['create', 'update'], 'Sku');
+      can(['read', 'update'], 'Order');
     }
 
     // The CLIENT rules for the cart and the like, from
@@ -105,48 +107,14 @@ export class AppAbilityFactory {
         cart: { is: { userId: user.id } },
       });
       can(['create', 'delete'], 'ProductLike', { userId: user.id });
+      can('create', 'Order');
+      can(['read', 'update'], 'Order', { userId: user.id });
     }
 
-    // ------------------------------------------------------------------
-    // Extension point: the rules for `Order`.
-    //
-    // Nothing below grants them yet, so every route in src/orders answers
-    // 403 until they exist. The authorization model is the student's to
-    // write, as the cart's was.
-    //
-    // The rows, from docs/AUTHORIZATION-MATRIX.md:
-    //
-    //   CLIENT   · create        · Order · —
-    //   CLIENT   · read·update   · Order · the order's userId
-    //   MANAGER  · read·update   · Order · every order
-    //   DELIVERY · read·update   · Order · any SHIPPED, plus the DELIVERED
-    //                                      ones they delivered
-    //
-    // Four things about this subject that the cart did not raise:
-    //
-    //   - **MANAGER is unconditional here, and that is correct.** In block 2
-    //     an unconditional rule was the hazard, because a manager was not
-    //     supposed to reach a cart at all. Here the matrix says a manager
-    //     sees every order, so `{}` from `accessibleBy` — which matches
-    //     every row — is exactly the intent. Same shape, opposite meaning:
-    //     read the matrix row, not the pattern.
-    //   - **`create` needs no condition.** `OrdersService.checkout` takes
-    //     the `userId` from the token and never addresses a row by an
-    //     identifier the caller supplied, so there is nothing to scope. A
-    //     condition there would be decoration.
-    //   - **DELIVERY's scope is two conditions, not one**, and `can` called
-    //     twice for the same action ORs them. "Any SHIPPED" is a condition
-    //     on `status`; "the DELIVERED ones they delivered" is a condition on
-    //     `deliveredById`. Both are a `where`, so both belong here.
-    //   - **The ability does not decide destinations.** Who may move an
-    //     order to which status lives in `src/orders/order-state-machine.ts`,
-    //     because the contract exposes one route with the destination in the
-    //     body and a static decorator cannot see it. A rule here that tried
-    //     to express "may cancel" would be unenforceable.
-    //
-    // The `.ofType('Order')` spelling and the `{ OR: [] }` / `{}` behaviour
-    // are the same as documented above for the cart.
-    // ------------------------------------------------------------------
+    if (user?.role === UserRole.DELIVERY) {
+      can(['read', 'update'], 'Order', { status: OrderStatus.SHIPPED });
+      can(['read', 'update'], 'Order', { deliveredById: user.id });
+    }
 
     return build();
   }
