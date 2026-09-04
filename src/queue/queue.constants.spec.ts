@@ -24,24 +24,37 @@ import {
  * would put two sweeps over the same expired orders.
  */
 describe('the queue policies', () => {
-  it.todo(
-    'keeps no completed and no failed mail job, because both hold a token',
-  );
-  it.todo(
-    'keeps a failed settlement job forever, because its payload is an identifier',
-  );
-  it.todo(
-    'keeps nothing from a stock notification either, for the recipient list',
-  );
-  it.todo('gives the sweep exactly one attempt');
-  it.todo(
-    'keeps the settlement window under a day, given an uncapped exponential backoff',
-  );
-  it.todo('runs the sweep once a minute');
+  it('keeps no completed and no failed mail job, because both hold a token', () => {
+    expect(MAIL_JOB_OPTIONS.removeOnComplete).toBe(true);
+    expect(MAIL_JOB_OPTIONS.removeOnFail).toBe(true);
+  });
 
-  void MAIL_JOB_OPTIONS;
-  void SETTLEMENT_JOB_OPTIONS;
-  void STOCK_NOTIFICATION_JOB_OPTIONS;
-  void SWEEP_JOB_OPTIONS;
-  void SWEEP_EVERY_MS;
+  it('keeps a failed settlement job forever, because its payload is an identifier', () => {
+    expect(SETTLEMENT_JOB_OPTIONS.removeOnFail).toBe(false);
+  });
+
+  it('keeps nothing from a stock notification either, for the recipient list', () => {
+    expect(STOCK_NOTIFICATION_JOB_OPTIONS.removeOnComplete).toBe(true);
+    expect(STOCK_NOTIFICATION_JOB_OPTIONS.removeOnFail).toBe(true);
+  });
+
+  it('gives the sweep exactly one attempt', () => {
+    expect(SWEEP_JOB_OPTIONS.attempts).toBe(1);
+  });
+
+  it('keeps the settlement window under a day, given an uncapped exponential backoff', () => {
+    const backoff = SETTLEMENT_JOB_OPTIONS.backoff;
+    const delay =
+      typeof backoff === 'object' && backoff !== null && 'delay' in backoff
+        ? (backoff.delay ?? 0)
+        : 0;
+    const attempts = SETTLEMENT_JOB_OPTIONS.attempts ?? 0;
+    const windowMs = delay * (2 ** (attempts - 1) - 1);
+
+    expect(windowMs).toBeLessThan(24 * 60 * 60 * 1000);
+  });
+
+  it('runs the sweep once a minute', () => {
+    expect(SWEEP_EVERY_MS).toBe(60_000);
+  });
 });

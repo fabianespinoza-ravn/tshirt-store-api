@@ -130,8 +130,21 @@ describe('validateEnv', () => {
    * removed. A bare carriage return is a line break to enough parsers to
    * matter.
    */
-  it.todo('refuses a MAIL_FROM carrying a lone carriage return');
-  it.todo('refuses a MAIL_FROM carrying a lone line feed');
+  it('refuses a MAIL_FROM carrying a lone carriage return', () => {
+    expect(() =>
+      validateEnv(
+        anEnv({ MAIL_FROM: '\rBcc: victim@example.test <us@example.test>' }),
+      ),
+    ).toThrow(/MAIL_FROM/);
+  });
+
+  it('refuses a MAIL_FROM carrying a lone line feed', () => {
+    expect(() =>
+      validateEnv(
+        anEnv({ MAIL_FROM: '\nBcc: victim@example.test <us@example.test>' }),
+      ),
+    ).toThrow(/MAIL_FROM/);
+  });
 
   it('refuses a MAIL_FROM carrying a carriage return or a newline', () => {
     expect(() =>
