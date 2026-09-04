@@ -321,6 +321,10 @@ describe('OrdersService', () => {
       });
       expect(h.prisma.order.updateMany).not.toHaveBeenCalled();
       expect(h.prisma.sku.update).not.toHaveBeenCalled();
+      // The history too, and not only the row and the stock: a regression
+      // that returned after recording a CANCELLED entry would leave the
+      // order untouched and still lie about what happened to it.
+      expect(h.prisma.orderStatusHistory.create).not.toHaveBeenCalled();
     });
   });
 
