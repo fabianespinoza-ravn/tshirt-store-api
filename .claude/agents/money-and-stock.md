@@ -38,8 +38,12 @@ the columns that exist rather than the ones you expect.
   live, and that difference is deliberate.
 - **`Payment` is keyed on Stripe's identifiers.** `stripePaymentIntentId` and
   `stripeCheckoutSessionId` are unique, which is the handle a webhook has for
-  making a repeated delivery a no-op. Stripe retries; a handler that is not
-  idempotent charges or transitions twice.
+  making a repeated delivery a no-op. Stripe retries delivery, so what a
+  non-idempotent handler duplicates is the settlement work on this side —
+  a second payment row, a second transition, a second refund attempt — not
+  the charge itself. A duplicated charge comes from repeating the call that
+  creates or captures the intent, which is the other half of the same
+  question and worth separating when you report one.
 - **Three partial unique indexes are still pending**, and the schema header
   says which: `uq_payments_order_succeeded_partial` (one SUCCEEDED payment
   per order), `uq_payment_links_sku_active_partial` (one active link per SKU)
@@ -70,7 +74,9 @@ the columns that exist rather than the ones you expect.
 3. **A webhook or job that is not idempotent.** A handler that transitions an
    order or writes a payment without first checking the Stripe identifier —
    or that checks it in a read separate from the write, with no unique
-   constraint underneath — double-charges on Stripe's retry.
+   constraint underneath — settles the same event twice when Stripe retries
+   the delivery. Say which duplicate you found: a payment row, a status
+   transition, a refund, or a repeated call to Stripe that charges again.
 4. **A read-then-write on a counter.** `reserved`, `usageReserved` and
    `usageCount` incremented from a value read in an earlier statement race
    under concurrency; an atomic `increment`/`decrement` or a conditional

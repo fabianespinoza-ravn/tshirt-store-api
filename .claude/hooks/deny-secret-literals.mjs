@@ -31,6 +31,17 @@ const SECRETS = [
   },
   { label: 'an AWS access key id', pattern: /\bAKIA[0-9A-Z]{16}\b/ },
   {
+    // An AWS secret access key, and most others, carry no prefix to match:
+    // 40 characters of base64 look like any other token. What identifies
+    // them is the name they are assigned to. The two lookaheads require the
+    // value to hold an upper-case letter and a digit, which real key
+    // material does and the placeholders in .env.example
+    // (`tshirt-local-dev`, `change-me`) do not.
+    label: 'a secret assigned to a credential-named variable',
+    pattern:
+      /(?:SECRET|TOKEN|PASSWORD|PASSWD|API_?KEY|PRIVATE_?KEY)[A-Z_]*\s*[:=]\s*["']?(?=[A-Za-z0-9/+=_-]{20,})(?=[A-Za-z0-9/+=_-]*[A-Z])(?=[A-Za-z0-9/+=_-]*[0-9])[A-Za-z0-9/+=_-]{20,}/i,
+  },
+  {
     label: 'a private key block',
     pattern: /-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----/,
   },
@@ -39,12 +50,15 @@ const SECRETS = [
     pattern: /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/,
   },
   {
-    // A local host is exempt: the compose credentials and the CI service's
-    // throwaway user are committed on purpose and carry nothing. The string
-    // that names a real host is the one that matters.
+    // The exemption is on the password, not on the host: a real secret
+    // pointed at localhost is still a real secret, and a URI is often
+    // edited before its host is. A lower-case word of at most eight letters
+    // is the placeholder convention every connection string committed here
+    // follows — `ci:ci`, `tshirt:tshirt`, `user:pass` — and no key material
+    // looks like that.
     label: 'a connection string carrying a password',
     pattern:
-      /\b(postgres(?:ql)?|redis|rediss|mongodb(?:\+srv)?|amqp|mysql):\/\/[^\s:/@]+:[^\s:/@]+@(?!localhost|127\.0\.0\.1)[^\s/]+/,
+      /\b(postgres(?:ql)?|redis|rediss|mongodb(?:\+srv)?|amqp|mysql):\/\/[^\s:/@]+:(?![a-z]{1,8}@)[^\s:/@]+@/,
   },
 ];
 
@@ -82,7 +96,10 @@ function payloadOf(tool, toolInput) {
 }
 
 const input = JSON.parse(readFileSync(0, 'utf8'));
-const payload = payloadOf(String(input.tool_name ?? ''), input.tool_input ?? {});
+const payload = payloadOf(
+  String(input.tool_name ?? ''),
+  input.tool_input ?? {},
+);
 
 if (payload) {
   const found = SECRETS.find(({ pattern }) => pattern.test(payload));
