@@ -68,6 +68,24 @@ const responseStatus = {
     'src/common/filters/problem-details.filter.ts is the only place that sets a status by hand; throw a ProblemException and let the filter shape the response.',
 };
 
+// Money is an integer number of cents throughout the schema — `Sku.price`,
+// `Order.subtotal`, `Order.total`, `OrderItem.unitPrice`, `Payment.amount` —
+// and nothing in the code rounds. Both spellings below only appear once a
+// float has reached a monetary value, which is a defect and not a style
+// choice, and neither is used anywhere today.
+const floatMoney = [
+  {
+    selector: "CallExpression[callee.property.name='toFixed']",
+    message:
+      'Money is an integer number of cents; toFixed means a float reached a price, a total or an amount.',
+  },
+  {
+    selector: "CallExpression[callee.name='parseFloat']",
+    message:
+      'Money is an integer number of cents; parse it as an integer instead.',
+  },
+];
+
 export default tseslint.config(
   {
     ignores: ['eslint.config.mjs'],
@@ -94,7 +112,7 @@ export default tseslint.config(
       '@typescript-eslint/no-floating-promises': 'warn',
       '@typescript-eslint/no-unsafe-argument': 'warn',
       'prettier/prettier': ['error', { endOfLine: 'auto' }],
-      'no-restricted-syntax': ['error', enumLiteral],
+      'no-restricted-syntax': ['error', enumLiteral, ...floatMoney],
       // Encodes the conventions this repo already follows: camelCase
       // everywhere by default, PascalCase for type-like symbols and enum
       // members, and two named exceptions at module scope — SCREAMING_SNAKE
@@ -157,7 +175,12 @@ export default tseslint.config(
           ],
         },
       ],
-      'no-restricted-syntax': ['error', enumLiteral, responseStatus],
+      'no-restricted-syntax': [
+        'error',
+        enumLiteral,
+        responseStatus,
+        ...floatMoney,
+      ],
     },
   },
   {
@@ -168,6 +191,17 @@ export default tseslint.config(
     files: ['**/*.spec.ts'],
     rules: {
       '@typescript-eslint/unbound-method': 'off',
+    },
+  },
+  {
+    // docs/ARQUITECTURA.md asks for structured JSON logs with a correlation
+    // id; a console call bypasses the logger and lands unstructured in
+    // production output. Nest's `Logger` is the way. prisma/ scripts are
+    // outside this glob on purpose: they print a plan for a person reading a
+    // terminal.
+    files: ['src/**/*.ts'],
+    rules: {
+      'no-console': 'error',
     },
   },
 );
