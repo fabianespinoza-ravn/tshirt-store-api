@@ -7,6 +7,7 @@ import { CategoriesModule } from './categories/categories.module';
 import { ImagesModule } from './images/images.module';
 import { LikesModule } from './likes/likes.module';
 import { MailModule } from './mail/mail.module';
+import { OrdersModule } from './orders/orders.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { ProductsModule } from './products/products.module';
 import { SkusModule } from './skus/skus.module';
@@ -44,6 +45,7 @@ import { validateEnv } from './config/env.validation';
     ImagesModule,
     LikesModule,
     CartModule,
+    OrdersModule,
   ],
 })
 export class AppModule {}

@@ -93,6 +93,13 @@ The destinations allowed in `updateOrderStatus`:
 | CLIENT | `CANCELLED` | own and not yet shipped |
 | DELIVERY | `DELIVERED` | `SHIPPED` |
 
+**The implementation narrows the client's row, on purpose and temporarily.** Only `PENDING` is
+accepted today, not "own and not yet shipped": cancelling a `PAID` or `PROCESSING` order owes a
+refund, and no refund exists until Stripe lands. An order cancelled with the money kept is worse
+than a route that refuses the case, so the other two states open where the refund does. The table
+above is left as extracted; `src/orders/order-state-machine.ts` is where the narrowing lives and
+where it is undone.
+
 ## Payment links, webhooks and promotions
 
 | Operation | Route | Who | Codes |

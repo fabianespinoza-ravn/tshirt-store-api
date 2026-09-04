@@ -10,6 +10,7 @@ import {
   type ProductLike,
   type PromoCode,
   type Sku,
+  OrderStatus,
   UserRole,
 } from '@prisma/client';
 import { AbilityBuilder } from '@casl/ability';
@@ -61,6 +62,7 @@ export class AppAbilityFactory {
       can(['create', 'update', 'delete'], 'Product');
       can(['create', 'delete'], 'ProductImage');
       can(['create', 'update'], 'Sku');
+      can(['read', 'update'], 'Order');
     }
 
     // The CLIENT rules for the cart and the like, from
@@ -105,6 +107,13 @@ export class AppAbilityFactory {
         cart: { is: { userId: user.id } },
       });
       can(['create', 'delete'], 'ProductLike', { userId: user.id });
+      can('create', 'Order');
+      can(['read', 'update'], 'Order', { userId: user.id });
+    }
+
+    if (user?.role === UserRole.DELIVERY) {
+      can(['read', 'update'], 'Order', { status: OrderStatus.SHIPPED });
+      can(['read', 'update'], 'Order', { deliveredById: user.id });
     }
 
     return build();

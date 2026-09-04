@@ -1,12 +1,16 @@
 import {
   CartStatus,
   Color,
+  OrderStatus,
   Size,
   UserRole,
   UserState,
   type Cart,
   type CartItem,
   type Category,
+  type Order,
+  type OrderItem,
+  type OrderStatusHistory,
   type Product,
   type ProductImage,
   type ProductLike,
@@ -120,6 +124,72 @@ export function aCartItem(
     quantity: 1,
     createdAt: now(),
     updatedAt: now(),
+    ...overrides,
+  };
+}
+
+export function anOrder(
+  userId: string,
+  overrides: Overrides<Order> = {},
+): Order {
+  const status = overrides.status ?? OrderStatus.PENDING;
+  const subtotal = overrides.subtotal ?? 2000;
+  return {
+    id: newId(),
+    userId,
+    status,
+    // Only a PENDING order holds an expiry; anything else has nothing left
+    // to expire, which is the invariant the block 4 sweep will depend on.
+    expiresAt:
+      status === OrderStatus.PENDING
+        ? new Date('2026-08-28T12:30:00.000Z')
+        : null,
+    subtotal,
+    orderDiscountAmount: 0,
+    total: subtotal,
+    recipientName: 'Ada Lovelace',
+    line1: '1 Analytical Street',
+    line2: null,
+    city: 'London',
+    region: null,
+    postalCode: 'E1 6AN',
+    deliveredById: null,
+    deliveredAt: null,
+    createdAt: now(),
+    updatedAt: now(),
+    ...overrides,
+  };
+}
+
+export function anOrderItem(
+  orderId: string,
+  skuId: string,
+  overrides: Overrides<OrderItem> = {},
+): OrderItem {
+  return {
+    id: newId(),
+    orderId,
+    skuId,
+    // Snapshot columns, not a projection of the SKU: a test that sets these
+    // to something the SKU does not say is exercising the point of them.
+    productName: 'Snapshot tee',
+    unitPrice: 1000,
+    quantity: 2,
+    createdAt: now(),
+    ...overrides,
+  };
+}
+
+export function anOrderStatusHistory(
+  orderId: string,
+  overrides: Overrides<OrderStatusHistory> = {},
+): OrderStatusHistory {
+  return {
+    id: newId(),
+    orderId,
+    status: OrderStatus.PENDING,
+    sequence: 0,
+    createdAt: now(),
     ...overrides,
   };
 }
