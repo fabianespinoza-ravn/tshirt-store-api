@@ -34,6 +34,16 @@ export const Problems = {
   ),
   rateLimited: kind('rate-limited', 'Too many requests', 429),
   internalError: kind('internal-error', 'Internal server error', 500),
+  // For the translators in problem/translators: a dependency this API needs
+  // — Postgres, S3 — was unreachable or too busy to answer. It is the one
+  // status that tells a client "the request itself was fine, come back",
+  // which neither a 500 nor a 4xx can say.
+  //
+  // Unlike every other entry here it belongs to no particular operation:
+  // every route in this API reads or writes Postgres, so it is declared
+  // wherever `internalError` is. W2-API/openapi.yaml has to gain the same
+  // type and title, or the served document and the deliverable disagree.
+  serviceUnavailable: kind('service-unavailable', 'Service unavailable', 503),
 
   // The seven of CheckoutConflict, grouped by the client's remedy and not by
   // the condition that produced them. Only `orderAlreadyPending` carries the
@@ -89,6 +99,7 @@ const BY_STATUS = new Map<number, ProblemKind>(
     Problems.unsupportedMediaType,
     Problems.rateLimited,
     Problems.internalError,
+    Problems.serviceUnavailable,
   ].map((p) => [p.status, p]),
 );
 

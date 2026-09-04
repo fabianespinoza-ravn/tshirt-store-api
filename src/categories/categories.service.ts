@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma, type Category } from '@prisma/client';
+import type { Category } from '@prisma/client';
 import { newId } from '../common/ids';
 import { loadOrThrow } from '../common/load-or-throw';
 import {
@@ -38,32 +38,28 @@ export class CategoriesService {
     return paginate(rows.map(view), total, query);
   }
 
-  // The name is checked by writing and catching the unique index (P2002), not
-  // by probing with findUnique first: a probe-then-write leaves a window where
-  // two concurrent creates for the same name both pass the check and only one
-  // survives the actual insert, unreported.
+  // The name is checked by writing and letting the unique index reject it,
+  // not by probing with findUnique first: a probe-then-write leaves a window
+  // where two concurrent creates for the same name both pass the check and
+  // only one survives the actual insert, unreported.
+  //
+  // The P2002 that comes back used to be caught and rewritten here. It is
+  // now translated centrally, by the `Category:name` entry of
+  // src/common/problem/translators/prisma.translator.ts, which serves the
+  // same 409 with the same detail — the mapping lives next to every other
+  // constraint the API is willing to explain, instead of once per service.
   async create(name: string): Promise<CategoryView> {
-    try {
-      return view(
-        await this.prisma.category.create({ data: { id: newId(), name } }),
-      );
-    } catch (error) {
-      if (!isUniqueViolation(error)) throw error;
-      throw this.nameTaken();
-    }
+    return view(
+      await this.prisma.category.create({ data: { id: newId(), name } }),
+    );
   }
 
   async rename(id: string, name: string): Promise<CategoryView> {
     await this.mustExist(id);
 
-    try {
-      return view(
-        await this.prisma.category.update({ where: { id }, data: { name } }),
-      );
-    } catch (error) {
-      if (!isUniqueViolation(error)) throw error;
-      throw this.nameTaken();
-    }
+    return view(
+      await this.prisma.category.update({ where: { id }, data: { name } }),
+    );
   }
 
   // Hard delete, not soft: a category doesn't appear in any historical
@@ -91,20 +87,4 @@ export class CategoriesService {
       'Category does not exist.',
     );
   }
-
-  private nameTaken(): ProblemException {
-    return new ProblemException(
-      Problems.conflict,
-      'Another category already uses that name.',
-    );
-  }
-}
-
-function isUniqueViolation(
-  error: unknown,
-): error is Prisma.PrismaClientKnownRequestError {
-  return (
-    error instanceof Prisma.PrismaClientKnownRequestError &&
-    error.code === 'P2002'
-  );
 }

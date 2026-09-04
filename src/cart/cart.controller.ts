@@ -48,6 +48,7 @@ export class CartController {
     Problems.unauthorized,
     Problems.forbidden,
     Problems.internalError,
+    Problems.serviceUnavailable,
   )
   @Get('cart')
   getCart(@CurrentUser() user: AuthenticatedUser): Promise<CartView> {
@@ -66,6 +67,7 @@ export class CartController {
     Problems.conflict,
     Problems.stockUnavailable,
     Problems.internalError,
+    Problems.serviceUnavailable,
   )
   @Post('cart/items')
   async addCartItem(
@@ -98,6 +100,7 @@ export class CartController {
     Problems.notFound,
     Problems.stockUnavailable,
     Problems.internalError,
+    Problems.serviceUnavailable,
   )
   @Patch('cart/items/:cartItemId')
   updateCartItem(
@@ -116,6 +119,7 @@ export class CartController {
     Problems.forbidden,
     Problems.notFound,
     Problems.internalError,
+    Problems.serviceUnavailable,
   )
   @Delete('cart/items/:cartItemId')
   removeCartItem(

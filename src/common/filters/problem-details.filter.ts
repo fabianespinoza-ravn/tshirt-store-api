@@ -11,6 +11,11 @@ import {
   ProblemException,
   type ProblemBody,
 } from '../problem/problem.exception';
+import {
+  GENERIC_INTERNAL_DETAIL,
+  translateProblem,
+  type TranslatedProblem,
+} from '../problem/translators';
 
 const PROBLEM_JSON = 'application/problem+json';
 
@@ -28,7 +33,28 @@ export class ProblemDetailsFilter implements ExceptionFilter {
     const response = http.getResponse<Response>();
     const instance = request.originalUrl;
 
-    const body = this.toProblem(exception, instance);
+    // A foreign error — one thrown by Prisma or by the AWS SDK — is
+    // classified once, and the answer feeds both the body and the log line.
+    // The two shapes this filter already understands are never handed to a
+    // translator: they were built here on purpose and there is nothing to
+    // classify.
+    const translation =
+      exception instanceof ProblemException ||
+      exception instanceof HttpException
+        ? undefined
+        : translateProblem(exception);
+
+    const body = this.toProblem(exception, instance, translation);
+
+    if (translation) {
+      // What the client reads never names the subsystem that failed. This
+      // line does, because a translated 503 that logged nothing would be a
+      // quieter version of the 500 it replaced, and the point of the
+      // translation is to make the failure legible, not to hide it.
+      this.logger.warn(
+        `${request.method} ${instance} -> ${body.status} (${translation.origin})`,
+      );
+    }
 
     if (body.status >= 500) {
       // The detail sent to the client is generic; the one useful for
@@ -51,7 +77,11 @@ export class ProblemDetailsFilter implements ExceptionFilter {
     response.status(body.status).type(PROBLEM_JSON).json(body);
   }
 
-  private toProblem(exception: unknown, instance: string): ProblemBody {
+  private toProblem(
+    exception: unknown,
+    instance: string,
+    translation: TranslatedProblem | undefined,
+  ): ProblemBody {
     if (exception instanceof ProblemException) {
       return {
         ...exception.extensions,
@@ -75,12 +105,15 @@ export class ProblemDetailsFilter implements ExceptionFilter {
       };
     }
 
-    const kind = Problems.internalError;
+    // A translated error, and then the fallback. Both go through the same
+    // shaping below, so a translation changes which catalog entry is served
+    // and nothing else about the document.
+    const kind = translation?.kind ?? Problems.internalError;
     return {
       type: kind.type,
       title: kind.title,
       status: kind.status,
-      detail: 'An unexpected error occurred while processing the request.',
+      detail: translation?.detail ?? GENERIC_INTERNAL_DETAIL,
       instance,
     };
   }

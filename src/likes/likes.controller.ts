@@ -48,6 +48,7 @@ export class LikesController {
     Problems.forbidden,
     Problems.notFound,
     Problems.internalError,
+    Problems.serviceUnavailable,
   )
   @Put('products/:productId/like')
   setProductLike(

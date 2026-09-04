@@ -39,7 +39,11 @@ export class CategoriesController {
   @Public()
   @ApiOperation({ summary: 'List categories' })
   @ApiResponse({ status: 200, description: 'A page of categories' })
-  @ApiProblems(Problems.validation, Problems.internalError)
+  @ApiProblems(
+    Problems.validation,
+    Problems.internalError,
+    Problems.serviceUnavailable,
+  )
   @Get('categories')
   listCategories(
     @Query() query: PaginationQueryDto,
@@ -58,6 +62,7 @@ export class CategoriesController {
     Problems.forbidden,
     Problems.conflict,
     Problems.internalError,
+    Problems.serviceUnavailable,
   )
   @Post('categories')
   @HttpCode(HttpStatus.CREATED)
@@ -77,6 +82,7 @@ export class CategoriesController {
     Problems.notFound,
     Problems.conflict,
     Problems.internalError,
+    Problems.serviceUnavailable,
   )
   @Patch('categories/:categoryId')
   updateCategory(
@@ -97,6 +103,7 @@ export class CategoriesController {
     Problems.notFound,
     Problems.conflict,
     Problems.internalError,
+    Problems.serviceUnavailable,
   )
   @Delete('categories/:categoryId')
   @HttpCode(HttpStatus.NO_CONTENT)
