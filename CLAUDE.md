@@ -20,9 +20,11 @@ codebase; see `docs/ARQUITECTURA.md` for the production architecture and
 .toHaveBeenCalledWith(...)` — not on what the mock returns. The mock's
   return value only proves the test wired a fixture; the Prisma call proves
   the code asked the database for the right thing.
-- Coverage cannot drop below the thresholds in `package.json`'s `jest.coverageThreshold`
-  (statements 78, branches 67, functions 65, lines 77). Raise the floor when
-  coverage improves; never lower it to make a PR pass.
+- Coverage cannot drop below `package.json`'s `jest.coverageThreshold`. Raise
+  the floor when coverage improves; never lower it to make a PR pass.
+  `lint:ci` runs `check:coverage-floor`, which compares the floor against
+  main and fails when a metric goes down or disappears, so the rule no longer
+  depends on anyone remembering it.
 - Assertions for behaviour the assistant generated are the student's to
   write. The assistant scaffolds the harness, the fixtures and `it.todo`
   stubs that name each case, never the `expect` calls for code it wrote: a
@@ -41,3 +43,10 @@ codebase; see `docs/ARQUITECTURA.md` for the production architecture and
 - Root-level `*.md` files other than `README.md` and `CLAUDE.md` are
   untracked local notes; never cite one from a tracked file. `lint:ci` fails
   on a citation of an untracked Markdown file.
+- Money is an integer number of cents everywhere — `Sku.price`, `Order.total`,
+  `OrderItem.unitPrice`, `Payment.amount`. Nothing rounds, so ESLint rejects
+  `toFixed` and `parseFloat`, and `no-console` under `src/` keeps output in
+  the logger rather than on stdout.
+- A credential-shaped string cannot be written into the repository: the
+  `deny-secret-literals` hook denies the write, whatever the file. A test
+  that needs a key reads it from the environment.
