@@ -1,5 +1,6 @@
 import { Logger } from '@nestjs/common';
 import type { Job } from 'bullmq';
+import { renderMail } from '../../mail/mail.content';
 import { MailKind, type MailJobData } from '../../mail/mail.jobs';
 import type { MailTransport } from '../../mail/mail.transport';
 import { JobName } from '../queue.constants';
@@ -43,22 +44,66 @@ describe('MailProcessor', () => {
   beforeEach(() => jest.clearAllMocks());
 
   describe('sending', () => {
-    it.todo('renders the job and hands the message to the transport');
-    it.todo('carries the recipient from the job through to the message');
-    it.todo(
-      'throws on a job name it does not recognise, rather than ignoring it',
-    );
+    it('renders the job and hands the message to the transport', async () => {
+      const job = aJob(JobName.SendMail, { token: 'verification-token' });
+      transport.send.mockResolvedValue(undefined);
+
+      await processor.process(job);
+
+      expect(transport.send).toHaveBeenCalledWith(renderMail(job.data));
+    });
+
+    it('carries the recipient from the job through to the message', async () => {
+      const job = aJob(JobName.SendMail, { to: 'recipient@example.test' });
+      transport.send.mockResolvedValue(undefined);
+
+      await processor.process(job);
+
+      expect(transport.send).toHaveBeenCalledWith(
+        expect.objectContaining({ to: 'recipient@example.test' }),
+      );
+    });
+
+    it('throws on a job name it does not recognise, rather than ignoring it', async () => {
+      await expect(processor.process(aJob('unknown-mail-job'))).rejects.toThrow(
+        'Unknown mail job: unknown-mail-job',
+      );
+      expect(transport.send).not.toHaveBeenCalled();
+    });
   });
 
   describe('the failure log, which is the only diagnosis left', () => {
-    it.todo('names the kind, the recipient and the error');
-    it.todo('says how many attempts had been made');
-    it.todo('never writes the token, which the discarded job took with it');
-  });
+    it('names the kind, the recipient and the error', () => {
+      const log = jest.spyOn(Logger.prototype, 'error').mockImplementation();
+      const job = aJob(JobName.SendMail, { to: 'failed@example.test' }, 2);
 
-  void transport;
-  void processor;
-  void aJob;
-  void JobName;
-  void Logger;
+      processor.onFailed(job, new Error('SMTP refused'));
+
+      expect(log).toHaveBeenCalledWith(
+        'verification to failed@example.test failed after 2 attempt(s): SMTP refused',
+      );
+      log.mockRestore();
+    });
+
+    it('says how many attempts had been made', () => {
+      const log = jest.spyOn(Logger.prototype, 'error').mockImplementation();
+      const job = aJob(JobName.SendMail, {}, 7);
+
+      processor.onFailed(job, new Error('timeout'));
+
+      expect(log.mock.calls[0]?.[0]).toContain('after 7 attempt(s)');
+      log.mockRestore();
+    });
+
+    it('never writes the token, which the discarded job took with it', () => {
+      const log = jest.spyOn(Logger.prototype, 'error').mockImplementation();
+      const token = 'live-secret-token';
+      const job = aJob(JobName.SendMail, { token });
+
+      processor.onFailed(job, new Error('SMTP refused'));
+
+      expect(String(log.mock.calls[0]?.[0])).not.toContain(token);
+      log.mockRestore();
+    });
+  });
 });

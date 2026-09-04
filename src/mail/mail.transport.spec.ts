@@ -1,4 +1,5 @@
 import type { ConfigService } from '@nestjs/config';
+import { Logger } from '@nestjs/common';
 import { createTransport } from 'nodemailer';
 import { MailTransport } from './mail.transport';
 
@@ -22,25 +23,129 @@ jest.mock('nodemailer', () => ({ createTransport: jest.fn() }));
  */
 describe('MailTransport', () => {
   const sendMail = jest.fn();
-  const config = {
-    getOrThrow: jest.fn(),
-  } as unknown as ConfigService;
+  // Kept as its mock type and cast only where it is handed over, so the
+  // helper below can still program it.
+  const getOrThrow = jest.fn<unknown, [string]>();
+  const config = { getOrThrow } as unknown as ConfigService;
 
   beforeEach(() => {
     jest.clearAllMocks();
     (createTransport as jest.Mock).mockReturnValue({ sendMail });
   });
 
-  it.todo('reads host, port and credentials from configuration');
-  it.todo('asks for an implicit TLS connection on 465 and negotiates on 587');
-  it.todo('sends with the configured From, not one taken from the message');
-  it.todo('decodes an attachment back from base64 before handing it over');
-  it.todo('logs the subject and the recipient after a send');
-  it.todo(
-    'never writes the message body to the log, because it holds the token',
-  );
+  function makeTransport(overrides: Record<string, unknown> = {}) {
+    const values: Record<string, unknown> = {
+      SMTP_HOST: 'smtp.example.test',
+      SMTP_PORT: 587,
+      SMTP_USER: 'mailer',
+      SMTP_PASSWORD: 'password',
+      MAIL_FROM: 'Configured <configured@example.test>',
+      ...overrides,
+    };
+    getOrThrow.mockImplementation((key: string) => values[key]);
+    return new MailTransport(config);
+  }
 
-  void config;
-  void MailTransport;
-  void sendMail;
+  it('reads host, port and credentials from configuration', () => {
+    makeTransport();
+
+    expect(createTransport).toHaveBeenCalledWith({
+      host: 'smtp.example.test',
+      port: 587,
+      secure: false,
+      auth: { user: 'mailer', pass: 'password' },
+    });
+  });
+
+  it('asks for an implicit TLS connection on 465 and negotiates on 587', () => {
+    makeTransport({ SMTP_PORT: 465 });
+    makeTransport({ SMTP_PORT: 587 });
+
+    expect(createTransport).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ port: 465, secure: true }),
+    );
+    expect(createTransport).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ port: 587, secure: false }),
+    );
+  });
+
+  it('sends with the configured From, not one taken from the message', async () => {
+    const transport = makeTransport({ MAIL_FROM: 'configured@example.test' });
+    sendMail.mockResolvedValue(undefined);
+
+    await transport.send({
+      to: 'recipient@example.test',
+      subject: 'Subject',
+      text: 'Body',
+    });
+
+    expect(sendMail).toHaveBeenCalledWith(
+      expect.objectContaining({ from: 'configured@example.test' }),
+    );
+  });
+
+  it('decodes an attachment back from base64 before handing it over', async () => {
+    const transport = makeTransport();
+    sendMail.mockResolvedValue(undefined);
+
+    await transport.send({
+      to: 'recipient@example.test',
+      subject: 'Subject',
+      text: 'Body',
+      attachments: [
+        {
+          filename: 'hello.txt',
+          content: 'aGVsbG8=',
+          contentType: 'text/plain',
+        },
+      ],
+    });
+
+    expect(sendMail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        attachments: [
+          {
+            filename: 'hello.txt',
+            content: Buffer.from('hello'),
+            contentType: 'text/plain',
+          },
+        ],
+      }),
+    );
+  });
+
+  it('logs the subject and the recipient after a send', async () => {
+    const transport = makeTransport();
+    const log = jest.spyOn(Logger.prototype, 'log').mockImplementation();
+    sendMail.mockResolvedValue(undefined);
+
+    await transport.send({
+      to: 'recipient@example.test',
+      subject: 'Subject',
+      text: 'Body',
+    });
+
+    expect(log).toHaveBeenCalledWith(
+      'Sent "Subject" to recipient@example.test',
+    );
+    log.mockRestore();
+  });
+
+  it('never writes the message body to the log, because it holds the token', async () => {
+    const transport = makeTransport();
+    const log = jest.spyOn(Logger.prototype, 'log').mockImplementation();
+    const token = 'live-secret-token';
+    sendMail.mockResolvedValue(undefined);
+
+    await transport.send({
+      to: 'recipient@example.test',
+      subject: 'Subject',
+      text: `Your code: ${token}`,
+    });
+
+    expect(String(log.mock.calls[0]?.[0])).not.toContain(token);
+    log.mockRestore();
+  });
 });
