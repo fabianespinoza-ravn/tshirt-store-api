@@ -61,9 +61,30 @@ describe('MailTransport', () => {
   /**
    * Opportunistic negotiation is not enough: without `requireTLS` a server
    * that does not offer STARTTLS gets the credentials and the one-time token
-   * in clear text, and nothing warns.
+   * in clear text, and nothing warns. The transport asks nodemailer to
+   * refuse that connection instead, which is the only place the decision can
+   * be made — by the time a message is being sent it is too late.
    */
-  it.todo('refuses to send in clear text when STARTTLS is not offered');
+  it('requires STARTTLS on every port that is not implicit TLS', () => {
+    makeTransport({ SMTP_PORT: 587 });
+    makeTransport({ SMTP_PORT: 2525 });
+    makeTransport({ SMTP_PORT: 465 });
+
+    expect(createTransport).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ requireTLS: true }),
+    );
+    expect(createTransport).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ requireTLS: true }),
+    );
+    // 465 is already encrypted from the first byte, so demanding an upgrade
+    // on it would ask for something that cannot happen.
+    expect(createTransport).toHaveBeenNthCalledWith(
+      3,
+      expect.objectContaining({ secure: true, requireTLS: false }),
+    );
+  });
 
   it('asks for an implicit TLS connection on 465 and negotiates on 587', () => {
     makeTransport({ SMTP_PORT: 465 });

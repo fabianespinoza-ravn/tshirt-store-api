@@ -479,9 +479,58 @@ describe('AuthService', () => {
    * verification was never enqueued is better reported than pretended.
    */
   describe('when the mail queue is unreachable', () => {
-    it.todo('forgotPassword still resolves for a registered address');
-    it.todo('resendEmailVerification still resolves for a pending address');
-    it.todo('changePassword still resolves, since the change already happened');
-    it.todo('signUp rejects instead, because both of its branches send');
+    const unreachable = (): Error => new Error('Redis is unreachable');
+
+    it('forgotPassword still resolves for a registered address', async () => {
+      const user = aUser();
+      h.prisma.user.findUnique.mockResolvedValue(user);
+      h.mail.sendPasswordReset.mockRejectedValue(unreachable());
+
+      await expect(
+        h.service.forgotPassword(user.email),
+      ).resolves.toBeUndefined();
+    });
+
+    it('resendEmailVerification still resolves for a pending address', async () => {
+      const user = anUnverifiedUser();
+      h.prisma.user.findUnique.mockResolvedValue(user);
+      h.prisma.emailVerificationToken.findUnique.mockResolvedValue(
+        aOneTimeToken(user.id, { pendingPasswordHash: '$argon2id$pending' }),
+      );
+      h.mail.sendVerificationLink.mockRejectedValue(unreachable());
+
+      await expect(
+        h.service.resendEmailVerification(user.email),
+      ).resolves.toBeUndefined();
+    });
+
+    it('changePassword still resolves, since the change already happened', async () => {
+      const user = aUser({ passwordHash: await passwords.hash(PLAIN) });
+      h.prisma.user.findUnique.mockResolvedValue(user);
+      h.mail.sendPasswordChanged.mockRejectedValue(unreachable());
+
+      await expect(
+        h.service.changePassword(user.id, PLAIN, 'new-long-password'),
+      ).resolves.toBeUndefined();
+      // The credential and the sessions moved before the message was ever
+      // attempted, so swallowing the failure is reporting what happened.
+      expect(h.tokens.revokeAllForUser).toHaveBeenCalledWith(user.id);
+    });
+
+    /**
+     * The asymmetric one, and the reason the other three are not simply a
+     * blanket catch: sign-up sends on both of its branches, so a rejection
+     * tells an attacker nothing — and an account whose verification was
+     * never enqueued is better reported than pretended.
+     */
+    it('signUp rejects instead, because both of its branches send', async () => {
+      h.prisma.user.findUnique.mockResolvedValue(null);
+      h.prisma.user.create.mockResolvedValue(anUnverifiedUser());
+      h.mail.sendVerificationLink.mockRejectedValue(unreachable());
+
+      await expect(h.service.signUp('new@example.test', PLAIN)).rejects.toThrow(
+        'Redis is unreachable',
+      );
+    });
   });
 });
