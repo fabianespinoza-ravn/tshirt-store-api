@@ -321,7 +321,57 @@ describe('OrdersSweepService', () => {
      * and that only holds if one rejection costs one order rather than the
      * rest of the batch behind it.
      */
-    it.todo('carries on with the batch when one order transaction is rejected');
-    it.todo('counts a rejected transaction as failed, not as cancelled');
+    function arrangeRejectedTransaction() {
+      const first = {
+        ...anOrder('user-1', {
+          id: 'order-1',
+          status: OrderStatus.PENDING,
+          expiresAt: new Date('2026-09-04T11:00:00.000Z'),
+        }),
+        items: [anOrderItem('order-1', 'sku-1', { quantity: 3 })],
+      };
+      const second = {
+        ...anOrder('user-1', {
+          id: 'order-2',
+          status: OrderStatus.PENDING,
+          expiresAt: new Date('2026-09-04T11:00:00.000Z'),
+        }),
+        items: [anOrderItem('order-2', 'sku-2', { quantity: 2 })],
+      };
+      h.prisma.order.findMany.mockResolvedValue([first, second] as never);
+      h.prisma.order.updateMany.mockResolvedValue({ count: 1 });
+      h.prisma.orderStatusHistory.count.mockResolvedValue(0);
+      h.prisma.$transaction.mockRejectedValueOnce(
+        new Error('serialization conflict'),
+      );
+      return { first, second };
+    }
+
+    it('carries on with the batch when one order transaction is rejected', async () => {
+      const { second } = arrangeRejectedTransaction();
+
+      await h.service.sweep(now);
+
+      expect(h.prisma.$transaction).toHaveBeenCalledTimes(2);
+      expect(h.prisma.order.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ id: second.id }),
+        }),
+      );
+      expect(h.prisma.sku.update).toHaveBeenCalledWith({
+        where: { id: 'sku-2' },
+        data: { reserved: { decrement: 2 } },
+      });
+    });
+
+    it('counts a rejected transaction as failed, not as cancelled', async () => {
+      arrangeRejectedTransaction();
+
+      await expect(h.service.sweep(now)).resolves.toEqual({
+        examined: 2,
+        cancelled: 1,
+        failed: 1,
+      });
+    });
   });
 });

@@ -88,12 +88,44 @@ describe('validateEnv', () => {
    * value carrying a newline, because that string reaches the `From` header
    * verbatim and a newline there starts a header somebody else chose.
    */
-  it.todo('refuses an environment with no SMTP host, user or password');
-  it.todo('refuses an SMTP_PORT outside the range of a port');
-  it.todo('defaults SMTP_PORT to 587 when it is absent');
-  it.todo(
-    'accepts a bare address and an address with a display name in MAIL_FROM',
-  );
-  it.todo('refuses a MAIL_FROM that is only a display name');
-  it.todo('refuses a MAIL_FROM carrying a carriage return or a newline');
+  it('refuses an environment with no SMTP host, user or password', () => {
+    expect(() =>
+      validateEnv(anEnvWithout('SMTP_HOST', 'SMTP_USER', 'SMTP_PASSWORD')),
+    ).toThrow(/SMTP_HOST.*SMTP_USER.*SMTP_PASSWORD/s);
+  });
+
+  it('refuses an SMTP_PORT outside the range of a port', () => {
+    expect(() => validateEnv(anEnv({ SMTP_PORT: 0 }))).toThrow(/SMTP_PORT/);
+    expect(() => validateEnv(anEnv({ SMTP_PORT: 70_000 }))).toThrow(
+      /SMTP_PORT/,
+    );
+  });
+
+  it('defaults SMTP_PORT to 587 when it is absent', () => {
+    expect(validateEnv(anEnv()).SMTP_PORT).toBe(587);
+  });
+
+  it('accepts a bare address and an address with a display name in MAIL_FROM', () => {
+    expect(
+      validateEnv(anEnv({ MAIL_FROM: 'store@example.test' })).MAIL_FROM,
+    ).toBe('store@example.test');
+    expect(
+      validateEnv(anEnv({ MAIL_FROM: 'T-Shirt Store <store@example.test>' }))
+        .MAIL_FROM,
+    ).toBe('T-Shirt Store <store@example.test>');
+  });
+
+  it('refuses a MAIL_FROM that is only a display name', () => {
+    expect(() => validateEnv(anEnv({ MAIL_FROM: 'Alford White' }))).toThrow(
+      /MAIL_FROM/,
+    );
+  });
+
+  it('refuses a MAIL_FROM carrying a carriage return or a newline', () => {
+    expect(() =>
+      validateEnv(
+        anEnv({ MAIL_FROM: '\r\nBcc: victim@example.test <us@example.test>' }),
+      ),
+    ).toThrow(/MAIL_FROM/);
+  });
 });
