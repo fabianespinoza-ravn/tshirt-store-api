@@ -1,8 +1,12 @@
-# Automatic review is off on purpose. The Open Source plan scales the limit
-# with the repository's stars, and this one has zero: it gets one review per
-# hour. Spending it on a package-lock.json bump is wasting it, so it's
-# requested by hand with `@coderabbitai review` on the pull request that
-# earns it.
+# Automatic review is on: every pull request is read without being asked.
+#
+# What it costs is a rate limit, not money. The Open Source plan scales with
+# the repository's stars and this one has zero, so it allows roughly one
+# review per hour. A pull request pushed to three times in quick succession
+# will have the later pushes skipped, and the review that matters is the one
+# on the final diff — so batch the pushes rather than expecting each to be
+# read. `@coderabbitai review` still forces one by hand when a skipped push
+# was the important one.
 language: en-US
 
 # The schema rejects this field above 250 characters, and a rejected file
@@ -13,10 +17,12 @@ tone_instructions: >-
   docs/AUTHORIZATION-MATRIX.md. New behaviour without a test is a finding.
 
 reviews:
-  # `assertive` instead of the `chill` default: with only one review per
-  # hour, the point is for it to find things, not to play it safe.
+  # `assertive` instead of the `chill` default: the point is for it to find
+  # things, not to play it safe.
   profile: assertive
   high_level_summary: true
   auto_review:
-    enabled: false
+    enabled: true
+    # A draft is work in progress by definition, and reviewing one spends an
+    # hour's allowance on a diff its author has not finished.
     drafts: false
