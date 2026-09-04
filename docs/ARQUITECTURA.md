@@ -90,10 +90,18 @@ keeps its listeners and their state in memory. A deploy, a crash or an OOM kill
 between "Stripe confirmed the charge" and "the order moved to `PAID`" would drop
 that handler on the floor, leaving an order `PENDING` with money already taken.
 BullMQ persists the job in Redis before the handler runs, so a restart re-delivers
-it instead of losing it. Its retry policy reflects that stakes: settlement retries
-with backoff until it resolves and raises an alert instead of giving up, because
-no number of attempts makes losing a payment acceptable. Mail's stakes are lower,
-so it gets three attempts with backoff and then a monitored dead-letter queue.
+it instead of losing it. What each job does when it runs out of attempts is
+decided by what its payload carries, not by a single house rule. Settlement
+retries with backoff for close to a day and its failures are kept and alerted on,
+because no number of attempts makes losing a payment acceptable and the payload is
+only a Stripe identifier. Mail gets three attempts and then keeps nothing: its
+payload holds a one-time token that the database stores only the hash of, so a
+retained failure would leave a usable credential in Redis — worse than the
+exposure the hashing exists to prevent. What is given up is retrying a send by
+hand, and a client who never received a verification link asks for another; the
+diagnosis moves to a log line carrying the recipient and the error and never the
+body. The sweep does not retry at all, because the next minute's run is the retry
+and two sweeps over the same expired orders is the one thing it must not do.
 
 The rejected alternative is `@nestjs/schedule` for the sweep plus a transactional
 outbox for settlement: an `@Interval` job in place of the repeatable job, and an
