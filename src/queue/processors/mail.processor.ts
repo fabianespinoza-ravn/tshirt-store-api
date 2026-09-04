@@ -40,9 +40,24 @@ export class MailProcessor extends WorkerHost {
    * written down: the kind, the recipient and the error.
    *
    * **Never `job.data`.** It holds the token.
+   *
+   * The job is optional because BullMQ types it that way: a stalled job is
+   * moved to the failed set and, under `removeOnFail: true`, deleted in the
+   * same breath — the event then arrives with nothing to describe it. That
+   * combination is exactly this queue's policy, so the case is not remote,
+   * and dereferencing a missing job would throw inside the listener and
+   * destroy the one record a failed send leaves behind. Losing the details
+   * is bad; losing the line as well is worse.
    */
   @OnWorkerEvent('failed')
-  onFailed(job: Job<MailJobData>, error: Error): void {
+  onFailed(job: Job<MailJobData> | undefined, error: Error): void {
+    if (!job) {
+      this.logger.error(
+        `A mail job failed and was already removed, so its recipient is unknown: ${error.message}`,
+      );
+      return;
+    }
+
     this.logger.error(
       `${job.data.kind} to ${job.data.to} failed after ${job.attemptsMade} attempt(s): ${error.message}`,
     );

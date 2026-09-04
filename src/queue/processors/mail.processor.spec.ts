@@ -105,5 +105,32 @@ describe('MailProcessor', () => {
       expect(String(log.mock.calls[0]?.[0])).not.toContain(token);
       log.mockRestore();
     });
+
+    /**
+     * BullMQ types the failed listener's job as optional, and this queue's
+     * own retention is what makes that happen: a stalled job is moved to the
+     * failed set and `removeOnFail: true` deletes it there, so the event
+     * arrives with nothing to describe. Dereferencing it would throw inside
+     * the listener and take the only record of the failure with it, which is
+     * the opposite of what this handler is for.
+     */
+    it('still logs when the job was removed before the event arrived', () => {
+      const log = jest.spyOn(Logger.prototype, 'error').mockImplementation();
+
+      expect(() =>
+        processor.onFailed(undefined, new Error('stalled')),
+      ).not.toThrow();
+      expect(String(log.mock.calls[0]?.[0])).toContain('stalled');
+      log.mockRestore();
+    });
+
+    it('says the recipient is unknown rather than inventing one', () => {
+      const log = jest.spyOn(Logger.prototype, 'error').mockImplementation();
+
+      processor.onFailed(undefined, new Error('stalled'));
+
+      expect(String(log.mock.calls[0]?.[0])).toContain('recipient is unknown');
+      log.mockRestore();
+    });
   });
 });

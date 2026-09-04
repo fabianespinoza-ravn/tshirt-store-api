@@ -43,9 +43,16 @@ export class MaintenanceProcessor extends WorkerHost {
    * whole story of that run. It is logged because the alternative — a job
    * that fails silently every minute while the queue looks busy — is the
    * failure mode this block exists to avoid.
+   *
+   * The job is optional for the reason given on the mail processor: BullMQ
+   * hands the listener nothing when the job it would describe has already
+   * been removed. The stack is the part worth keeping either way.
    */
   @OnWorkerEvent('failed')
-  onFailed(job: Job, error: Error): void {
-    this.logger.error(`${job.name} failed: ${error.message}`, error.stack);
+  onFailed(job: Job | undefined, error: Error): void {
+    this.logger.error(
+      `${job?.name ?? 'A removed maintenance job'} failed: ${error.message}`,
+      error.stack,
+    );
   }
 }

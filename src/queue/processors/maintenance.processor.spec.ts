@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import type { Job } from 'bullmq';
 import type { OrdersSweepService } from '../../orders/orders-sweep.service';
 import { JobName } from '../queue.constants';
@@ -53,5 +54,36 @@ describe('MaintenanceProcessor', () => {
     await expect(processor.process(aJob('renamed-job'))).rejects.toThrow(
       'Unknown maintenance job: renamed-job',
     );
+  });
+
+  describe('the failure log', () => {
+    it('names the job and keeps the stack', () => {
+      const log = jest.spyOn(Logger.prototype, 'error').mockImplementation();
+      const error = new Error('the database was unreachable');
+
+      processor.onFailed(aJob(JobName.SweepExpiredOrders), error);
+
+      expect(log).toHaveBeenCalledWith(
+        'sweep-expired-orders failed: the database was unreachable',
+        error.stack,
+      );
+      log.mockRestore();
+    });
+
+    /**
+     * The listener's job is optional in BullMQ's own types, for a job that
+     * stalled and was removed before the event was delivered. A sweep
+     * failure that threw here would leave the minute with no record at all,
+     * which is the silence this processor logs to avoid.
+     */
+    it('still logs when the job was removed before the event arrived', () => {
+      const log = jest.spyOn(Logger.prototype, 'error').mockImplementation();
+
+      expect(() =>
+        processor.onFailed(undefined, new Error('stalled')),
+      ).not.toThrow();
+      expect(String(log.mock.calls[0]?.[0])).toContain('stalled');
+      log.mockRestore();
+    });
   });
 });
