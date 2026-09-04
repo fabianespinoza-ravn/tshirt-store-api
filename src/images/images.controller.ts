@@ -56,6 +56,7 @@ export class ImagesController {
     Problems.payloadTooLarge,
     Problems.unsupportedMediaType,
     Problems.internalError,
+    Problems.serviceUnavailable,
   )
   @Post('products/:productId/images')
   @HttpCode(HttpStatus.CREATED)
@@ -82,6 +83,7 @@ export class ImagesController {
     Problems.notFound,
     Problems.conflict,
     Problems.internalError,
+    Problems.serviceUnavailable,
   )
   @Delete('products/:productId/images/:imageId')
   @HttpCode(HttpStatus.NO_CONTENT)

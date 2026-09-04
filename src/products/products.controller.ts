@@ -53,7 +53,11 @@ export class ProductsController {
     description: 'Public. Optionally narrowed to one category.',
   })
   @ApiResponse({ status: 200, description: 'A page of products' })
-  @ApiProblems(Problems.validation, Problems.internalError)
+  @ApiProblems(
+    Problems.validation,
+    Problems.internalError,
+    Problems.serviceUnavailable,
+  )
   @Get('products')
   listProducts(
     @Query() query: ListProductsQueryDto,
@@ -71,7 +75,12 @@ export class ProductsController {
       'Accepts anonymous callers. A manager sees the management projection; everyone else sees the public one, and an inactive product is a 404 rather than a 403 - visibility here is a condition on the row, not a permission.',
   })
   @ApiResponse({ status: 200, description: 'The product' })
-  @ApiProblems(Problems.unauthorized, Problems.notFound, Problems.internalError)
+  @ApiProblems(
+    Problems.unauthorized,
+    Problems.notFound,
+    Problems.internalError,
+    Problems.serviceUnavailable,
+  )
   @Get('products/:productId')
   getProduct(
     @Param('productId', uuid) productId: string,
@@ -91,6 +100,7 @@ export class ProductsController {
     Problems.forbidden,
     Problems.notFound,
     Problems.internalError,
+    Problems.serviceUnavailable,
   )
   @Post('products')
   @HttpCode(HttpStatus.CREATED)
@@ -112,6 +122,7 @@ export class ProductsController {
     Problems.forbidden,
     Problems.notFound,
     Problems.internalError,
+    Problems.serviceUnavailable,
   )
   @Patch('products/:productId')
   updateProduct(
@@ -132,6 +143,7 @@ export class ProductsController {
     Problems.notFound,
     Problems.conflict,
     Problems.internalError,
+    Problems.serviceUnavailable,
   )
   @Delete('products/:productId')
   @HttpCode(HttpStatus.NO_CONTENT)

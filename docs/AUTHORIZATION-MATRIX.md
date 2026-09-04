@@ -4,6 +4,12 @@ Extracted from `W2-API/openapi.yaml` at `1.0.1`, all 38 operations, no exception
 an authorization model**: it is your contract reordered by who can do what, which is the raw
 material the ability is built from. You write the model.
 
+**One status code is not in that extract.** The implementation also answers **503** on every
+operation: every route reads or writes Postgres, and `src/common/problem/translators/` turns an
+unreachable database or a busy S3 into `service-unavailable` instead of a 500 that tells a client
+to give up. The per-operation lists below are left exactly as extracted, because falsifying an
+extract is worse than an omission — `W2-API/openapi.yaml` is where the code has to be added.
+
 ---
 
 ## The three zones

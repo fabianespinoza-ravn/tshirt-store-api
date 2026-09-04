@@ -44,6 +44,7 @@ export class SkusController {
     Problems.notFound,
     Problems.conflict,
     Problems.internalError,
+    Problems.serviceUnavailable,
   )
   @Post('products/:productId/skus')
   @HttpCode(HttpStatus.CREATED)
@@ -66,6 +67,7 @@ export class SkusController {
     Problems.notFound,
     Problems.conflict,
     Problems.internalError,
+    Problems.serviceUnavailable,
   )
   @Patch('skus/:skuId')
   updateSku(

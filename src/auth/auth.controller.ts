@@ -68,6 +68,7 @@ export class AuthController {
     Problems.validation,
     Problems.rateLimited,
     Problems.internalError,
+    Problems.serviceUnavailable,
   )
   @Post('sign-up')
   @HttpCode(HttpStatus.CREATED)
@@ -94,6 +95,7 @@ export class AuthController {
     Problems.emailNotVerified,
     Problems.rateLimited,
     Problems.internalError,
+    Problems.serviceUnavailable,
   )
   @Post('sign-in')
   @HttpCode(HttpStatus.OK)
@@ -117,7 +119,11 @@ export class AuthController {
     description: 'Session rotated',
     type: SessionDto,
   })
-  @ApiProblems(Problems.unauthorized, Problems.internalError)
+  @ApiProblems(
+    Problems.unauthorized,
+    Problems.internalError,
+    Problems.serviceUnavailable,
+  )
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
   async refresh(
@@ -137,7 +143,11 @@ export class AuthController {
   @ApiSecurity({ bearerAuth: [], cookieAuth: [] })
   @ApiOperation({ summary: 'Revoke the refresh token and clear its cookie' })
   @ApiResponse({ status: 204, description: 'Session ended' })
-  @ApiProblems(Problems.unauthorized, Problems.internalError)
+  @ApiProblems(
+    Problems.unauthorized,
+    Problems.internalError,
+    Problems.serviceUnavailable,
+  )
   @Post('sign-out')
   @HttpCode(HttpStatus.NO_CONTENT)
   async signOut(
@@ -162,6 +172,7 @@ export class AuthController {
     Problems.validation,
     Problems.rateLimited,
     Problems.internalError,
+    Problems.serviceUnavailable,
   )
   @Post('forgot-password')
   @HttpCode(HttpStatus.ACCEPTED)
@@ -178,6 +189,7 @@ export class AuthController {
     Problems.notFound,
     Problems.rateLimited,
     Problems.internalError,
+    Problems.serviceUnavailable,
   )
   @Post('reset-password')
   @HttpCode(HttpStatus.NO_CONTENT)
@@ -196,6 +208,7 @@ export class AuthController {
     Problems.validation,
     Problems.rateLimited,
     Problems.internalError,
+    Problems.serviceUnavailable,
   )
   @Post('email-verifications')
   @HttpCode(HttpStatus.ACCEPTED)
@@ -212,6 +225,7 @@ export class AuthController {
     Problems.validation,
     Problems.emailVerificationTokenNotFound,
     Problems.internalError,
+    Problems.serviceUnavailable,
   )
   @Post('email-verifications/confirm')
   @HttpCode(HttpStatus.NO_CONTENT)
@@ -231,6 +245,7 @@ export class AuthController {
     Problems.validation,
     Problems.unauthorized,
     Problems.internalError,
+    Problems.serviceUnavailable,
   )
   @Patch('password')
   @HttpCode(HttpStatus.NO_CONTENT)
