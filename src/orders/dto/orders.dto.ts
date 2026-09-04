@@ -4,6 +4,7 @@ import {
   IsEnum,
   IsInt,
   IsISO8601,
+  IsNotEmpty,
   IsOptional,
   IsString,
   MaxLength,
@@ -18,13 +19,22 @@ const ADDRESS_FIELD = 255;
  * else: the lines come from the caller's active cart, which is what makes
  * the operation a checkout rather than an order builder. Sending line items
  * here would let a client name a price.
+ *
+ * The four required fields reject the empty string and not only a missing
+ * key. `@IsString()` accepts `""`, and this address is copied onto the order
+ * and never revisited, so an empty `recipientName` or `postalCode` would
+ * leave a row that cannot be delivered with nothing downstream to catch it.
+ * `line2` and `region` stay as they are: an optional line that arrives empty
+ * is an absent one.
  */
 export class CheckoutDto {
   @IsString()
+  @IsNotEmpty()
   @MaxLength(ADDRESS_FIELD)
   recipientName!: string;
 
   @IsString()
+  @IsNotEmpty()
   @MaxLength(ADDRESS_FIELD)
   line1!: string;
 
@@ -34,6 +44,7 @@ export class CheckoutDto {
   line2?: string;
 
   @IsString()
+  @IsNotEmpty()
   @MaxLength(ADDRESS_FIELD)
   city!: string;
 
@@ -43,6 +54,7 @@ export class CheckoutDto {
   region?: string;
 
   @IsString()
+  @IsNotEmpty()
   @MaxLength(ADDRESS_FIELD)
   postalCode!: string;
 }
