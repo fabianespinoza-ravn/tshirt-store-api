@@ -70,7 +70,8 @@ export class PaymentLinksController {
     Problems.internalError,
     // Every route in this API reads Postgres, and this one also calls
     // Stripe: a busy or unreachable Stripe is a 503 here, never Stripe's own
-    // status passed through. See `stripe-failure.ts`.
+    // status passed through. See
+    // `common/problem/translators/stripe.translator.ts`.
     Problems.serviceUnavailable,
   )
   @Post()

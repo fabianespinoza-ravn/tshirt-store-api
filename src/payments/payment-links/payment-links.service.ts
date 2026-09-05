@@ -5,10 +5,13 @@ import { newId } from '../../common/ids';
 import { loadOrThrow } from '../../common/load-or-throw';
 import { Problems } from '../../common/problem/problem.catalog';
 import { ProblemException } from '../../common/problem/problem.exception';
+import {
+  GENERIC_INTERNAL_DETAIL,
+  translateStripeError,
+} from '../../common/problem/translators';
 import { PrismaService } from '../../prisma/prisma.service';
 import { StripeService } from '../stripe.service';
 import type { CreatePaymentLinkDto } from './dto/create-payment-link.dto';
-import { stripeFailure } from './stripe-failure';
 import { toPaymentLink, type PaymentLinkView } from './payment-links.views';
 
 /** Either the service's client or the one inside `$transaction`. */
@@ -181,10 +184,19 @@ export class PaymentLinksService {
   /**
    * The Stripe call, with its failures classified into the catalog.
    *
-   * `stripe-failure.ts` carries the reasoning; the short version is that
-   * Stripe's status code is never ours. Nothing here shapes a response —
+   * `common/problem/translators/stripe.translator.ts` carries the reasoning
+   * and does the classifying; the short version is that Stripe's status code
+   * is never ours. Nothing here shapes a response —
    * `problem-details.filter.ts` remains the only place that does — this only
    * picks which entry of `Problems` the exception carries.
+   *
+   * The same translator is registered in the registry, so a Stripe error
+   * that reaches the filter by any other route is classified identically.
+   * Raising it here rather than letting it bubble buys one thing: this
+   * method logs which SKU the refusal was for, which the filter cannot know.
+   * The `??` is the honest fallback — an error the translator declines is
+   * one it could not attribute to Stripe, and an unattributable failure is
+   * the generic 500 it already was.
    */
   private async createAtStripe(params: {
     requestId: string;
@@ -201,7 +213,12 @@ export class PaymentLinksService {
         }`,
       );
 
-      throw stripeFailure(error);
+      const translation = translateStripeError(error) ?? {
+        kind: Problems.internalError,
+        detail: GENERIC_INTERNAL_DETAIL,
+      };
+
+      throw new ProblemException(translation.kind, translation.detail);
     }
   }
 }

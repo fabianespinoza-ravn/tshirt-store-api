@@ -55,7 +55,7 @@ function aStripeLink(overrides: Partial<Stripe.PaymentLink> = {}) {
   } as Awaited<ReturnType<StripeService['createPaymentLink']>>;
 }
 
-/** A refusal from Stripe, in the duck-typed shape `stripe-failure.ts` reads. */
+/** A refusal from Stripe, in the duck-typed shape `stripe.translator.ts` reads. */
 const aStripeError = (type: string, statusCode?: number) =>
   statusCode === undefined ? { type } : { type, statusCode };
 
