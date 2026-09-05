@@ -73,6 +73,28 @@ describe('MailService', () => {
     ]);
   });
 
+  /**
+   * The order confirmation, which is the first payload here that carries
+   * something other than a token.
+   *
+   * What is worth asserting is the same negative as above, pointed the
+   * other way: the job must carry `orderId` and **no `token` field at all**
+   * — this message goes out on a settled purchase and there is no
+   * credential anywhere near it — and it must still be named
+   * `JobName.SendMail`, or it waits in the queue forever without anything
+   * reporting a problem.
+   *
+   * Left as stubs deliberately: the method they describe was written by the
+   * assistant, and an assistant-written assertion would only restate it.
+   */
+  it.todo('enqueues the order confirmation with the order id and no token');
+  it.todo(
+    'names the confirmation job the one the mail processor answers to, like the rest',
+  );
+  it.todo(
+    'rejects when the queue does, leaving the caller to decide what that costs',
+  );
+
   it('rejects when the queue does, so a sign-up cannot report success', async () => {
     const failure = new Error('Redis unavailable');
     queue.add.mockRejectedValueOnce(failure);

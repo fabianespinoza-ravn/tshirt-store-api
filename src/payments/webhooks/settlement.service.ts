@@ -6,6 +6,7 @@ import {
   Prisma,
 } from '@prisma/client';
 import { newId } from '../../common/ids';
+import { MailService } from '../../mail/mail.service';
 import { recordStatus } from '../../orders/order-writes';
 import { PrismaService } from '../../prisma/prisma.service';
 import { StripeService } from '../stripe.service';
@@ -23,8 +24,20 @@ export enum SettlementOutcome {
   Ignored = 'ignored',
 }
 
-/** Just enough of an order to settle it. */
-type SettleableOrder = Prisma.OrderGetPayload<{ include: { items: true } }>;
+/**
+ * Just enough of an order to settle it and to confirm it.
+ *
+ * The buyer is joined for one column. It is read here, in the same query
+ * that already fetches the order, rather than in a second one after the
+ * commit: settlement has exactly one place where it can fail without
+ * consequence, and adding a round trip to the database inside it would give
+ * the confirmation a second way to be lost for no gain. `select` and not
+ * `include`, because the row also holds a password hash and a live email,
+ * and nothing here has any business with either.
+ */
+type SettleableOrder = Prisma.OrderGetPayload<{
+  include: { items: true; user: { select: { email: true } } };
+}>;
 
 /**
  * The half of the payment flow the webhook route deliberately does not do.
@@ -57,6 +70,7 @@ export class SettlementService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly stripe: StripeService,
+    private readonly mail: MailService,
   ) {}
 
   async settle(
@@ -79,7 +93,7 @@ export class SettlementService {
 
     const order = await this.prisma.order.findUnique({
       where: { id: data.orderId },
-      include: { items: true },
+      include: { items: true, user: { select: { email: true } } },
     });
 
     if (!order) {
@@ -172,20 +186,60 @@ export class SettlementService {
       );
     }
 
-    // The confirmation mail belongs here, after the commit, so a message is
-    // never sent for a transaction that rolled back.
-    //
-    // **Extension point — the mail kind does not exist yet.** `MailKind`
-    // (src/mail/mail.jobs.ts) declares the four account messages and no
-    // order confirmation, and `renderMail` has no branch for one, so there
-    // is nothing this can enqueue that would not deliver the wrong message
-    // to a customer. What it needs is a new `MailKind` member, its body in
-    // `mail.content.ts`, and an `MailService` method taking the order's id
-    // and the buyer's address; the enqueue is then one line at this point,
-    // and it must stay outside the transaction above.
     this.logger.log(`Settled order ${order.id} as ${OrderStatus.PAID}.`);
 
+    // After the commit and outside it, which is the whole of why the call
+    // is on this line and not four lines up. A job enqueued inside the
+    // transaction survives a rollback — BullMQ writes to Redis, which knows
+    // nothing about Postgres — so a rolled-back settlement would still tell
+    // the customer their order was paid.
+    await this.confirm(order);
+
     return SettlementOutcome.Paid;
+  }
+
+  /**
+   * Tells the buyer their order is paid, and cannot fail the job that paid
+   * it.
+   *
+   * The swallow is the same shape as `AuthService.notify` and it is here
+   * for a stronger reason than that one's. There the harm is an oracle: a
+   * queue hiccup would answer 500 for a registered address and 202 for
+   * every other, turning a uniform response into the disclosure it exists
+   * to prevent, and the endpoint can afford to lose the message because the
+   * client can ask for another. Here nothing can be asked for again. The
+   * transaction above has committed — the order is PAID, the reservation is
+   * spent, the charge is recorded and the event is stamped processed — so a
+   * rejection escaping this method would fail the job over an email, and
+   * `SETTLEMENT_JOB_OPTIONS` would redeliver it for the best part of a day.
+   * Every one of those retries re-reads an order that is no longer PENDING,
+   * so `pay` never runs again; the job would park in the failed set that
+   * exists to be alerted on, announcing a lost payment that was never lost.
+   * Trading a confirmation for that is not a trade.
+   *
+   * `AuthService.signUp` is the case that deliberately does not swallow,
+   * and the difference is what has already happened when the call is made.
+   * Nothing has, there: an account whose verification link was never
+   * enqueued has no way to be verified, and failing the request is more
+   * honest than a 201 that promises a message nobody will send.
+   *
+   * The log line is the only artefact either way — `MAIL_JOB_OPTIONS` keeps
+   * neither completed nor failed jobs — so it names the order and never the
+   * payload. The recipient is a customer's address; `MailProcessor` is the
+   * one place with a reason to write one down, and it has already made that
+   * argument for itself.
+   */
+  private async confirm(order: SettleableOrder): Promise<void> {
+    try {
+      await this.mail.sendOrderConfirmation(order.user.email, order.id);
+      this.logger.log(`Queued the confirmation for order ${order.id}.`);
+    } catch (error) {
+      this.logger.error(
+        `Could not enqueue the confirmation for order ${order.id}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
   }
 
   /**

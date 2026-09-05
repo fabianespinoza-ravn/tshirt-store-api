@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { validateEnv } from './config/env.validation';
+import { MailModule } from './mail/mail.module';
 import { MailTransport } from './mail/mail.transport';
 import { OrdersSweepService } from './orders/orders-sweep.service';
 import { PaymentsModule } from './payments/payments.module';
@@ -34,6 +35,10 @@ import { SweepScheduler } from './queue/sweep.scheduler';
     PrismaModule,
     QueueModule,
     PaymentsModule,
+    // Settlement confirms a paid order by email, so the worker produces mail
+    // as well as consuming it. The module carries the producer and nothing
+    // else; the transport below is what actually sends.
+    MailModule,
   ],
   providers: [
     OrdersSweepService,

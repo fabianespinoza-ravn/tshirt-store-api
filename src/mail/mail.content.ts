@@ -20,6 +20,16 @@ export interface MailMessage {
 export const TOKEN_LINE_PREFIX = 'Your code: ';
 
 /**
+ * The line the order number is delivered on.
+ *
+ * A constant for the reason `TOKEN_LINE_PREFIX` is one: it is the part of
+ * the message a reader — a person or a test — goes looking for, and
+ * defining it once stops the wording and whatever parses it from drifting
+ * apart.
+ */
+export const ORDER_LINE_PREFIX = 'Order number: ';
+
+/**
  * Rendering lives here, in a pure function, and not in the processor.
  *
  * Two reasons. It is the part with the most detail and the least
@@ -83,6 +93,35 @@ export function renderMail(data: MailJobData): MailMessage {
           'The password on this account was just changed.',
           '',
           'If that was not you, reset it now — whoever changed it can sign in.',
+        ].join('\n'),
+      };
+
+    /**
+     * Sent once settlement has moved an order to PAID, so what it asserts is
+     * that the money arrived — not that a checkout was started, which is
+     * what the client already saw in the response to their own request.
+     *
+     * The order number is the whole of what it carries, and that is a
+     * decision rather than an omission. It is the one thing a customer
+     * quotes back, to support or to `GET /orders/{id}`, and everything else
+     * about the purchase is on the order it names, behind their own
+     * session, correct at the moment they look. A total would have to
+     * travel as cents plus a currency and be turned into a decimal here,
+     * which is the one thing money in this codebase never does — and a
+     * stale copy of an amount sitting in an inbox is worse than no copy.
+     * Nothing from Stripe appears either: a customer has no use for an
+     * intent id, and this body is not where the payment audit trail lives.
+     */
+    case MailKind.OrderConfirmation:
+      return {
+        ...base,
+        subject: 'Your T-Shirt Store order is confirmed',
+        text: [
+          'Thank you. Your payment went through and your order is confirmed.',
+          '',
+          `${ORDER_LINE_PREFIX}${data.orderId ?? ''}`,
+          '',
+          'Sign in to see what you ordered and where it is going.',
         ].join('\n'),
       };
   }

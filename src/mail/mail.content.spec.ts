@@ -89,6 +89,39 @@ describe('renderMail', () => {
     });
   });
 
+  /**
+   * The order confirmation. Three properties, and the third is the one that
+   * would go unnoticed.
+   *
+   * **The order number has to be on the line `ORDER_LINE_PREFIX` names**,
+   * for the reason the token is on its own: it is the part a reader goes
+   * looking for, and asserting against the constant rather than repeating
+   * the string keeps the wording defined in one place.
+   *
+   * **No token, ever.** This message is not a credential and nothing mints
+   * one for it, so `TOKEN_LINE_PREFIX` must not appear even when a job
+   * carrying a stray `token` is rendered — the same check the sign-in
+   * reminder and the password-changed notice already carry.
+   *
+   * **And its subject has to differ from the other four.** The subject test
+   * above enumerates the kinds it covers, so a fifth kind is not covered by
+   * it until somebody adds it; two messages that arrive under the same
+   * subject line are two messages a customer reads as one.
+   *
+   * Stubs, not assertions: the branch they describe was written by the
+   * assistant.
+   */
+  describe('the order confirmation', () => {
+    it.todo(
+      'puts the order number on the line ORDER_LINE_PREFIX names, so a reader can find it',
+    );
+    it.todo('renders no token line even when the job carries a stray token');
+    it.todo(
+      'gives it a subject distinct from the four account messages, extending the subject check to five kinds',
+    );
+    it.todo('addresses it to the recipient in the job');
+  });
+
   describe('attachments', () => {
     it("passes an attachment through untouched, for block 7's product image", () => {
       const attachments = [

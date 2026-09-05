@@ -21,7 +21,15 @@ const sku = aSku('018f3b6f-0000-7000-8000-0000000000ff', {
   reserved: 3,
 });
 
-/** The order as settlement reads it: its rows and its lines in one object. */
+/**
+ * The order as settlement reads it: its rows, its lines and the one column
+ * of the buyer the confirmation needs, in one object.
+ *
+ * `user` is the joined `select`, not the whole row — the service asks for
+ * the address and nothing else, and a fixture that handed it a full `User`
+ * would let a change start reading a password hash without the suite
+ * noticing.
+ */
 export const aSettleableOrder = (
   overrides: Parameters<typeof anOrder>[1] = {},
   quantity = 3,
@@ -31,6 +39,7 @@ export const aSettleableOrder = (
   return {
     ...order,
     items: [anOrderItem(order.id, sku.id, { quantity })],
+    user: { email: buyer.email },
   };
 };
 
@@ -454,5 +463,55 @@ describe('SettlementService', () => {
         data: { processedAt: alreadyProcessed },
       });
     });
+  });
+
+  /**
+   * The confirmation, and the three properties that make it safe.
+   *
+   * **It is enqueued only where money actually moved.** A cancelled order
+   * that was refunded, a delivery of an event already settled, an event
+   * type with no branch — none of those is a purchase to confirm, and a
+   * message sent on any of them tells a customer something untrue. `h.mail`
+   * is a `MailService` double, so what to assert is the call: the recipient
+   * is the buyer's address off the joined row, and the second argument is
+   * the order's id.
+   *
+   * **It happens after the commit and not inside it.** The transaction
+   * callback runs against the Prisma mock, so ordering is what the suite
+   * can see: `h.prisma.$transaction` has to have resolved before
+   * `h.mail.sendOrderConfirmation` was called. A job enqueued inside a
+   * transaction that then rolls back is a customer told their order was
+   * paid when it was not, and no assertion anywhere else in this file
+   * would catch it.
+   *
+   * **A queue that refuses must not undo the payment.** Reject
+   * `h.mail.sendOrderConfirmation` and the settle call still has to resolve
+   * `Paid` — if it rejected, `SETTLEMENT_JOB_OPTIONS` would redeliver the
+   * job for the best part of a day, find the order no longer PENDING every
+   * time, and park a payment that succeeded in the failed set that exists
+   * to report lost ones.
+   *
+   * The stubs below are the student's to fill: the behaviour they name was
+   * written by the assistant, so an assistant-written assertion would only
+   * agree with whatever it produced.
+   */
+  describe('the confirmation the customer gets', () => {
+    it.todo(
+      "sends it to the buyer's address, carrying the order's id and nothing else",
+    );
+    it.todo(
+      'enqueues it only after the transaction resolved, never from inside it',
+    );
+    it.todo(
+      `still answers ${SettlementOutcome.Paid} when the mail queue rejects, so a refused enqueue cannot undo a payment`,
+    );
+    it.todo(
+      'logs the refusal against the order id and never the recipient or the payload',
+    );
+    it.todo('sends nothing when the order was already CANCELLED and refunded');
+    it.todo(
+      'sends nothing when the delivery was a duplicate of one already settled',
+    );
+    it.todo('sends nothing for an event type it has no branch for');
   });
 });
