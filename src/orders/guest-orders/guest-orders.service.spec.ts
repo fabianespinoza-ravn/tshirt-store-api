@@ -1,4 +1,4 @@
-import { OrderStatus, PaymentMethod } from '@prisma/client';
+import { OrderStatus, PaymentMethod, UserState } from '@prisma/client';
 import { newId } from '../../common/ids';
 import { Problems } from '../../common/problem/problem.catalog';
 import { buildService, type ServiceHarness } from '../../testing/build-service';
@@ -104,10 +104,15 @@ describe('GuestOrdersService', () => {
           where: {
             id: orderId,
             payments: { some: { method: PaymentMethod.PAYMENT_LINK } },
+            user: { state: UserState.GUEST, deletedAt: null },
           },
         }),
       );
     });
+
+    it.todo(
+      'stops finding the order once its buyer verified an account, because verification moved it into their signed-in history',
+    );
 
     it('selects only the published columns, so the address never leaves Postgres', async () => {
       await harness.service.getOne(newId());

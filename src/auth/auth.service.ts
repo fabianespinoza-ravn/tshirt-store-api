@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { UserRole, UserState, type User } from '@prisma/client';
+import { Prisma, UserRole, UserState, type User } from '@prisma/client';
 import { newId } from '../common/ids';
 import { loadOrThrow } from '../common/load-or-throw';
 import { Problems } from '../common/problem/problem.catalog';
@@ -108,24 +108,80 @@ export class AuthService {
         !r.consumedAt && r.expiresAt > new Date() && !!r.pendingPasswordHash,
     );
 
-    await this.prisma.$transaction([
-      this.prisma.user.update({
+    await this.prisma.$transaction(async (tx) => {
+      const user = await tx.user.update({
         where: { id: row.userId },
         data: {
           passwordHash: row.pendingPasswordHash,
           emailVerifiedAt: new Date(),
           state: UserState.ACTIVE,
         },
-      }),
-      this.prisma.emailVerificationToken.update({
+      });
+
+      await tx.emailVerificationToken.update({
         where: { id: row.id },
         data: {
           consumedAt: new Date(),
           pendingPasswordHash: null,
           liveUserId: null,
         },
-      }),
-    ]);
+      });
+
+      await this.claimGuestOrders(tx, user.id, user.email);
+
+      return user;
+    });
+  }
+
+  /**
+   * Moves a payment-link buyer's orders onto the account that just proved it
+   * owns the address.
+   *
+   * A link purchase is owned by a `GUEST` row created from the address the
+   * payer typed into Stripe Checkout, and `PaymentLinkCheckoutService`
+   * deliberately never attaches one to an existing account: that address is
+   * payer-controlled, so honouring it there would let anybody drop an order
+   * into a stranger's history.
+   *
+   * **This is the other half of that decision, and the reason it is safe
+   * here and not there.** Verification is the one moment this API proves an
+   * address belongs to the person holding the account, so it is the only
+   * place the two identities may be joined. The payer proposes; the owner of
+   * the mailbox confirms.
+   *
+   * The guest rows are soft-deleted once emptied. They exist to own an
+   * order and nothing else — no password hash, no verified-at, and a null
+   * `liveEmail` so they never reserved the address — so once their orders
+   * have moved there is nothing left for them to be.
+   */
+  private async claimGuestOrders(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    email: string,
+  ): Promise<void> {
+    const guests = await tx.user.findMany({
+      where: {
+        email,
+        state: UserState.GUEST,
+        deletedAt: null,
+        id: { not: userId },
+      },
+      select: { id: true },
+    });
+
+    if (guests.length === 0) return;
+
+    const guestIds = guests.map((guest) => guest.id);
+
+    await tx.order.updateMany({
+      where: { userId: { in: guestIds } },
+      data: { userId },
+    });
+
+    await tx.user.updateMany({
+      where: { id: { in: guestIds } },
+      data: { deletedAt: new Date() },
+    });
   }
 
   // Reissues the link without accepting a new credential: it carries over

@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { PaymentMethod } from '@prisma/client';
+import { PaymentMethod, UserState } from '@prisma/client';
 import { loadOrThrow } from '../../common/load-or-throw';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
@@ -69,7 +69,22 @@ export class GuestOrdersService {
           this.prisma.order.findFirst({
             where: {
               id: orderId,
+              // Two clauses, and each closes a different door.
+              //
+              // The payment method keeps this public route inside the flow
+              // it was written for. Without it, an order id would read a
+              // signed-in client's checkout and walk around the CASL scope
+              // on `GET /orders/{orderId}`.
+              //
+              // The owner's state is what makes the URL stop working. A link
+              // buyer owns their order through a `GUEST` row; when they
+              // register and verify that address, `AuthService` moves the
+              // order onto the real account and the guest row is
+              // soft-deleted. From that moment the order is theirs to read
+              // signed in, and a URL that once reached it must not still.
+              // GUEST is never re-entered, so a link cannot be revived.
               payments: { some: { method: PaymentMethod.PAYMENT_LINK } },
+              user: { state: UserState.GUEST, deletedAt: null },
             },
             select: GUEST_ORDER_SELECT,
           }),
