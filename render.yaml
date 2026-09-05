@@ -91,7 +91,10 @@ services:
     # image this command runs inside. The Dockerfile compiles the two scripts
     # to dist-deploy/ instead, and this runs them with plain `node`. The
     # Prisma CLI they drive is present because @prisma/client declares it as
-    # a peer dependency, which puts it in the production tree.
+    # a peer dependency, which puts it in the production tree. This exact
+    # command is run inside this exact image, against a disposable database,
+    # by the `prod-sync-smoke` job in .github/workflows/ci.yml, so a deploy is
+    # not the first thing to execute it.
     # Schema and the code that reads it shipped together this once: nothing
     # was deployed yet to expand around — see the Deployment section.
     preDeployCommand: npm run prisma:sync:prod

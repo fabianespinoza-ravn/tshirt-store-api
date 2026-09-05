@@ -39,7 +39,7 @@ flowchart TB
 
   subgraph CD["Continuous delivery"]
     direction LR
-    C["Commit"] -->|"push"| CI["CI<br/>lint · build · unit · e2e"]
+    C["Commit"] -->|"push"| CI["CI<br/>lint · build · unit · e2e · pre-deploy smoke"]
     CI -->|"green"| REL["Release<br/>version tag"]
     REL -->|"tag"| REG["Container registry<br/>image tagged by the release"]
     REG -->|"image"| MIG["Sync schema<br/>plan · refuse destructive · apply · pre-deploy"]
@@ -147,7 +147,14 @@ transaction, so a unique constraint that meets duplicates fails loudly with
 nothing applied. It runs from JavaScript in the image and not from TypeScript:
 `ts-node` is a devDependency, the pre-deploy command runs inside the production
 image, and so the image compiles that script — and the backfill beside it — to
-`dist-deploy/` at build time. The pipeline never prompts and never passes
+`dist-deploy/` at build time. That compiled path is proven before a deploy ever
+reaches it: the `prod-sync-smoke` job in `.github/workflows/ci.yml` builds the
+image and runs the same `preDeployCommand` inside it against a disposable
+PostgreSQL, then asserts the three things a deploy depends on — that the step
+applies the plan, that running it a second time finds nothing to do, and that a
+plan carrying a refused statement class fails loudly with nothing applied. The
+rest of CI reaches the same script through `ts-node` on the runner, which proves
+the logic but not the image. The pipeline never prompts and never passes
 `--accept-data-loss`: `prisma db push` would stop to ask before adding a unique
 constraint to an existing table, and in a pipeline nobody answers. The
 "contract" half of a rollout is let through for a single deploy by setting

@@ -125,3 +125,98 @@ jobs:
 
       - name: End-to-end tests
         run: npm run test:e2e -- --ci
+
+  # The compiled pre-deploy path, run the way a deploy runs it. `verify` and
+  # `e2e` both reach `prisma/sync-schema.ts` through `prisma:sync`, which is
+  # `ts-node` on the runner with the repository checked out and every
+  # devDependency installed. `render.yaml` runs `prisma:sync:prod` instead:
+  # plain `node` over `dist-deploy/`, inside the production image, where
+  # ts-node is absent, the working directory is /app, only `prisma/schema.prisma`
+  # was copied in and the Prisma CLI has to resolve out of the production
+  # tree. Nothing proved that path — the image build only checks that the two
+  # compiled files exist and that `prisma --version` resolves — so its first
+  # real execution would have been Render's pre-deploy against the live
+  # database. This job moves that first execution into a pull request.
+  #
+  # It builds an image, which is minutes `verify` and `e2e` do not spend, so
+  # it is a job of its own rather than a step bolted onto either.
+  prod-sync-smoke:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        # Throwaway values for a container that lives for the length of one
+        # job and is published only on the runner's loopback. They are the
+        # e2e job's on purpose: nothing here is a secret, and no real
+        # credential is ever written into this file.
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: tshirt_store_sync
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      IMAGE: tshirt-store-api:prod-sync-smoke
+      # A service container publishes its port on the runner, not on the
+      # bridge network a plain `docker run` joins, so `localhost` inside the
+      # image would be the image itself and the connection would be refused.
+      # Every `docker run` below passes `--network host`, which puts the
+      # container in the runner's own network namespace; `localhost:5432` is
+      # then the same address the runner uses, and the step receives what
+      # Render also gives it — a DATABASE_URL in the environment, read by
+      # schema.prisma's env("DATABASE_URL") and never handled by the script.
+      DATABASE_URL: postgresql://ci:ci@localhost:5432/tshirt_store_sync?schema=public
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build the production image
+        run: docker build --tag "$IMAGE" .
+
+      # Exactly render.yaml's `preDeployCommand`, against an empty database:
+      # the plan is the whole schema, so this asserts the step applied
+      # something rather than finding nothing to do.
+      - name: Pre-deploy step against an empty database
+        shell: bash
+        run: |
+          docker run --rm --network host --env DATABASE_URL "$IMAGE" \
+            npm run prisma:sync:prod 2>&1 | tee first-run.log
+          grep -q 'sync-schema: applied\.' first-run.log
+
+      # A pre-deploy step is re-run whenever a deploy is retried, so the
+      # second run has to find nothing to do. If it plans SQL again, the
+      # first run did not converge and every deploy would rewrite the schema.
+      - name: The same step again is a no-op
+        shell: bash
+        run: |
+          docker run --rm --network host --env DATABASE_URL "$IMAGE" \
+            npm run prisma:sync:prod 2>&1 | tee second-run.log
+          grep -q 'sync-schema: the database already matches schema\.prisma\.' second-run.log
+
+      # The case this job exists to catch, asserted rather than assumed. A
+      # column the datamodel does not declare makes the next plan a
+      # DROP COLUMN, the first entry on sync-schema.ts's refusal list: the
+      # run has to fail, and it has to fail by naming what it refused.
+      - name: A plan the step refuses fails the job
+        shell: bash
+        run: |
+          docker run --rm --interactive --network host --env DATABASE_URL "$IMAGE" \
+            node node_modules/prisma/build/index.js db execute \
+              --schema prisma/schema.prisma --stdin \
+            <<< 'ALTER TABLE users ADD COLUMN prod_sync_smoke text;'
+
+          if docker run --rm --network host --env DATABASE_URL "$IMAGE" \
+               npm run prisma:sync:prod > refusal.log 2>&1; then
+            echo 'sync-schema applied a plan it was supposed to refuse.'
+            cat refusal.log
+            exit 1
+          fi
+          cat refusal.log
+          grep -q 'the plan contains DROP COLUMN' refusal.log
