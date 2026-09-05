@@ -153,15 +153,30 @@ export class EnvironmentVariables {
   )
   MAIL_FROM!: string;
 
-  // Stripe comes in when its feature does. Optional until then so the week 3
-  // checkpoint can boot without it.
-  @IsOptional()
+  // Required from the moment checkout creates a payment intent. They were
+  // optional so the week 3 checkpoint could boot without them; booting
+  // without them now would mean an API that takes orders it cannot charge,
+  // and the failure would arrive at the first checkout rather than at start
+  // up, which is the worse of the two.
   @IsString()
-  STRIPE_SECRET_KEY?: string;
+  @IsNotEmpty()
+  STRIPE_SECRET_KEY!: string;
 
-  @IsOptional()
   @IsString()
-  STRIPE_WEBHOOK_SECRET?: string;
+  @IsNotEmpty()
+  STRIPE_WEBHOOK_SECRET!: string;
+
+  // Stripe demands a currency on every amount and has no default, so this is
+  // a decision that has to live somewhere. Configuration rather than a
+  // literal in the service, because it is deployment-shaped: the same image
+  // charging in a different currency must not be a different build. Three
+  // lower-case letters is the ISO 4217 form Stripe accepts, and it is
+  // validated because a rejected currency surfaces as a failed charge.
+  @IsOptional()
+  @Matches(/^[a-z]{3}$/, {
+    message: 'STRIPE_CURRENCY must be a three-letter lower-case ISO 4217 code',
+  })
+  STRIPE_CURRENCY: string = 'usd';
 }
 
 export function validateEnv(config: Record<string, unknown>) {

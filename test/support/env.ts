@@ -44,6 +44,11 @@ const E2E_ENV: Record<string, string> = {
   SMTP_USER: 'e2e',
   SMTP_PASSWORD: 'e2e-secret',
   MAIL_FROM: 'T-Shirt Store <store@example.test>',
+  // Same reasoning as SMTP: StripeService is replaced in the harness, so the
+  // suite never reaches Stripe and these only have to satisfy validation.
+  STRIPE_SECRET_KEY: 'e2e-stripe-key',
+  STRIPE_WEBHOOK_SECRET: 'e2e-stripe-webhook',
+  STRIPE_CURRENCY: 'usd',
 };
 
 for (const [key, value] of Object.entries(E2E_ENV)) {

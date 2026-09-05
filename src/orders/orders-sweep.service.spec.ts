@@ -1,4 +1,4 @@
-import { OrderStatus } from '@prisma/client';
+import { OrderStatus, Payment } from '@prisma/client';
 
 /* Jest's asymmetric matchers are typed as `any`; these are partial checks of
  * Prisma calls and are never values passed to production code. */
@@ -8,6 +8,8 @@ import { buildService, type ServiceHarness } from '../testing/build-service';
 import { anOrder, anOrderItem } from '../testing/factories';
 import { resetPrismaMock } from '../testing/prisma.mock';
 import { OrdersSweepService, SWEEP_BATCH_SIZE } from './orders-sweep.service';
+import { deferred, flushMicrotasks } from '../testing/deferred';
+import { Logger } from '@nestjs/common';
 
 /**
  * Two cases here decide whether the sweep is safe, and both are about what
@@ -98,6 +100,13 @@ describe('OrdersSweepService', () => {
         ...anOrder('user-1', {
           id,
           status: OrderStatus.PENDING,
+          // Placed half an hour before it expired, which is what
+          // PENDING_ORDER_TTL_MS makes of every order the sweep sees. The
+          // factory's default `createdAt` is a fixed date a week earlier,
+          // and an order that old is past Stripe's idempotency window —
+          // a state the sweep now refuses to act on, and not the one these
+          // cases are about.
+          createdAt: new Date('2026-09-04T10:30:00.000Z'),
           expiresAt: new Date('2026-09-04T11:00:00.000Z'),
         }),
         items,
@@ -221,6 +230,7 @@ describe('OrdersSweepService', () => {
           ...anOrder('user-1', {
             id: 'order-1',
             status: OrderStatus.PENDING,
+            createdAt: new Date('2026-09-04T10:30:00.000Z'),
             expiresAt: new Date('2026-09-04T11:00:00.000Z'),
           }),
           items: [anOrderItem('order-1', 'sku-1', { quantity: 3 })],
@@ -239,6 +249,7 @@ describe('OrdersSweepService', () => {
           ...anOrder('user-1', {
             id: 'order-1',
             status: OrderStatus.PENDING,
+            createdAt: new Date('2026-09-04T10:30:00.000Z'),
             expiresAt: new Date('2026-09-04T11:00:00.000Z'),
           }),
           items: [anOrderItem('order-1', 'sku-1', { quantity: 3 })],
@@ -256,6 +267,7 @@ describe('OrdersSweepService', () => {
         ...anOrder('user-1', {
           id: 'order-1',
           status: OrderStatus.PENDING,
+          createdAt: new Date('2026-09-04T10:30:00.000Z'),
           expiresAt: new Date('2026-09-04T11:00:00.000Z'),
         }),
         items: [anOrderItem('order-1', 'sku-1', { quantity: 3 })],
@@ -264,6 +276,7 @@ describe('OrdersSweepService', () => {
         ...anOrder('user-1', {
           id: 'order-2',
           status: OrderStatus.PENDING,
+          createdAt: new Date('2026-09-04T10:30:00.000Z'),
           expiresAt: new Date('2026-09-04T11:00:00.000Z'),
         }),
         items: [anOrderItem('order-2', 'sku-2', { quantity: 2 })],
@@ -287,6 +300,7 @@ describe('OrdersSweepService', () => {
         ...anOrder('user-1', {
           id: 'order-1',
           status: OrderStatus.PENDING,
+          createdAt: new Date('2026-09-04T10:30:00.000Z'),
           expiresAt: new Date('2026-09-04T11:00:00.000Z'),
         }),
         items: [],
@@ -295,6 +309,7 @@ describe('OrdersSweepService', () => {
         ...anOrder('user-1', {
           id: 'order-2',
           status: OrderStatus.PENDING,
+          createdAt: new Date('2026-09-04T10:30:00.000Z'),
           expiresAt: new Date('2026-09-04T11:00:00.000Z'),
         }),
         items: [],
@@ -326,6 +341,7 @@ describe('OrdersSweepService', () => {
         ...anOrder('user-1', {
           id: 'order-1',
           status: OrderStatus.PENDING,
+          createdAt: new Date('2026-09-04T10:30:00.000Z'),
           expiresAt: new Date('2026-09-04T11:00:00.000Z'),
         }),
         items: [anOrderItem('order-1', 'sku-1', { quantity: 3 })],
@@ -334,6 +350,7 @@ describe('OrdersSweepService', () => {
         ...anOrder('user-1', {
           id: 'order-2',
           status: OrderStatus.PENDING,
+          createdAt: new Date('2026-09-04T10:30:00.000Z'),
           expiresAt: new Date('2026-09-04T11:00:00.000Z'),
         }),
         items: [anOrderItem('order-2', 'sku-2', { quantity: 2 })],
@@ -372,6 +389,162 @@ describe('OrdersSweepService', () => {
         cancelled: 1,
         failed: 1,
       });
+    });
+  });
+
+  describe('cancelling the payment before releasing the stock', () => {
+    /**
+     * The ordering is the whole point, and only these cases hold it in
+     * place. Released first, a payment confirming inside the window leaves a
+     * charged order whose units have already been sold to someone else.
+     */
+    const now = new Date('2026-09-04T12:00:00.000Z');
+
+    function arrangePaymentSweep() {
+      const order = {
+        ...anOrder('user-1', {
+          id: 'order-payment',
+          total: 4_599,
+          status: OrderStatus.PENDING,
+          createdAt: new Date('2026-09-04T10:30:00.000Z'),
+          expiresAt: new Date('2026-09-04T11:00:00.000Z'),
+        }),
+        items: [anOrderItem('order-payment', 'sku-payment', { quantity: 2 })],
+      };
+      h.prisma.order.findMany.mockResolvedValue([order] as never);
+      h.prisma.order.updateMany.mockResolvedValue({ count: 1 });
+      h.prisma.orderStatusHistory.count.mockResolvedValue(0);
+      h.prisma.payment.findFirst.mockResolvedValue(null);
+      return order;
+    }
+
+    it('cancels the intent before it releases a single reservation', async () => {
+      arrangePaymentSweep();
+
+      // The cancellation is held unresolved, and the question is whether a
+      // single unit goes back on the shelf while it hangs. Comparing
+      // invocation order would not answer it: that records when each call
+      // *started*, so a release fired without waiting for the cancellation
+      // to come back would still look correctly ordered — which is the
+      // arrangement that lets a late payment land on units already resold.
+      const cancellation = deferred<boolean>();
+      h.stripe.cancelPaymentIntent.mockReturnValueOnce(cancellation.promise);
+
+      const sweeping = h.service.sweep(now);
+      await flushMicrotasks();
+
+      expect(h.prisma.sku.update).not.toHaveBeenCalled();
+
+      cancellation.resolve(true);
+      await sweeping;
+
+      expect(h.prisma.sku.update).toHaveBeenCalled();
+    });
+
+    it('leaves the order PENDING and its stock reserved when the intent will not cancel', async () => {
+      arrangePaymentSweep();
+      h.stripe.cancelPaymentIntent.mockResolvedValueOnce(false);
+
+      await h.service.sweep(now);
+
+      expect(h.prisma.order.updateMany).not.toHaveBeenCalled();
+      expect(h.prisma.sku.update).not.toHaveBeenCalled();
+    });
+
+    it('counts an order it could not stop as failed rather than as cancelled', async () => {
+      arrangePaymentSweep();
+      h.stripe.cancelPaymentIntent.mockResolvedValueOnce(false);
+
+      await expect(h.service.sweep(now)).resolves.toEqual({
+        examined: 1,
+        cancelled: 0,
+        failed: 1,
+      });
+    });
+
+    it('reaches for the intent by the order id when no payment row recorded one', async () => {
+      const order = arrangePaymentSweep();
+
+      await h.service.sweep(now);
+
+      expect(h.prisma.payment.findFirst).toHaveBeenCalledWith({
+        where: { orderId: order.id, stripePaymentIntentId: { not: null } },
+        select: { stripePaymentIntentId: true },
+        orderBy: { createdAt: 'desc' },
+      });
+      expect(h.stripe.createPaymentIntent).toHaveBeenCalledWith(
+        expect.objectContaining({ id: order.id, total: order.total }),
+      );
+      expect(h.stripe.cancelPaymentIntent).toHaveBeenCalledWith(
+        `pi_for_${order.id}`,
+      );
+    });
+
+    it('refuses to release an order older than Stripe keeps its idempotency key', async () => {
+      // Past the window, asking again does not return the original intent —
+      // it makes a second one. Cancelling that while the first stays live
+      // would release the stock with a real charge still pointed at it,
+      // which is worse than leaving the order alone.
+      const stale = {
+        ...anOrder('user-1', {
+          id: 'order-stale',
+          status: OrderStatus.PENDING,
+          createdAt: new Date('2026-09-02T12:00:00.000Z'),
+          expiresAt: new Date('2026-09-02T12:30:00.000Z'),
+        }),
+        items: [anOrderItem('stale-item', 'stale-sku', { quantity: 3 })],
+      };
+      h.prisma.order.findMany.mockResolvedValue([stale]);
+      h.prisma.order.updateMany.mockResolvedValue({ count: 1 });
+      h.prisma.orderStatusHistory.count.mockResolvedValue(0);
+      const logger = jest.spyOn(Logger.prototype, 'error').mockImplementation();
+
+      const outcome = await h.service.sweep(now);
+
+      expect(h.stripe.createPaymentIntent).not.toHaveBeenCalled();
+      expect(h.prisma.sku.update).not.toHaveBeenCalled();
+      expect(outcome).toEqual({ examined: 1, cancelled: 0, failed: 1 });
+      logger.mockRestore();
+    });
+
+    it('refuses at exactly the retention age, not a millisecond after it', async () => {
+      // The boundary is the safe direction on purpose: a key at exactly its
+      // retention age is already gone as far as anything here can tell, and
+      // guessing the generous way would create a second intent.
+      const onTheBoundary = {
+        ...anOrder('user-1', {
+          id: 'order-boundary',
+          status: OrderStatus.PENDING,
+          createdAt: new Date(now.getTime() - 24 * 60 * 60 * 1_000),
+          expiresAt: new Date(now.getTime() - 60 * 1_000),
+        }),
+        items: [anOrderItem('boundary-item', 'boundary-sku', { quantity: 1 })],
+      };
+      h.prisma.order.findMany.mockResolvedValue([onTheBoundary]);
+      h.prisma.order.updateMany.mockResolvedValue({ count: 1 });
+      h.prisma.orderStatusHistory.count.mockResolvedValue(0);
+      const logger = jest.spyOn(Logger.prototype, 'error').mockImplementation();
+
+      const outcome = await h.service.sweep(now);
+
+      expect(h.stripe.createPaymentIntent).not.toHaveBeenCalled();
+      expect(h.prisma.sku.update).not.toHaveBeenCalled();
+      expect(outcome).toEqual({ examined: 1, cancelled: 0, failed: 1 });
+      logger.mockRestore();
+    });
+
+    it('cancels the intent recorded on the newest payment row when there is one', async () => {
+      arrangePaymentSweep();
+      // The service selects one column, so only that column is stood up;
+      // the cast says the partial row is deliberate rather than forgotten.
+      h.prisma.payment.findFirst.mockResolvedValueOnce({
+        stripePaymentIntentId: 'pi_recorded',
+      } as Payment);
+
+      await h.service.sweep(now);
+
+      expect(h.stripe.createPaymentIntent).not.toHaveBeenCalled();
+      expect(h.stripe.cancelPaymentIntent).toHaveBeenCalledWith('pi_recorded');
     });
   });
 });

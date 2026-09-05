@@ -1,6 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { accessibleBy } from '@casl/prisma';
-import { CartStatus, OrderStatus, Prisma } from '@prisma/client';
+import {
+  CartStatus,
+  OrderStatus,
+  PaymentMethod,
+  PaymentStatus,
+  Prisma,
+} from '@prisma/client';
 import {
   AppAbilityFactory,
   type AppAction,
@@ -12,6 +18,8 @@ import { loadOrThrow } from '../common/load-or-throw';
 import { paginate, type Paginated } from '../common/pagination';
 import { Problems } from '../common/problem/problem.catalog';
 import { ProblemException } from '../common/problem/problem.exception';
+import { StripeService } from '../payments/stripe.service';
+import { intentToCancel } from './payment-recovery';
 import { PrismaService } from '../prisma/prisma.service';
 import { recordStatus, releaseReservations } from './order-writes';
 import type { CheckoutDto, ListOrdersQueryDto } from './dto/orders.dto';
@@ -21,7 +29,12 @@ import {
   TransitionVerdict,
   verdictFor,
 } from './order-state-machine';
-import { ORDER_INCLUDE, toOrder, type OrderView } from './orders.views';
+import {
+  ORDER_INCLUDE,
+  toOrder,
+  type CheckoutOrderView,
+  type OrderView,
+} from './orders.views';
 
 /**
  * How long a PENDING order holds its stock.
@@ -38,6 +51,17 @@ import { ORDER_INCLUDE, toOrder, type OrderView } from './orders.views';
  */
 export const PENDING_ORDER_TTL_MS = parseDuration('30m');
 
+/**
+ * What the checkout transaction hands back: enough to create the intent
+ * without reading the order again, and no more. The amount is carried
+ * rather than re-read because it was decided inside the transaction that
+ * reserved the stock, and a second read could see a different one.
+ */
+interface PlacedOrder {
+  id: string;
+  total: number;
+}
+
 /** The client inside `$transaction`, which is not the same type as PrismaService. */
 type Tx = Prisma.TransactionClient;
 
@@ -46,6 +70,7 @@ export class OrdersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly abilities: AppAbilityFactory,
+    private readonly stripe: StripeService,
   ) {}
 
   /**
@@ -85,17 +110,68 @@ export class OrdersService {
   async checkout(
     user: AuthenticatedUser,
     dto: CheckoutDto,
-  ): Promise<OrderView> {
-    const orderId = await this.prisma.$transaction(
+  ): Promise<CheckoutOrderView> {
+    // Before the transaction, and outside it, for the reason the sweep gives:
+    // stopping a payment is a network call, and no stock may be released
+    // until it has succeeded. What comes back is the one order this checkout
+    // is allowed to reclaim.
+    const reclaimable = await this.stopLapsedPayment(user);
+
+    const placed = await this.prisma.$transaction(
       async (tx) => {
-        await this.settlePendingOrder(tx, user);
+        await this.settlePendingOrder(tx, user, reclaimable);
         const cart = await this.loadCheckoutableCart(tx, user);
         return this.placeOrder(tx, user, cart, dto);
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
 
-    return this.getOne(user, orderId);
+    const clientSecret = await this.startPayment(placed);
+
+    // Read after the payment row exists, not before. Reading first cost
+    // nothing visible except the one field this branch added: the view
+    // derives `paymentMethod` from the `Payment` relation, so a checkout
+    // that had just written a PAYMENT_INTENT row still answered null with
+    // it sitting in the database. The transaction hands back the total so
+    // the intent can be created without a read of its own.
+    return { ...(await this.getOne(user, placed.id)), clientSecret };
+  }
+
+  /**
+   * Creates the intent and records the attempt, after the reservation has
+   * already committed.
+   *
+   * **Stripe is called outside the transaction on purpose.** An HTTP round
+   * trip inside a `Serializable` transaction holds the reservation — and the
+   * locks under it — for as long as a third party takes to answer, which
+   * turns their latency into this database's contention. The cost of being
+   * outside is a window: the order can exist with no intent. That window is
+   * survivable and the other arrangement is not, because `createPaymentIntent`
+   * keys on the order's id, so asking again returns the same intent rather
+   * than a second one, and the sweep cancels whatever it finds.
+   *
+   * The `Payment` row is written after Stripe answers, because it is the
+   * intent's id that makes the row worth having. Its status is `PENDING`:
+   * the intent exists and nothing has been charged. Only the webhook's
+   * settlement moves it, which is why this method never writes `SUCCEEDED`.
+   */
+  private async startPayment(order: PlacedOrder): Promise<string> {
+    const intent = await this.stripe.createPaymentIntent(order);
+
+    await this.prisma.payment.create({
+      data: {
+        id: newId(),
+        orderId: order.id,
+        method: PaymentMethod.PAYMENT_INTENT,
+        status: PaymentStatus.PENDING,
+        amount: order.total,
+        stripePaymentIntentId: intent.id,
+      },
+    });
+
+    // Non-null because a created intent always carries one; the SDK types it
+    // as nullable for intents read back in states this one cannot be in.
+    return intent.client_secret ?? '';
   }
 
   async list(
@@ -237,6 +313,56 @@ export class OrdersService {
   }
 
   /**
+   * Cancels the intent of a lapsed order before anything releases its stock.
+   *
+   * `settlePendingOrder` used to free those units inside the transaction
+   * with the intent left untouched, and once checkout started handing out a
+   * `clientSecret` that became an oversell: the client still holds the
+   * secret for the lapsed order and can confirm it afterwards, landing a
+   * successful charge on units already sold to somebody else. It is the
+   * same failure the sweep's ordering prevents, reached through the door a
+   * returning customer walks in by.
+   *
+   * The id it returns is the only order the transaction may reclaim.
+   * Anything else it finds — a pending order that is still live, or a
+   * lapsed one whose payment could not be stopped — has to stay held,
+   * because releasing stock we could not disarm is the thing being avoided.
+   */
+  private async stopLapsedPayment(
+    user: AuthenticatedUser,
+  ): Promise<string | null> {
+    const pending = await this.prisma.order.findFirst({
+      where: {
+        AND: [this.scope(user, 'read'), { status: OrderStatus.PENDING }],
+      },
+      select: { id: true, expiresAt: true, total: true, createdAt: true },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    // A PENDING order with no expiry is a row we should never have written.
+    // Treating it as live is the safe reading.
+    const lapsed =
+      pending?.expiresAt != null && pending.expiresAt <= new Date();
+
+    if (!pending || !lapsed) return null;
+
+    const intentId = await intentToCancel(
+      this.prisma,
+      this.stripe,
+      pending,
+      new Date(),
+    );
+
+    // Unreachable means unreleasable. The order stays PENDING holding its
+    // stock, and the caller answers 409 rather than reclaiming it.
+    if (intentId === null) return null;
+
+    return (await this.stripe.cancelPaymentIntent(intentId))
+      ? pending.id
+      : null;
+  }
+
+  /**
    * One pending order at a time, which is what the contract's
    * `order-already-pending` says, and the only 409 of the seven carrying an
    * extension: the client needs the expiry to choose between waiting and
@@ -246,18 +372,20 @@ export class OrdersService {
    * work nobody did. It is cancelled here, inside the caller's transaction,
    * and its reservations go back before the new order takes any. Without
    * this a client is locked out of their own cart by an order that lapsed an
-   * hour ago.
+   * hour ago — but only after `stopLapsedPayment` has disarmed its intent,
+   * which is what `reclaimable` names.
    *
    * The release is conditional on the cancellation having moved the row, and
    * that is not defensive noise: the sweep cancels expired orders too, so
-   * from block 4 onwards there are two writers for this transition. Whoever
-   * loses the race must give nothing back, or the same units are returned
-   * twice and the store invents stock it does not have. Only the writer that
-   * actually moved PENDING away from the row owns its reservations.
+   * there are two writers for this transition. Whoever loses the race must
+   * give nothing back, or the same units are returned twice and the store
+   * invents stock it does not have. Only the writer that actually moved
+   * PENDING away from the row owns its reservations.
    */
   private async settlePendingOrder(
     tx: Tx,
     user: AuthenticatedUser,
+    reclaimable: string | null,
   ): Promise<void> {
     const pending = await tx.order.findFirst({
       where: {
@@ -269,13 +397,11 @@ export class OrdersService {
 
     if (!pending) return;
 
-    // A PENDING order with no expiry is a row we should never have written.
-    // Treating it as live is the safe reading: releasing stock we cannot
-    // prove is stale would oversell.
-    const lapsed =
-      pending.expiresAt !== null && pending.expiresAt <= new Date();
-
-    if (!lapsed) {
+    // Only the order whose intent was cancelled a moment ago may be
+    // reclaimed. Anything else is treated as live — including a lapsed
+    // order whose payment would not cancel, because its charge can still
+    // land and its units must stay reserved for it.
+    if (pending.id !== reclaimable) {
       throw new ProblemException(
         Problems.orderAlreadyPending,
         'Pay the pending order or wait for it to expire.',
@@ -328,7 +454,7 @@ export class OrdersService {
     user: AuthenticatedUser,
     cart: CartWithLines,
     dto: CheckoutDto,
-  ): Promise<string> {
+  ): Promise<PlacedOrder> {
     const orderId = newId();
     const lines: Prisma.OrderItemCreateWithoutOrderInput[] = [];
     let subtotal = 0;
@@ -424,7 +550,7 @@ export class OrdersService {
       );
     }
 
-    return orderId;
+    return { id: orderId, total: subtotal };
   }
 }
 
