@@ -47,7 +47,12 @@ describe('the review comment counter', () => {
     [
       "const url = process.argv.find((a) => a.startsWith('repos/')) ?? '';",
       "if (process.env.STUB_FAILS === 'yes') {",
-      "  process.stderr.write('gh: could not reach the API\n');",
+      // Escaped twice on purpose: this string is source code being written
+      // to a file, so the file must receive a backslash and an n, not a
+      // real line break. A single escape puts a literal newline inside a
+      // quoted JS string and the stub stops parsing — a break only the
+      // `gh` failure case would ever reach, which is why nothing caught it.
+      "  process.stderr.write('gh: could not reach the API\\n');",
       '  process.exit(1);',
       '}',
       "const key = url.includes('/issues/') ? 'STUB_ISSUES' : 'STUB_PULLS';",
