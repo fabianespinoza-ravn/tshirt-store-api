@@ -34,14 +34,29 @@ export interface OrderView {
   total: number;
   shippingAddress: ShippingAddressView;
   /**
-   * How the order was paid, once it was. Null through the whole of block 3
-   * because nothing writes a `Payment` row yet; the contract declares the
-   * field and this is where it starts carrying a value.
+   * How the order was paid, once it was. Checkout now writes a `Payment` row
+   * as it creates the intent, so a freshly placed order already reads
+   * `PAYMENT_INTENT` here — the row records the attempt, and its `status`,
+   * not this field, says whether the money arrived.
    */
   paymentMethod: PaymentMethod | null;
   /** When a PENDING order stops holding its stock. Null once it is not PENDING. */
   expiresAt: string | null;
   createdAt: string;
+}
+
+/**
+ * What checkout answers with, which is an order plus the one thing that only
+ * exists at checkout.
+ *
+ * The secret is not on `OrderView` because it is not a property of the
+ * order: it is a short-lived credential for one payment attempt, handed to
+ * the browser so the card details go to Stripe and never through this API.
+ * Putting it on the shared view would leak it into `GET /orders`, where
+ * every past order would carry a credential nobody needs.
+ */
+export interface CheckoutOrderView extends OrderView {
+  clientSecret: string;
 }
 
 export const ORDER_INCLUDE = {

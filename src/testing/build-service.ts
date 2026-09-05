@@ -8,12 +8,14 @@ import { PasswordService } from '../auth/password.service';
 import { TokenService } from '../auth/token.service';
 import { ProductsService } from '../products/products.service';
 import { MailService } from '../mail/mail.service';
+import { StripeService } from '../payments/stripe.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
 import { createPrismaMock, type PrismaMock } from './prisma.mock';
 
 export type StorageMock = DeepMockProxy<StorageService>;
 export type MailMock = DeepMockProxy<MailService>;
+export type StripeMock = DeepMockProxy<StripeService>;
 export type TokenMock = DeepMockProxy<TokenService>;
 export type JwtMock = DeepMockProxy<JwtService>;
 
@@ -22,6 +24,7 @@ export interface ServiceHarness<T> {
   prisma: PrismaMock;
   storage: StorageMock;
   mail: MailMock;
+  stripe: StripeMock;
   tokens: TokenMock;
   jwt: JwtMock;
   // Values the fake ConfigService returns; a test can write to it directly.
@@ -42,6 +45,9 @@ const CONFIG_DEFAULTS: Record<string, string | number> = {
   AWS_SECRET_ACCESS_KEY: 'secret',
   THROTTLE_TTL: 60_000,
   THROTTLE_LIMIT: 10,
+  STRIPE_SECRET_KEY: 'stripe-test-key',
+  STRIPE_WEBHOOK_SECRET: 'stripe-test-webhook',
+  STRIPE_CURRENCY: 'usd',
 };
 
 // Compiles a service with Prisma, Storage, Mail, Jwt, Token and Config
@@ -56,6 +62,7 @@ export async function buildService<T>(
   const prisma = createPrismaMock();
   const storage = mockDeep<StorageService>();
   const mail = mockDeep<MailService>();
+  const stripe = mockDeep<StripeService>();
   const tokens = mockDeep<TokenService>();
   const jwt = mockDeep<JwtService>();
   const config = { ...CONFIG_DEFAULTS };
@@ -66,6 +73,19 @@ export async function buildService<T>(
   storage.urlFor.mockImplementation((key: string) =>
     Promise.resolve(`https://s3.test/${key}?signed`),
   );
+
+  // Checkout creates an intent on every successful run and reads its id and
+  // secret, so without a default every order case would have to configure
+  // Stripe even when it is testing the reservation. Cancelling succeeds by
+  // default for the same reason: the sweep's ordinary path is the one where
+  // the payment was stopped, and a test about refusing to release says so.
+  stripe.createPaymentIntent.mockImplementation((order) =>
+    Promise.resolve({
+      id: `pi_for_${order.id}`,
+      client_secret: `pi_for_${order.id}_secret`,
+    } as Awaited<ReturnType<StripeService['createPaymentIntent']>>),
+  );
+  stripe.cancelPaymentIntent.mockResolvedValue(true);
 
   const configService = {
     get: <V>(key: string, fallback?: V): V | undefined =>
@@ -83,6 +103,7 @@ export async function buildService<T>(
       { provide: PrismaService, useValue: prisma },
       { provide: StorageService, useValue: storage },
       { provide: MailService, useValue: mail },
+      { provide: StripeService, useValue: stripe },
       { provide: JwtService, useValue: jwt },
       { provide: ConfigService, useValue: configService },
       { provide: TokenService, useValue: tokens },
@@ -100,6 +121,7 @@ export async function buildService<T>(
     prisma,
     storage,
     mail,
+    stripe,
     tokens,
     jwt,
     config,

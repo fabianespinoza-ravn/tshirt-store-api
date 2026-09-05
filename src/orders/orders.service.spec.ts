@@ -1,4 +1,11 @@
-import { CartStatus, OrderStatus, UserRole } from '@prisma/client';
+import {
+  CartStatus,
+  OrderStatus,
+  type Payment,
+  PaymentMethod,
+  PaymentStatus,
+  UserRole,
+} from '@prisma/client';
 
 /* Jest's asymmetric matchers are typed as `any`; the assertions below are
  * deliberately partial Prisma-call checks, not values passed to production. */
@@ -19,6 +26,7 @@ import {
 import { resetPrismaMock } from '../testing/prisma.mock';
 import { OrdersService } from './orders.service';
 import { exactlyTheseInAnyOrder } from '../testing/matchers';
+import { deferred, flushMicrotasks } from '../testing/deferred';
 
 /**
  * The cases that decide whether this module is safe are the ones about the
@@ -105,6 +113,12 @@ describe('OrdersService', () => {
         payments: [],
       };
 
+      // Two reads of the pending order, in this order: `stopLapsedPayment`
+      // outside the transaction, to decide whether an intent has to be
+      // cancelled before anything is released, and `settlePendingOrder`
+      // inside it, which is the one Serializable can actually protect. The
+      // third and later reads are the view.
+      h.prisma.order.findFirst.mockResolvedValueOnce(options.pending ?? null);
       h.prisma.order.findFirst.mockResolvedValueOnce(options.pending ?? null);
       h.prisma.order.findFirst.mockResolvedValue(result);
       h.prisma.cart.findFirst.mockResolvedValue(cart);
@@ -143,6 +157,12 @@ describe('OrdersService', () => {
       const oldSku = aSku(aProduct().id);
       const pending = {
         ...anOrder(client.id, {
+          // Placed half an hour before it lapsed, which is what
+          // PENDING_ORDER_TTL_MS makes of a real one. The factory's default
+          // is a fixed date days earlier, and an order that old is past
+          // Stripe's idempotency retention — a state checkout now refuses to
+          // reclaim, and not the one this case is about.
+          createdAt: new Date(Date.now() - 30 * 60 * 1_000),
           expiresAt: new Date(Date.now() - 1),
           status: OrderStatus.PENDING,
         }),
@@ -897,6 +917,254 @@ describe('OrdersService', () => {
       expect(h.prisma.order.findMany).toHaveBeenCalledWith(
         expect.objectContaining({ where: { AND: [{ OR: [] }, {}] } }),
       );
+    });
+  });
+
+  describe('the payment intent checkout creates', () => {
+    /**
+     * Stripe is called after the transaction commits, which is what makes
+     * these cases worth having. The reservation is already durable when the
+     * intent is asked for, so the order can outlive a failed call — and the
+     * intent can outlive a failed row. Both directions are named below.
+     */
+    const address = {
+      recipientName: 'Ada Lovelace',
+      line1: '1 Analytical Street',
+      city: 'London',
+      postalCode: 'E1 6AN',
+    };
+
+    function arrangePaymentCheckout(
+      total = 4_599,
+      options: { pending?: unknown } = {},
+    ) {
+      const product = aProduct({ name: 'Payment tee' });
+      const sku = {
+        ...aSku(product.id, { price: total }),
+        product,
+      };
+      const cart = {
+        ...aCart(client.id),
+        items: [{ ...aCartItem('cart-payment', sku.id), sku }],
+      };
+      const order = {
+        ...anOrder(client.id, { id: 'order-payment', total }),
+        items: [],
+        payments: [],
+      };
+
+      // The pending order is read twice: once outside the transaction by
+      // `stopLapsedPayment`, once inside it by `settlePendingOrder`.
+      const pending = (options.pending ?? null) as never;
+      h.prisma.order.findFirst.mockResolvedValueOnce(pending);
+      h.prisma.order.findFirst.mockResolvedValueOnce(pending);
+      h.prisma.order.findFirst.mockResolvedValue(order);
+      h.prisma.cart.findFirst.mockResolvedValue(cart);
+      h.prisma.sku.findUnique.mockResolvedValue(sku);
+      h.prisma.sku.update.mockResolvedValue(sku);
+      h.prisma.order.updateMany.mockResolvedValue({ count: 1 });
+      h.prisma.cart.updateMany.mockResolvedValue({ count: 1 });
+      h.prisma.orderStatusHistory.count.mockResolvedValue(0);
+      return { order, cart, sku };
+    }
+
+    /**
+     * The id the transaction actually generated, read from the insert.
+     *
+     * The order's id is not the fixture's: `placeOrder` mints it with
+     * `newId()` inside the transaction, and the intent is now created from
+     * what the transaction handed back rather than from a re-read. Reading
+     * it here keeps these cases asserting the real value instead of one the
+     * mock happened to return.
+     */
+    const placedOrderId = (): string =>
+      (h.prisma.order.create.mock.calls[0]?.[0] as { data: { id: string } })
+        .data.id;
+
+    it('cancels the intent of a lapsed order before its stock goes back on the shelf', async () => {
+      // The returning-customer path. The client still holds the
+      // `clientSecret` of the lapsed order, so releasing its units without
+      // disarming the intent lets a later confirmation charge for goods
+      // that have since been resold — the sweep's oversell, reached through
+      // the door a customer walks in by.
+      const lapsed = anOrder(client.id, {
+        id: 'order-lapsed',
+        status: OrderStatus.PENDING,
+        expiresAt: new Date('2026-08-28T11:00:00.000Z'),
+      });
+      arrangePaymentCheckout(undefined, { pending: { ...lapsed, items: [] } });
+      h.prisma.payment.findFirst.mockResolvedValueOnce({
+        stripePaymentIntentId: 'pi_lapsed',
+      } as Payment);
+
+      await h.service.checkout(client, address);
+
+      expect(h.stripe.cancelPaymentIntent).toHaveBeenCalledWith('pi_lapsed');
+      expect(
+        h.stripe.cancelPaymentIntent.mock.invocationCallOrder[0],
+      ).toBeLessThan(h.prisma.$transaction.mock.invocationCallOrder[0]);
+    });
+
+    it('refuses the checkout when a lapsed payment will not cancel', async () => {
+      const lapsed = anOrder(client.id, {
+        id: 'order-stuck',
+        status: OrderStatus.PENDING,
+        expiresAt: new Date('2026-08-28T11:00:00.000Z'),
+      });
+      arrangePaymentCheckout(undefined, { pending: { ...lapsed, items: [] } });
+      h.prisma.payment.findFirst.mockResolvedValueOnce({
+        stripePaymentIntentId: 'pi_stuck',
+      } as Payment);
+      h.stripe.cancelPaymentIntent.mockResolvedValueOnce(false);
+
+      // The problem is named, not just its class: `cartNotCheckoutable`
+      // and `stockUnavailable` are `ProblemException` too, so asserting the
+      // class alone would keep this green while a regression refused for a
+      // reason that has nothing to do with the bound.
+      await expect(h.service.checkout(client, address)).rejects.toMatchObject({
+        kind: Problems.orderAlreadyPending,
+      });
+      expect(h.prisma.sku.update).not.toHaveBeenCalled();
+    });
+
+    it('refuses to reclaim a lapsed order past Stripe idempotency retention', async () => {
+      // The same bound the sweep applies, reached from the other direction:
+      // a customer coming back to a lapsed order whose intent can no longer
+      // be found by key. Recovering would create a second intent and cancel
+      // that one while the first stayed live.
+      const ancient = anOrder(client.id, {
+        id: 'order-ancient',
+        status: OrderStatus.PENDING,
+        createdAt: new Date(Date.now() - 25 * 60 * 60 * 1_000),
+        expiresAt: new Date(Date.now() - 24 * 60 * 60 * 1_000),
+      });
+      arrangePaymentCheckout(undefined, {
+        pending: { ...ancient, items: [] },
+      });
+      h.prisma.payment.findFirst.mockResolvedValueOnce(null);
+
+      // The problem is named, not just its class: `cartNotCheckoutable`
+      // and `stockUnavailable` are `ProblemException` too, so asserting the
+      // class alone would keep this green while a regression refused for a
+      // reason that has nothing to do with the bound.
+      await expect(h.service.checkout(client, address)).rejects.toMatchObject({
+        kind: Problems.orderAlreadyPending,
+      });
+      expect(h.stripe.createPaymentIntent).not.toHaveBeenCalled();
+      expect(h.prisma.sku.update).not.toHaveBeenCalled();
+    });
+
+    it('creates the intent only after the reservation transaction has committed', async () => {
+      arrangePaymentCheckout();
+
+      // The transaction is held open, and the question is whether Stripe is
+      // reached while it is. Comparing invocation order would not answer it:
+      // `$transaction` is invoked before anything inside its own callback,
+      // so that comparison holds whether the call is inside or outside, and
+      // the case would pass while the code did exactly what it forbids.
+      const commit = deferred();
+      h.prisma.$transaction.mockImplementationOnce(
+        async (run: (tx: typeof h.prisma) => Promise<unknown>) => {
+          const result = await run(h.prisma);
+          await commit.promise;
+          return result;
+        },
+      );
+
+      const checkout = h.service.checkout(client, address);
+      await flushMicrotasks();
+
+      expect(h.stripe.createPaymentIntent).not.toHaveBeenCalled();
+
+      commit.resolve();
+      await checkout;
+
+      expect(h.stripe.createPaymentIntent).toHaveBeenCalledTimes(1);
+    });
+
+    it('asks Stripe for the order total, in cents, with nothing rounded', async () => {
+      arrangePaymentCheckout(4_599);
+
+      await h.service.checkout(client, address);
+
+      expect(h.stripe.createPaymentIntent).toHaveBeenCalledWith(
+        expect.objectContaining({ id: placedOrderId(), total: 4_599 }),
+      );
+    });
+
+    it('records the attempt as a PENDING payment carrying the intent id', async () => {
+      arrangePaymentCheckout();
+
+      await h.service.checkout(client, address);
+
+      const placed = placedOrderId();
+
+      expect(h.prisma.payment.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          orderId: placed,
+          status: PaymentStatus.PENDING,
+          stripePaymentIntentId: `pi_for_${placed}`,
+        }),
+      });
+    });
+
+    it('records the method as PAYMENT_INTENT, so the order view stops reading null', async () => {
+      arrangePaymentCheckout();
+
+      await h.service.checkout(client, address);
+
+      expect(h.prisma.payment.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            method: PaymentMethod.PAYMENT_INTENT,
+          }),
+        }),
+      );
+    });
+
+    it('returns the client secret alongside the order', async () => {
+      const { order } = arrangePaymentCheckout();
+
+      const view = await h.service.checkout(client, address);
+
+      // The view comes from the re-read, so its id is the fixture's; the
+      // secret comes from the intent, keyed on the id the transaction
+      // generated. Both are asserted because a checkout that returned one
+      // order's view with another order's secret would still pass either
+      // half alone.
+      expect(view).toEqual(
+        expect.objectContaining({
+          id: order.id,
+          clientSecret: `pi_for_${placedOrderId()}_secret`,
+        }),
+      );
+    });
+
+    it('leaves the order PENDING when Stripe refuses, so the sweep can reclaim it', async () => {
+      arrangePaymentCheckout();
+      h.stripe.createPaymentIntent.mockRejectedValueOnce(
+        new Error('Stripe unavailable'),
+      );
+
+      await expect(h.service.checkout(client, address)).rejects.toThrow(
+        'Stripe unavailable',
+      );
+      expect(h.prisma.order.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ status: OrderStatus.PENDING }),
+        }),
+      );
+    });
+
+    it('writes no payment row when Stripe refuses, because there is no intent to record', async () => {
+      arrangePaymentCheckout();
+      h.stripe.createPaymentIntent.mockRejectedValueOnce(
+        new Error('Stripe unavailable'),
+      );
+
+      await expect(h.service.checkout(client, address)).rejects.toThrow();
+
+      expect(h.prisma.payment.create).not.toHaveBeenCalled();
     });
   });
 });

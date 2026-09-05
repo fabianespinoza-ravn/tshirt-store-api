@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { validateEnv } from './config/env.validation';
 import { MailTransport } from './mail/mail.transport';
 import { OrdersSweepService } from './orders/orders-sweep.service';
+import { PaymentsModule } from './payments/payments.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { MailProcessor } from './queue/processors/mail.processor';
 import { MaintenanceProcessor } from './queue/processors/maintenance.processor';
@@ -30,6 +31,7 @@ import { SweepScheduler } from './queue/sweep.scheduler';
     ConfigModule.forRoot({ isGlobal: true, validate: validateEnv }),
     PrismaModule,
     QueueModule,
+    PaymentsModule,
   ],
   providers: [
     OrdersSweepService,

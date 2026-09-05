@@ -1,5 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { OrderStatus, Prisma } from '@prisma/client';
+import { StripeService } from '../payments/stripe.service';
+import { intentToCancel } from './payment-recovery';
 import { PrismaService } from '../prisma/prisma.service';
 import { recordStatus, releaseReservations } from './order-writes';
 
@@ -43,7 +45,54 @@ export interface SweepOutcome {
 export class OrdersSweepService {
   private readonly logger = new Logger(OrdersSweepService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly stripe: StripeService,
+  ) {}
+
+  /**
+   * Stops the order's payment from landing, and answers whether the stock is
+   * now safe to release.
+   *
+   * **Cancel before releasing, never after.** Released first, a payment
+   * confirming inside the window leaves a charged order whose units have
+   * already been sold to somebody else — money taken for goods that are
+   * gone. So this runs first, and a `false` here means the caller leaves the
+   * order alone entirely: still PENDING, still holding its stock, swept
+   * again next minute.
+   *
+   * Stripe is called outside the transaction for the reason checkout gives:
+   * a third party's latency must not be held inside a `Serializable`
+   * transaction's locks.
+   *
+   * Which intent to cancel — and whether one can be reached at all — is
+   * `intentToCancel`'s decision, not this method's. It owns the retention
+   * bound too, because checkout reclaims lapsed orders by the same rule and
+   * the two must not disagree; the copy that lived here lost that bound
+   * once already. A `null` from it means no intent can be reached, and this
+   * branch exists precisely for the case the docblock above does not cover:
+   * a worker down long enough for the key to expire.
+   *
+   * An intent that has already succeeded refuses to cancel, which is exactly
+   * the answer wanted: the money arrived, the stock stays reserved, and
+   * settlement deals with it.
+   */
+  private async stopPayment(
+    order: { id: string; total: number; createdAt: Date },
+    now: Date,
+  ): Promise<boolean> {
+    const intentId = await intentToCancel(this.prisma, this.stripe, order, now);
+
+    if (intentId === null) {
+      this.logger.error(
+        `Expired order ${order.id} has no intent this sweep can reach — its idempotency key is past Stripe's retention. Left PENDING with its stock reserved; cancel the intent by hand.`,
+      );
+
+      return false;
+    }
+
+    return this.stripe.cancelPaymentIntent(intentId);
+  }
 
   /**
    * One transaction per order, deliberately, and not one for the batch.
@@ -87,6 +136,17 @@ export class OrdersSweepService {
       // the next minute's run is the retry; that only works if a single
       // conflict costs one order.
       try {
+        // Before anything is released. The whole ordering argument is on
+        // `stopPayment`; what matters here is that a refusal skips the
+        // order rather than falling through to the release below.
+        if (!(await this.stopPayment(order, now))) {
+          failed += 1;
+          this.logger.warn(
+            `Left expired order ${order.id} alone: its payment could not be cancelled, so releasing its stock could oversell.`,
+          );
+          continue;
+        }
+
         const settled = await this.prisma.$transaction(
           async (tx) => {
             const moved = await tx.order.updateMany({
