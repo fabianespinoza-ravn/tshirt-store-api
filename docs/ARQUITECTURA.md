@@ -128,8 +128,11 @@ attempt, and the repeatable sweep cancels the intent and releases the stock.
 ## Deployment
 
 One container image runs both the API and the worker under different entrypoints. Build and
-pipeline are shared, but each process scales on its own signal: request latency
-for the API, queue depth for the worker. The `Dockerfile` is multi-stage and the
+pipeline are shared, but each is meant to scale on its own signal: request
+latency for the API, queue depth for the worker. That is the reason they are two
+services and not one, and it is so far a shape rather than a policy —
+`render.yaml` declares no `scaling` block, so both run at a fixed instance count
+until one is added. The `Dockerfile` is multi-stage and the
 final stage installs production dependencies only, so what runs the API, the
 worker and the pre-deploy step is the same image and none of it carries a
 compiler. The schema is synced once as its own
