@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma, type PaymentLink } from '@prisma/client';
 import { NOT_DELETED } from '../../catalog/query';
 import { newId } from '../../common/ids';
 import { loadOrThrow } from '../../common/load-or-throw';
@@ -86,9 +86,19 @@ export class PaymentLinksService {
     const existing = await this.activeLinkFor(this.prisma, sku.id);
     if (existing) return { link: toPaymentLink(existing), created: false };
 
-    // Generated before the call so it can be the idempotency key: a retry of
-    // this request reaches the same Stripe link instead of minting a second
-    // one that nothing would ever deactivate.
+    // Generated before the call so it can be the idempotency key, and so the
+    // row about to be written and the Stripe request share one identity.
+    //
+    // What that key does and does not cover is worth being exact about. It
+    // makes the SDK's own retries — and a duplicate delivery of this one HTTP
+    // call — resolve to a single Stripe link. It does **not** cover a client
+    // retrying the POST after a timeout: that is a new invocation, so a new
+    // id, so a second Stripe link. The first one is not lost, because it was
+    // recorded before anything could answer the client; the second is the
+    // orphan the `catch` below exists for. A key derived from the SKU would
+    // cover the client retry and break the case that matters more — a SKU
+    // must be able to get a new link at a new price after the old one is
+    // deactivated, and Stripe refuses a reused key whose parameters changed.
     const id = newId();
     // Frozen here, and this is `unitPriceAtCreation`'s whole purpose. The
     // amount below is the amount that goes to Stripe; a price edit arriving
@@ -103,31 +113,52 @@ export class PaymentLinksService {
       unitAmount: unitPriceAtCreation,
     });
 
-    const settled = await this.prisma.$transaction(
-      async (tx) => {
-        const raced = await this.activeLinkFor(tx, sku.id);
-        if (raced) return { row: raced, created: false };
+    let settled: { row: PaymentLink; created: boolean };
 
-        const row = await tx.paymentLink.create({
-          data: {
-            id,
-            skuId: sku.id,
-            stripePaymentLinkId: link.id,
-            url: link.url,
-            unitPriceAtCreation,
-            isActive: true,
-          },
-        });
+    try {
+      settled = await this.prisma.$transaction(
+        async (tx) => {
+          const raced = await this.activeLinkFor(tx, sku.id);
+          if (raced) return { row: raced, created: false };
 
-        return { row, created: true };
-      },
-      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
-    );
+          const row = await tx.paymentLink.create({
+            data: {
+              id,
+              skuId: sku.id,
+              stripePaymentLinkId: link.id,
+              url: link.url,
+              unitPriceAtCreation,
+              isActive: true,
+            },
+          });
 
-    // Only when this request lost. A refusal to deactivate is logged inside
-    // the seam and deliberately does not change the answer: the caller asked
-    // for the SKU's active link and is getting it either way, and turning a
-    // successful response into a 503 over an orphan we already know about
+          return { row, created: true };
+        },
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      );
+    } catch (error) {
+      // **The invariant this catch protects: every payable link at Stripe has
+      // a row here.** Without it, a rejected transaction — P2034 against a
+      // concurrent create for the same SKU is the case the docblock
+      // anticipates — leaves link `link.id` live and payable while nothing
+      // records it. A buyer who obtained that URL would pay, and settlement
+      // would look the id up, find nothing, and correctly answer "not mine":
+      // money taken, no order, and an acknowledged event Stripe never
+      // redelivers.
+      //
+      // Turning the link off is what closes that. It runs before the failure
+      // is re-raised, and its own failure is logged inside the seam rather
+      // than replacing the error the caller needs to see.
+      await this.stripe.deactivatePaymentLink(link.id);
+      throw error;
+    }
+
+    // The other way to end up with an orphan, and the quiet one: this request
+    // lost the race inside the transaction, so its link was never written
+    // down. A refusal to deactivate is logged inside the seam and
+    // deliberately does not change the answer — the caller asked for the
+    // SKU's active link and is getting it either way, and turning a
+    // successful response into a 503 over an orphan we have already logged
     // would help nobody.
     if (!settled.created) await this.stripe.deactivatePaymentLink(link.id);
 
@@ -193,4 +224,14 @@ export class PaymentLinksService {
 //
 // `StripeService.deactivatePaymentLink` is the seam that method will call,
 // and it already reports rather than raises for exactly that reason.
+//
+// **The same seam has a second caller waiting, and it is the more urgent
+// one.** Nothing deactivates a link when its SKU sells out or its product is
+// soft-deleted or switched inactive, so the URL keeps taking money for goods
+// that cannot be sent. `PaymentLinkCheckoutService` refuses those sales — the
+// order is written FAILED and owes a refund — but refusing after the charge
+// is damage control, and every buyer who reaches a stale link is another
+// refund to make. The three places that would call it are
+// `SkusService.update` when stock reaches zero, `ProductsService.update` when
+// `isActive` goes false, and `ProductsService.remove`.
 // ──────────────────────────────────────────────────────────────────────────

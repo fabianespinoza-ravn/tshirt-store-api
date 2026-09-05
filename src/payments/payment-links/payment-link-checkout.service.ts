@@ -14,17 +14,44 @@ import { recordStatus } from '../../orders/order-writes';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PAYMENT_LINK_QUANTITY } from '../stripe.service';
 
-/** The event this service owns. Every other type is somebody else's. */
-const CHECKOUT_SESSION_COMPLETED = 'checkout.session.completed';
+/**
+ * The two events this service owns. Every other type is somebody else's.
+ *
+ * **A completed session is not the same as a paid one**, and both entries
+ * are here because of that. A card pays inside the session and arrives as
+ * `checkout.session.completed` already `paid`. A delayed-notification method
+ * — a bank debit, a voucher — completes the session `unpaid` and settles
+ * hours or days later as `checkout.session.async_payment_succeeded`, which
+ * carries the same session object with `payment_status` finally `paid`.
+ *
+ * Listening only for the first event would write no order at all for the
+ * second kind of buyer: money in, nothing recorded, and no log at the moment
+ * it settled. `createPaymentLink` passes no `payment_method_types`, so which
+ * methods a link offers comes from the Stripe account's dashboard, and a
+ * delayed method being enabled there is a configuration change no code
+ * review would see.
+ *
+ * Both are gated on `payment_status` below rather than on the type, so the
+ * rule is one sentence: settle when the money has arrived, whichever event
+ * says so. A redelivery of the completion after the async success is
+ * harmless — `alreadySettled` and the unique session id catch it.
+ */
+const SETTLING_EVENT_TYPES = [
+  'checkout.session.completed',
+  'checkout.session.async_payment_succeeded',
+] as const;
+
+type SettlingEventType = (typeof SETTLING_EVENT_TYPES)[number];
+
+function isSettlingEvent(
+  event: Stripe.Event,
+): event is Extract<Stripe.Event, { type: SettlingEventType }> {
+  return (SETTLING_EVENT_TYPES as readonly string[]).includes(event.type);
+}
 
 /**
  * Stripe's `Session.payment_status` when the money has actually arrived. It
  * is a union of strings and not an enum, so the literal is the value.
- *
- * A completed session is **not** the same as a paid one: bank debits and
- * vouchers complete the session and settle hours later, arriving as
- * `checkout.session.async_payment_succeeded`. Writing a PAID order from an
- * unpaid completed session would ship goods for money that never came.
  */
 const SESSION_PAID: Stripe.Checkout.Session.PaymentStatus = 'paid';
 
@@ -101,13 +128,16 @@ export class PaymentLinkCheckoutService {
   async settleCheckoutSession(
     event: Stripe.Event,
   ): Promise<PaymentLinkSettlement | null> {
-    if (event.type !== CHECKOUT_SESSION_COMPLETED) return null;
+    if (!isSettlingEvent(event)) return null;
 
     const session = event.data.object;
 
     if (session.payment_status !== SESSION_PAID) {
+      // Not a failure: a delayed-notification method completes the session
+      // before the money moves, and `checkout.session.async_payment_succeeded`
+      // is what comes back when it does.
       this.logger.log(
-        `Checkout session ${session.id} completed unpaid (${session.payment_status}); nothing to settle yet.`,
+        `Checkout session ${session.id} is ${session.payment_status}; nothing to settle yet.`,
       );
       return null;
     }
@@ -173,13 +203,34 @@ export class PaymentLinkCheckoutService {
    * That is the same net effect the settlement of a checkout order has, with
    * the reservation step skipped because there never was one.
    *
-   * **The oversell case is recorded, not hidden.** A link takes money before
-   * it looks at stock, so the units can be gone by the time this runs — sold
-   * through the cart, or through this same link a moment earlier. Refusing
-   * to write anything would leave a charge with no order behind it. So the
-   * order is written as FAILED, its payment is still SUCCEEDED because the
-   * money genuinely arrived, and no stock moves. FAILED with a succeeded
-   * payment is precisely the state that owes a refund.
+   * **The unfulfillable purchase is recorded, not hidden.** A link takes the
+   * money before it looks at anything, so by the time this runs the sale can
+   * be one this API would never have made. Refusing to write anything would
+   * leave a charge with no order behind it, so the order is written FAILED,
+   * no stock moves, and the payment is still SUCCEEDED because the money
+   * genuinely arrived. FAILED with a succeeded payment is precisely the state
+   * that owes a refund.
+   *
+   * Three separate things make a purchase unfulfillable, and they are worth
+   * enumerating because only the first is obvious:
+   *
+   * 1. **The units are gone.** Availability is `stock - reserved`, so a cart
+   *    checkout holding a reservation is enough — the link buyer's money is
+   *    kept while the reservation may later lapse and put the unit back.
+   * 2. **The product is withdrawn.** Nothing deactivates a link when its
+   *    product is soft-deleted or switched inactive, so the URL keeps taking
+   *    money for something `OrdersService.placeOrder` would refuse to sell.
+   *    The same check is applied here, against a row re-read in this
+   *    transaction.
+   * 3. **Stripe charged an amount this link does not account for.**
+   *    `PAYMENT_LINK_QUANTITY` is an assertion about how the link was created
+   *    — one unit, no adjustable quantity — and never a fact read back from
+   *    the session's line items. Enabling adjustable quantity or promotion
+   *    codes on the link in the Stripe dashboard would break it silently:
+   *    a buyer pays for three, the order says one, and `Payment.amount` and
+   *    `Order.total` disagree for good. Comparing the totals is the only
+   *    detector available without a second Stripe call, and refusing the sale
+   *    is what keeps that disagreement out of the database.
    */
   private async placeLinkOrder(
     session: Stripe.Checkout.Session,
@@ -192,12 +243,14 @@ export class PaymentLinkCheckoutService {
     const unitPrice = link.unitPriceAtCreation;
     const total = unitPrice * PAYMENT_LINK_QUANTITY;
 
-    if (session.amount_total !== null && session.amount_total !== total) {
-      // Both are integer cents, so this is a real disagreement and not a
-      // rounding artefact. The order records what the link says it charges;
-      // the payment records what Stripe says it took, below.
-      this.logger.warn(
-        `Checkout session ${session.id} charged ${session.amount_total} for payment link ${link.id}, whose recorded unit price totals ${total}.`,
+    // Both sides are integer cents, so a difference is a real disagreement
+    // and never a rounding artefact.
+    const chargedAsExpected =
+      session.amount_total === null || session.amount_total === total;
+
+    if (!chargedAsExpected) {
+      this.logger.error(
+        `Checkout session ${session.id} charged ${session.amount_total} for payment link ${link.id}, whose recorded unit price totals ${total}; the order is written FAILED and owes a refund.`,
       );
     }
 
@@ -208,12 +261,22 @@ export class PaymentLinkCheckoutService {
       async (tx) => {
         const buyerId = await this.buyerFor(tx, email);
 
-        // Re-read inside the transaction. The row that decides whether this
-        // sale can be fulfilled has to be in the transaction's read set, or
-        // `Serializable` has nothing to protect.
-        const sku = await tx.sku.findUnique({ where: { id: link.skuId } });
+        // Re-read inside the transaction, with the product, because every
+        // row that decides whether this sale can be fulfilled has to be in
+        // the transaction's read set or `Serializable` has nothing to
+        // protect. The link row was loaded outside it and its copy of both
+        // is already stale.
+        const sku = await tx.sku.findUnique({
+          where: { id: link.skuId },
+          include: { product: true },
+        });
+
         const fulfillable =
-          sku !== null && availableOf(sku) >= PAYMENT_LINK_QUANTITY;
+          chargedAsExpected &&
+          sku !== null &&
+          sku.product.deletedAt === null &&
+          sku.product.isActive &&
+          availableOf(sku) >= PAYMENT_LINK_QUANTITY;
 
         if (fulfillable) {
           await tx.sku.update({
@@ -247,8 +310,10 @@ export class PaymentLinkCheckoutService {
                   id: newId(),
                   sku: { connect: { id: link.skuId } },
                   // Frozen, like every order line: the history survives a
-                  // rename, a price change or a product taken off sale.
-                  productName: link.sku.product.name,
+                  // rename, a price change or a product taken off sale. The
+                  // freshly read name wins when there is one, so the snapshot
+                  // is of the moment the order was written.
+                  productName: sku?.product.name ?? link.sku.product.name,
                   unitPrice,
                   quantity: PAYMENT_LINK_QUANTITY,
                 },
@@ -282,19 +347,32 @@ export class PaymentLinkCheckoutService {
     if (status === OrderStatus.FAILED) {
       // ─── Extension point: the refund this order owes ──────────────────
       //
-      // A FAILED order with a SUCCEEDED payment is money taken for units
-      // that were not there. The refund belongs to the settlement processor
-      // that owns `POST /webhooks/stripe` and the queue — it is the same
-      // path that already refunds a payment landing on a CANCELLED order,
-      // and duplicating it here would give one order two refunders.
+      // A FAILED order with a SUCCEEDED payment is money kept for goods that
+      // cannot be sent. The refund belongs to the settlement processor that
+      // owns `POST /webhooks/stripe` and the queue — it is the same path that
+      // already refunds a payment landing on a CANCELLED order, and
+      // duplicating it here would give one order two refunders.
       //
-      // What this branch guarantees for it is the state to act on: the
+      // **How often this branch is reached is not a rare-case question.** It
+      // is not only sell-out: availability is `stock - reserved`, so a single
+      // cart checkout holding a reservation is enough, and that reservation
+      // can lapse half an hour later and put the unit back on the shelf with
+      // the link buyer's money still ours. Nothing here retries and nothing
+      // reconciles, so until the refund path exists this log line is the only
+      // alarm, and it is an `error` for that reason rather than a `warn`.
+      //
+      // What this branch guarantees for that path is the state to act on: the
       // order, its single line, and a `Payment` row carrying the checkout
-      // session and the payment intent. Until that path exists, this log
-      // line is the only alarm.
+      // session and the payment intent.
+      //
+      // The other half of the answer is not here at all. A link should stop
+      // taking money when its SKU sells out or its product is withdrawn, and
+      // nothing deactivates one today — see the extension point at the foot
+      // of `payment-links.service.ts`, which owns that call. Refusing the
+      // sale is damage control; not offering it is the fix.
       // ──────────────────────────────────────────────────────────────────
       this.logger.error(
-        `Order ${orderId} was paid through payment link ${link.id} but SKU ${link.skuId} had no stock; it owes a refund.`,
+        `Order ${orderId} was paid through payment link ${link.id} but could not be fulfilled from SKU ${link.skuId}; it owes a refund.`,
       );
     }
 

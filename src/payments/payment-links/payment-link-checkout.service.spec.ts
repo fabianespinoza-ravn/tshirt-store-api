@@ -119,6 +119,10 @@ describe('PaymentLinkCheckoutService', () => {
       'answers null for a completed session whose payment_status is not paid',
     );
 
+    it.todo(
+      'settles checkout.session.async_payment_succeeded once the delayed method pays',
+    );
+
     it.todo('answers null for a session that names no payment link');
 
     it.todo('answers null for a payment link this API never wrote a row for');
@@ -166,10 +170,24 @@ describe('PaymentLinkCheckoutService', () => {
     );
   });
 
-  describe('when the units are gone', () => {
-    it.todo('writes the order as FAILED instead of PAID');
+  describe('the purchases it refuses to fulfil', () => {
+    it.todo(
+      'writes the order as FAILED when availability is below the quantity',
+    );
 
-    it.todo('moves no stock');
+    it.todo(
+      'writes FAILED when the units are only held by a reservation, not sold',
+    );
+
+    it.todo('writes FAILED when the product has been soft-deleted');
+
+    it.todo('writes FAILED when the product is no longer active');
+
+    it.todo(
+      'writes FAILED when Stripe charged an amount the link does not account for',
+    );
+
+    it.todo('moves no stock in any of those cases');
 
     it.todo(
       'still writes the payment as SUCCEEDED, because the money did arrive',

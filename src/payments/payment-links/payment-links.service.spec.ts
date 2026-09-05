@@ -121,6 +121,14 @@ describe('PaymentLinksService', () => {
       'still answers with the winning row when the deactivation at Stripe fails',
     );
 
+    it.todo(
+      'deactivates the Stripe link and re-raises when the write transaction throws',
+    );
+
+    it.todo(
+      'leaves no payable Stripe link unrecorded on a P2034 from the write transaction',
+    );
+
     it.todo('opens the write transaction at Serializable isolation');
   });
 
