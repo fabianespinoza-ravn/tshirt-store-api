@@ -8,9 +8,16 @@ const paymentIntents = {
   cancel: jest.fn(),
   retrieve: jest.fn(),
 };
+const refunds = { create: jest.fn() };
+// Typed, because a case below reads the buffer back out of `mock.calls` to
+// prove it was handed over rather than re-encoded, and an untyped double
+// makes that read an `any`.
+const webhooks = {
+  constructEvent: jest.fn<unknown, [Buffer, string, string]>(),
+};
 
 jest.mock('stripe', () =>
-  jest.fn().mockImplementation(() => ({ paymentIntents })),
+  jest.fn().mockImplementation(() => ({ paymentIntents, refunds, webhooks })),
 );
 
 /**
@@ -40,6 +47,8 @@ describe('StripeService', () => {
     jest.clearAllMocks();
     (Stripe as unknown as jest.Mock).mockImplementation(() => ({
       paymentIntents,
+      refunds,
+      webhooks,
     }));
   });
 
@@ -47,6 +56,7 @@ describe('StripeService', () => {
   const makeService = (overrides: Record<string, unknown> = {}) => {
     const values: Record<string, unknown> = {
       STRIPE_SECRET_KEY: 'a-test-key',
+      STRIPE_WEBHOOK_SECRET: 'a-test-webhook-secret',
       STRIPE_CURRENCY: 'usd',
       ...overrides,
     };
@@ -186,5 +196,97 @@ describe('StripeService', () => {
 
     expect(String(logger.mock.calls[0]?.[0])).toContain('pi_named');
     logger.mockRestore();
+  });
+
+  /**
+   * The two calls the rest of this suite could not see.
+   *
+   * Every other spec on this branch replaces `StripeService` wholesale, so
+   * until now nothing executed either of these — including the one line the
+   * whole "a cancelled order is not refunded twice" argument rests on. A
+   * change that dropped the refund's idempotency key would have broken that
+   * guarantee with every test still green.
+   */
+  describe('the refund, which must not happen twice', () => {
+    it('keys the refund on the intent, so a retried settlement refunds once', () => {
+      const service = makeService();
+      refunds.create.mockResolvedValue({ id: 're_1' });
+
+      void service.refundPaymentIntent('pi_paid');
+
+      expect(refunds.create).toHaveBeenCalledWith(
+        { payment_intent: 'pi_paid' },
+        { idempotencyKey: 'refund:pi_paid' },
+      );
+    });
+
+    it('derives that key from the intent rather than reusing one', () => {
+      const service = makeService();
+      refunds.create.mockResolvedValue({ id: 're_1' });
+
+      void service.refundPaymentIntent('pi_other');
+
+      expect(refunds.create).toHaveBeenCalledWith(expect.anything(), {
+        idempotencyKey: 'refund:pi_other',
+      });
+    });
+
+    it('answers with the refund id, which is what the payment row records', async () => {
+      const service = makeService();
+      refunds.create.mockResolvedValue({ id: 're_recorded' });
+
+      await expect(service.refundPaymentIntent('pi_paid')).resolves.toBe(
+        're_recorded',
+      );
+    });
+
+    it('lets a refusal out, because a refund that did not happen must fail its job', async () => {
+      const service = makeService();
+      refunds.create.mockRejectedValue(new Error('cannot refund'));
+
+      await expect(service.refundPaymentIntent('pi_paid')).rejects.toThrow(
+        'cannot refund',
+      );
+    });
+  });
+
+  describe('the signature, which is the whole of the webhook authentication', () => {
+    it('verifies the raw payload against the configured secret', () => {
+      const service = makeService();
+      const payload = Buffer.from('{"id":"evt_1"}');
+      webhooks.constructEvent.mockReturnValue({ id: 'evt_1' });
+
+      service.constructWebhookEvent(payload, 't=1,v1=abc');
+
+      expect(webhooks.constructEvent).toHaveBeenCalledWith(
+        payload,
+        't=1,v1=abc',
+        'a-test-webhook-secret',
+      );
+    });
+
+    it('hands over the buffer it was given, not a copy of its text', () => {
+      const service = makeService();
+      const payload = Buffer.from('{"id":"evt_1"}');
+      webhooks.constructEvent.mockReturnValue({ id: 'evt_1' });
+
+      service.constructWebhookEvent(payload, 't=1,v1=abc');
+
+      // `toBe`, not `toEqual`: a re-encoded buffer is deeply equal and
+      // verifies to a different signature, so an equality that accepted one
+      // would accept the bug this case exists to catch.
+      expect(webhooks.constructEvent.mock.calls[0]?.[0]).toBe(payload);
+    });
+
+    it('raises what Stripe raises, so an unverified body never reaches a handler', () => {
+      const service = makeService();
+      webhooks.constructEvent.mockImplementation(() => {
+        throw new Error('No signatures found matching the expected signature');
+      });
+
+      expect(() =>
+        service.constructWebhookEvent(Buffer.from('{}'), 'bad'),
+      ).toThrow('No signatures found');
+    });
   });
 });
