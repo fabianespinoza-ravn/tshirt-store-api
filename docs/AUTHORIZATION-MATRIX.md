@@ -80,8 +80,19 @@ All four are **CLIENT only**, and all four declare 403.
 | `listOrders` | `GET /orders` | CLIENT their own · MANAGER all · DELIVERY within scope | 200 400 401 403 500 |
 | `checkout` | `POST /orders` | **CLIENT** | 201 400 401 403 409 500 |
 | `getOrder` | `GET /orders/{orderId}` | CLIENT their own · MANAGER all · DELIVERY within scope | 200 401 **404** 500 |
+| `getOrderStatusHistory`† | `GET /orders/{orderId}/status-history` | CLIENT their own · MANAGER all · DELIVERY within scope | 200 401 **404** 500 |
 | `updateOrderStatus` | `PATCH /orders/{orderId}/status` | MANAGER · CLIENT · DELIVERY, each with different destinations | 200 400 401 **403** **404** 409 500 |
 | `getGuestOrder` | `GET /guest-orders/{orderId}` | public, the URL is the credential | 200 404 500 |
+
+† **The one row here that is not from the extract.** `getOrderStatusHistory` is the delivery
+extension of the challenge — *"clients can view their order's full status history"* — and it is
+additive: it takes no existing operation's codes away and changes no existing row. Its scope column
+is `getOrder`'s, copied word for word, and that is the whole design: the transitions of an order
+are readable exactly when the order is, so the route sends the same Prisma `where` and answers
+**404 and never 403** for the same reason, which is that a 403 would confirm that an identifier
+belongs to somebody. The answer is ordered by the per-order `sequence` the API assigns as it
+records each transition. `W2-API/openapi.yaml` is where the operation has to be added for the
+served document and the deliverable to agree.
 
 DELIVERY's scope: any **SHIPPED** order, plus the **DELIVERED** ones they delivered.
 
@@ -120,7 +131,9 @@ These are the ones worth a second look, and they come from counting codes, not f
 **1. `getOrder` is the only role-scoped route that does NOT declare 403.** The other three without
 403 (`signOut`, `refreshSession`, `changePassword`) don't need it because any authenticated role can
 call them. In `getOrder` the absence is deliberate: someone else's order returns **404**, so the
-status code can't be used to enumerate identifiers.
+status code can't be used to enumerate identifiers. `getOrderStatusHistory` is the second, added
+after the extract: it hangs off the same order and inherits the same reasoning, so counting from
+the 1.0.1 contract this is still the only one.
 
 **2. `updateOrderStatus` declares 403 and 404 on the same resource.** 403 for the wrong role, 409
 for an invalid transition, 404 for someone else's order. It's the only operation in the contract

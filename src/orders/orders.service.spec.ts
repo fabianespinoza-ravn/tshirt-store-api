@@ -23,6 +23,7 @@ import {
   aProduct,
   aSku,
 } from '../testing/factories';
+import { arrangeStatusHistory } from '../testing/order-history.fixtures';
 import { resetPrismaMock } from '../testing/prisma.mock';
 import { OrdersService } from './orders.service';
 import { exactlyTheseInAnyOrder } from '../testing/matchers';
@@ -510,6 +511,100 @@ describe('OrdersService', () => {
         kind: Problems.notFound,
       });
     });
+  });
+
+  /**
+   * `GET /orders/{orderId}/status-history`, and the two things that make it
+   * safe rather than merely present.
+   *
+   * THE SCOPE. `PoliciesGuard` grants `read Order` by role, so a CLIENT
+   * reaches this handler holding any order id at all; the only thing between
+   * them and another client's transitions is the `where` this service sends.
+   * That is why the cases below are written against
+   * `expect(h.prisma.order.findFirst).toHaveBeenCalledWith(...)` and never
+   * against the array the mock was told to return: a service that dropped the
+   * scope would still answer 404 for a missing order while publishing a
+   * stranger's history for one that exists, and only the `where` tells the
+   * two apart. The shape to expect is the one `getOne` already asserts —
+   * `{ AND: [{ OR: [{ userId: client.id }] }, { id: <the order> }] }` — because
+   * both now build it from the same `reachableOrder`, and a case pinning it
+   * on both is what keeps them from drifting.
+   *
+   * THE SEQUENCE. `recordStatus` numbers each row inside the transaction that
+   * moves the order, which is the only total order over the transitions that
+   * survives two of them landing in the same millisecond — see the last two
+   * rows of `RECORDED_TRANSITIONS`, which share a timestamp. So the claim
+   * "oldest first" is proved by asserting `orderBy: { sequence: 'asc' }` on
+   * the selected relation, not by inspecting the order of the returned array:
+   * the Prisma mock ignores `orderBy` and hands back whatever the fixture
+   * held, so an assertion on the array's order would pass against a service
+   * that asked for no order at all. `SHUFFLED_TRANSITIONS` in
+   * `../testing/order-history.fixtures` is there to make that visible.
+   *
+   * ONE THING THE SCAFFOLD ALREADY LEARNED. CASL does not preserve the order
+   * the rules were declared in, so the courier scope comes back as
+   * `[{ deliveredById }, { status: SHIPPED }]`. Pin it with
+   * `exactlyTheseInAnyOrder` as the DELIVERY block below already does; an
+   * `arrayContaining` would admit a third rule that widened the courier reach.
+   *
+   * Every case below is an `it.todo`. The route and the query are the
+   * assistant's work, so the assertions are not: an assertion written next to
+   * generated code agrees with whatever that code does, bugs included. The
+   * fixtures, the arrangement and the names are here; the `expect` calls are
+   * the student's, and this block is not done until they replace the stubs.
+   */
+  describe('statusHistory', () => {
+    beforeEach(() => {
+      arrangeStatusHistory(h.prisma);
+    });
+
+    it.todo(
+      "folds the read scope into the where, so a client cannot reach another client's history",
+    );
+
+    it.todo('sends the same where as getOne for the same caller and order id');
+
+    it.todo(
+      'asks for the entries ordered by sequence ascending, not by their timestamp',
+    );
+
+    it.todo(
+      'selects only status, sequence and createdAt, so a column added to the history row later is not published',
+    );
+
+    it.todo(
+      'reads the history through the order in a single query, never through orderStatusHistory.findMany',
+    );
+
+    it.todo('answers 404 and not 403 for an order outside the caller scope');
+
+    it.todo(
+      'answers 404 with the same problem for an order that does not exist, so the route is not an identifier oracle',
+    );
+
+    it.todo(
+      'returns an empty list for a reachable order that has recorded no transitions',
+    );
+
+    it.todo('serializes each entry occurredAt as an ISO 8601 string');
+
+    it.todo(
+      'publishes the sequence on every entry, so a client can order them without trusting the array',
+    );
+
+    it.todo(
+      'publishes neither the history row id nor the courier who completed the delivery',
+    );
+
+    it.todo(
+      'sends the manager scope, which is unconditional, for a manager reading any order',
+    );
+
+    it.todo('sends the shipped-plus-own-deliveries scope for a courier');
+
+    it.todo(
+      'sends a scope matching nothing for a role the ability grants no order rule',
+    );
   });
 
   describe('updateStatus', () => {

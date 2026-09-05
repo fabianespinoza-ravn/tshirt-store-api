@@ -111,3 +111,56 @@ export function toOrder(order: OrderRow): OrderView {
     createdAt: order.createdAt.toISOString(),
   };
 }
+
+/**
+ * One entry of an order's status history.
+ *
+ * `sequence` is the contract, not decoration. `recordStatus` numbers every
+ * row it appends inside the same transaction that moves the order, so a
+ * reader can order the transitions without trusting insertion order or a
+ * timestamp: two rows written in the same millisecond still have distinct
+ * sequences, and `uq_order_status_history_order_sequence` is what makes that
+ * a database guarantee rather than a hope.
+ *
+ * The row's surrogate `id` is deliberately absent. Nothing addresses a
+ * history entry on its own — there is no route for one — so publishing an
+ * identifier would invent a resource the contract does not have, and
+ * `(orderId, sequence)` already names the row uniquely.
+ *
+ * `occurredAt` is the row's `createdAt`, renamed because it is the only
+ * date an event carries and calling it `createdAt` next to `OrderView`'s
+ * would invite reading it as when the order was placed.
+ *
+ * What is NOT here is `deliveredById`. See the route's own comment in
+ * `orders.controller.ts` for why the courier's identity stays out.
+ */
+export interface OrderStatusEventView {
+  status: OrderStatus;
+  sequence: number;
+  occurredAt: string;
+}
+
+/**
+ * Exactly the three columns the view publishes. A `select` rather than the
+ * whole row, so a column added to `OrderStatusHistory` later does not reach
+ * a client because nobody remembered to narrow the query.
+ */
+export const ORDER_STATUS_EVENT_SELECT = {
+  status: true,
+  sequence: true,
+  createdAt: true,
+} satisfies Prisma.OrderStatusHistorySelect;
+
+export type OrderStatusEventRow = Prisma.OrderStatusHistoryGetPayload<{
+  select: typeof ORDER_STATUS_EVENT_SELECT;
+}>;
+
+export function toOrderStatusEvent(
+  event: OrderStatusEventRow,
+): OrderStatusEventView {
+  return {
+    status: event.status,
+    sequence: event.sequence,
+    occurredAt: event.createdAt.toISOString(),
+  };
+}
