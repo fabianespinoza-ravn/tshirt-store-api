@@ -1,8 +1,10 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { validateEnv } from './config/env.validation';
+import { MailTransport } from './mail/mail.transport';
 import { OrdersSweepService } from './orders/orders-sweep.service';
 import { PrismaModule } from './prisma/prisma.module';
+import { MailProcessor } from './queue/processors/mail.processor';
 import { MaintenanceProcessor } from './queue/processors/maintenance.processor';
 import { QueueModule } from './queue/queue.module';
 import { SweepScheduler } from './queue/sweep.scheduler';
@@ -29,6 +31,12 @@ import { SweepScheduler } from './queue/sweep.scheduler';
     PrismaModule,
     QueueModule,
   ],
-  providers: [OrdersSweepService, MaintenanceProcessor, SweepScheduler],
+  providers: [
+    OrdersSweepService,
+    MaintenanceProcessor,
+    SweepScheduler,
+    MailTransport,
+    MailProcessor,
+  ],
 })
 export class WorkerModule {}

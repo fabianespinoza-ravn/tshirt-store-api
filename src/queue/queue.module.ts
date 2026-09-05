@@ -29,6 +29,11 @@ import {
     BullModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
+        // Every queue's keys live under this, so a suite run and a
+        // developer's worker on the same Redis cannot consume each other's
+        // jobs. Without it the e2e suite would drain the mail queue of
+        // whoever happened to be running the app.
+        prefix: config.get<string>('QUEUE_PREFIX', 'tshirt'),
         connection: {
           host: config.getOrThrow<string>('REDIS_HOST'),
           port: config.getOrThrow<number>('REDIS_PORT'),

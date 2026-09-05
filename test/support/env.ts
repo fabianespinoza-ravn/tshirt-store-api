@@ -23,6 +23,10 @@ const E2E_ENV: Record<string, string> = {
   DATABASE_URL: e2eDatabaseUrl(),
   REDIS_HOST: e2eRedisHost(),
   REDIS_PORT: e2eRedisPort(),
+  // Its own namespace on a shared Redis. Without this a suite run and a
+  // developer's worker would consume each other's jobs, and the failure
+  // would look like a flaky test rather than what it is.
+  QUEUE_PREFIX: 'tshirt-e2e',
   JWT_ACCESS_SECRET: 'e2e-access-secret',
   JWT_ACCESS_TTL: '15m',
   JWT_REFRESH_SECRET: 'e2e-refresh-secret',

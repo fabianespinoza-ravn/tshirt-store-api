@@ -8,7 +8,6 @@ import {
   signUpVerified,
   someCredentials,
 } from './support/fixtures';
-import { MailKind } from './support/mail-recorder';
 
 const AUTH = '/api/v1/auth';
 
@@ -62,10 +61,7 @@ describe('Authentication (e2e)', () => {
       state: UserState.GUEST,
     });
 
-    const token = e2e.mail.lastTokenFor(
-      credentials.email,
-      MailKind.Verification,
-    );
+    const token = await e2e.mail.tokenFor(credentials.email);
     expect(token).toEqual(expect.any(String));
     const confirmed = await e2e
       .request()

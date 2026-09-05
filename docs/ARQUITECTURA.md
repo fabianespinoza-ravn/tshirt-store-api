@@ -90,10 +90,18 @@ keeps its listeners and their state in memory. A deploy, a crash or an OOM kill
 between "Stripe confirmed the charge" and "the order moved to `PAID`" would drop
 that handler on the floor, leaving an order `PENDING` with money already taken.
 BullMQ persists the job in Redis before the handler runs, so a restart re-delivers
-it instead of losing it. Its retry policy reflects that stakes: settlement retries
-with backoff until it resolves and raises an alert instead of giving up, because
-no number of attempts makes losing a payment acceptable. Mail's stakes are lower,
-so it gets three attempts with backoff and then a monitored dead-letter queue.
+it instead of losing it. What each job does when it runs out of attempts is
+decided by what its payload carries, not by a single house rule. Settlement
+retries with backoff for close to a day and its failures are kept and alerted on,
+because no number of attempts makes losing a payment acceptable and the payload is
+only a Stripe identifier. Mail gets three attempts and then keeps nothing: its
+payload holds a one-time token that the database stores only the hash of, so a
+retained failure would leave a usable credential in Redis — worse than the
+exposure the hashing exists to prevent. What is given up is retrying a send by
+hand, and a client who never received a verification link asks for another; the
+diagnosis moves to a log line carrying the recipient and the error and never the
+body. The sweep does not retry at all, because the next minute's run is the retry
+and two sweeps over the same expired orders is the one thing it must not do.
 
 The rejected alternative is `@nestjs/schedule` for the sweep plus a transactional
 outbox for settlement: an `@Interval` job in place of the repeatable job, and an
@@ -163,6 +171,15 @@ recorded but not settled for more than N minutes; depth and age of the settlemen
 dead-letter queue; orders still `PENDING` past `expires_at`, which means the sweep
 is not running; and `SUCCEEDED` payments belonging to `CANCELLED` orders with no
 `stripe_refund_id`, which is money taken and not returned.
+
+Mail is the one queue with nothing to measure, and that is a consequence of
+its own retention rather than an oversight. It discards a job on both outcomes,
+so its depth sits near zero whether every message is arriving or none is, and
+there is no failed entry left to inspect afterwards. The signal is the
+processor's error line — the kind, the recipient and the error, never the body —
+and what is alerted on is the rate of it. A queue-depth alert here would be
+worse than no alert at all, because it would read healthy while every send
+failed.
 
 Underneath sits the generic base: error rate and p95 per route, pool saturation
 seen as Prisma's pool-timeout errors, queue depth and job age, and structured JSON

@@ -16,6 +16,15 @@
 
 import { readFileSync } from 'node:fs';
 
+// A credential-shaped name, in any casing, assigned something long enough to
+// be key material. The value is captured so it can be judged separately.
+const CREDENTIAL_ASSIGNMENT =
+  /(?:SECRET|TOKEN|PASSWORD|PASSWD|API_?KEY|PRIVATE_?KEY)[A-Za-z_]*\s*[:=]\s*["']?([A-Za-z0-9/+=_-]{20,})/gi;
+
+// Case-sensitive on purpose: this is the half that tells real key material
+// from a placeholder, and it is the half a shared flag used to defeat.
+const HAS_KEY_MATERIAL = [/[A-Z]/, /[0-9]/];
+
 const SECRETS = [
   {
     label: 'a Stripe secret or restricted key',
@@ -33,13 +42,28 @@ const SECRETS = [
   {
     // An AWS secret access key, and most others, carry no prefix to match:
     // 40 characters of base64 look like any other token. What identifies
-    // them is the name they are assigned to. The two lookaheads require the
-    // value to hold an upper-case letter and a digit, which real key
-    // material does and the placeholders in .env.example
-    // (`tshirt-local-dev`, `change-me`) do not.
+    // them is the name they are assigned to.
+    //
+    // The two halves need opposite treatment, which is why this is a
+    // function and not one pattern. The **name** must ignore case: this
+    // codebase writes locals in camelCase, and a pasted credential lands
+    // in one of those as readily as in configuration. The **value** must
+    // not ignore case: requiring an upper-case letter and a digit is the
+    // whole of the entropy check, and it is what keeps the placeholders in
+    // `.env.example` writable.
+    //
+    // One pattern cannot do both, because a flag applies to all of it.
+    // Case-insensitive, the entropy check accepted lower case and so did
+    // nothing, and the rule fired on ordinary code; case-sensitive, the
+    // entropy check worked and every camelCase name stopped matching, so
+    // real key material under one was let through in silence. Both
+    // spellings of the mistake were shipped here before the halves were
+    // separated.
     label: 'a secret assigned to a credential-named variable',
-    pattern:
-      /(?:SECRET|TOKEN|PASSWORD|PASSWD|API_?KEY|PRIVATE_?KEY)[A-Z_]*\s*[:=]\s*["']?(?=[A-Za-z0-9/+=_-]{20,})(?=[A-Za-z0-9/+=_-]*[A-Z])(?=[A-Za-z0-9/+=_-]*[0-9])[A-Za-z0-9/+=_-]{20,}/i,
+    matches: (payload) =>
+      [...payload.matchAll(CREDENTIAL_ASSIGNMENT)].some(([, value]) =>
+        HAS_KEY_MATERIAL.every((check) => check.test(value)),
+      ),
   },
   {
     label: 'a private key block',
@@ -102,7 +126,9 @@ const payload = payloadOf(
 );
 
 if (payload) {
-  const found = SECRETS.find(({ pattern }) => pattern.test(payload));
+  const found = SECRETS.find((rule) =>
+    rule.matches ? rule.matches(payload) : rule.pattern.test(payload),
+  );
   if (found) {
     deny(
       `This would write ${found.label} into the repository. Secrets belong in .env and are read from the configuration at runtime; a test that needs one should build it from an environment variable or a fixture value that is not a real key.`,
