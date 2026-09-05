@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import {
   OrderStatus,
   PaymentMethod,
@@ -93,7 +94,19 @@ interface ShippingDetails {
 export class PaymentLinkCheckoutService {
   private readonly logger = new Logger(PaymentLinkCheckoutService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  /**
+   * What this deployment charges in, read from the same variable
+   * `StripeService` builds links with. It is compared against the session so
+   * an amount in another currency cannot pass as an equal integer.
+   */
+  private readonly expectedCurrency: string;
+
+  constructor(
+    private readonly prisma: PrismaService,
+    config: ConfigService,
+  ) {
+    this.expectedCurrency = config.getOrThrow<string>('STRIPE_CURRENCY');
+  }
 
   /**
    * Settles one `checkout.session.completed`.
@@ -243,14 +256,27 @@ export class PaymentLinkCheckoutService {
     const unitPrice = link.unitPriceAtCreation;
     const total = unitPrice * PAYMENT_LINK_QUANTITY;
 
-    // Both sides are integer cents, so a difference is a real disagreement
-    // and never a rounding artefact.
+    // Both sides are integer minor units, so a difference is a real
+    // disagreement and never a rounding artefact.
+    //
+    // An absent amount counts as a mismatch rather than as agreement. It used
+    // to pass, and that turned the one detector this method has into nothing
+    // whenever Stripe left the field out: the sale would be fulfilled, stock
+    // decremented, and `Payment.amount` written with the *expected* figure
+    // rather than the charged one — which is the column the refund path
+    // later reads. A check that cannot see the number must not vouch for it.
+    //
+    // The currency is compared for the same reason. Both amounts are minor
+    // units, so 4599 of one currency equals 4599 of another while being a
+    // different sum of money; comparing the integers alone would call that
+    // agreement.
     const chargedAsExpected =
-      session.amount_total === null || session.amount_total === total;
+      session.amount_total === total &&
+      session.currency === this.expectedCurrency;
 
     if (!chargedAsExpected) {
       this.logger.error(
-        `Checkout session ${session.id} charged ${session.amount_total} for payment link ${link.id}, whose recorded unit price totals ${total}; the order is written FAILED and owes a refund.`,
+        `Checkout session ${session.id} charged ${session.amount_total ?? 'an unreported amount'} ${session.currency ?? '(no currency)'} for payment link ${link.id}, whose recorded unit price totals ${total} ${this.expectedCurrency}; the order is written FAILED and owes a refund.`,
       );
     }
 
@@ -408,38 +434,47 @@ export class PaymentLinkCheckoutService {
   }
 
   /**
-   * The buyer, found or created.
+   * The buyer: always a new guest, never an account that already exists.
    *
-   * A link buyer may have no account, and `Order.userId` is not nullable, so
-   * one is made: `UserState.GUEST`, no password hash, no verified-at. That
-   * account cannot be signed into — `AuthService` has no credential to check
-   * — which is the intended shape: it exists to own an order, not to be a
-   * login. `liveEmail` is the unique column, so a buyer who later registers
-   * with the same address meets the ordinary "email already in use" path
-   * rather than acquiring a second identity.
+   * `Order.userId` is not nullable, so a link purchase needs somebody to own
+   * it, and a link buyer may have no account. One is made — `UserState.GUEST`,
+   * no password hash, no verified-at — which cannot be signed into, because
+   * `AuthService` has no credential to check. It exists to own an order, not
+   * to be a login.
    *
-   * A buyer who *already* has an account gets the order attached to it,
-   * because the email is the same email they verified. That is why the
-   * lookup comes first.
+   * **It deliberately does not look for an existing account first.** It used
+   * to, matching on `liveEmail`, and the comment justifying that said the
+   * address was "the same email they verified". It is not: it is
+   * `session.customer_details.email`, typed by whoever paid. Anyone could put
+   * a stranger's address into Stripe Checkout and have the order — with their
+   * own shipping details on it — appear in that stranger's order history,
+   * because the ordinary CLIENT scope reads by `userId`. Proving the payer
+   * owns an address is what sign-up is for, and this flow has no way to do it.
+   *
+   * The cost is that a registered customer buying through a link does not see
+   * it in their history; they read it through `GET /guest-orders/{orderId}`,
+   * whose URL is the credential the flow already relies on. That is the right
+   * side to fail on: a purchase missing from a list is a support question, and
+   * a stranger's order appearing in it is an account boundary breached.
+   *
+   * `liveEmail` is left null, which also keeps the unique column free so a
+   * repeat buyer never collides. Null on this column has meant "soft deleted"
+   * until now — `AuthService` relies on a lookup by it never returning a
+   * deleted row — and it now also means "reserves no address". Both readings
+   * agree on what matters to that lookup: a row with a null here can never be
+   * signed in as, which is true of a deleted account and of a guest alike.
    */
   private async buyerFor(
     tx: Prisma.TransactionClient,
     email: string,
   ): Promise<string> {
-    const existing = await tx.user.findUnique({
-      where: { liveEmail: email },
-      select: { id: true },
-    });
-
-    if (existing) return existing.id;
-
     const id = newId();
 
     await tx.user.create({
       data: {
         id,
         email,
-        liveEmail: email,
+        liveEmail: null,
         passwordHash: null,
         role: UserRole.CLIENT,
         state: UserState.GUEST,

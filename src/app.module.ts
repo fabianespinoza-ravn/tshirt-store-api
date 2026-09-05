@@ -8,6 +8,7 @@ import { ImagesModule } from './images/images.module';
 import { LikesModule } from './likes/likes.module';
 import { MailModule } from './mail/mail.module';
 import { GuestOrdersModule } from './orders/guest-orders/guest-orders.module';
+import { NotificationsModule } from './notifications/notifications.module';
 import { OrdersModule } from './orders/orders.module';
 import { PaymentLinksModule } from './payments/payment-links/payment-links.module';
 import { PrismaModule } from './prisma/prisma.module';
@@ -41,6 +42,7 @@ import { validateEnv } from './config/env.validation';
     PrismaModule,
     QueueModule,
     MailModule,
+    NotificationsModule,
     StorageModule,
     AuthModule,
     CategoriesModule,

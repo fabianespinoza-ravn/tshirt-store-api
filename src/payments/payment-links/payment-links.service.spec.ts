@@ -420,4 +420,25 @@ describe('PaymentLinksService', () => {
       expect(link.unitPrice).not.toBe(sku.price);
     });
   });
+
+  describe('losing the race to a concurrent create', () => {
+    /**
+     * Two managers asking at once is an ordinary thing, not a server fault.
+     * The transaction that loses is rejected — `Serializable` refusing a
+     * conflicting write — and answering 500 for that told the caller
+     * something had gone wrong while the SKU did have exactly what they
+     * asked for. Only an SKU left with no link at all is a real failure.
+     */
+    it.todo(
+      'answers with the winning link and created false when the transaction is rejected',
+    );
+
+    it.todo(
+      'deactivates its own orphan link at Stripe before answering with the winner',
+    );
+
+    it.todo(
+      'raises the original error when the rejection left the SKU with no active link',
+    );
+  });
 });

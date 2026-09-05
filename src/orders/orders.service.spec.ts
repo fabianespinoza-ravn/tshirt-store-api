@@ -517,8 +517,20 @@ describe('OrdersService', () => {
       status: OrderStatus = OrderStatus.PENDING,
       items = [anOrderItem('order-1', 'sku-1', { quantity: 2 })],
     ) {
-      const order = { ...anOrder(client.id, { status }), items, payments: [] };
+      // Placed just now, and carrying the intent checkout recorded. That is
+      // what a PENDING order being cancelled by its owner actually looks
+      // like: the factory's default `createdAt` is a fixed date days back,
+      // which is past Stripe's idempotency retention and a state the
+      // cancellation now refuses to act on.
+      const order = {
+        ...anOrder(client.id, { status, createdAt: new Date() }),
+        items,
+        payments: [],
+      };
       h.prisma.order.findFirst.mockResolvedValue(order);
+      h.prisma.payment.findFirst.mockResolvedValue({
+        stripePaymentIntentId: `pi_for_${order.id}`,
+      } as Payment);
       h.prisma.order.updateMany.mockResolvedValue({ count: 1 });
       h.prisma.orderStatusHistory.count.mockResolvedValue(0);
       return order;
@@ -595,6 +607,41 @@ describe('OrdersService', () => {
         where: { id: order.items[0].skuId },
         data: { reserved: { decrement: order.items[0].quantity } },
       });
+    });
+
+    it('cancels the intent before it gives a single unit back', async () => {
+      // The client holds the clientSecret for this order. Releasing first
+      // and cancelling after — or not cancelling at all — lets them confirm
+      // the payment onto units already back on the shelf.
+      const order = arrangeStatusChange();
+
+      await h.service.updateStatus(client, order.id, OrderStatus.CANCELLED);
+
+      expect(h.stripe.cancelPaymentIntent).toHaveBeenCalledWith(
+        `pi_for_${order.id}`,
+      );
+      expect(
+        h.stripe.cancelPaymentIntent.mock.invocationCallOrder[0],
+      ).toBeLessThan(h.prisma.$transaction.mock.invocationCallOrder[0]);
+    });
+
+    it('refuses the cancellation when the payment will not stop, releasing nothing', async () => {
+      const order = arrangeStatusChange();
+      h.stripe.cancelPaymentIntent.mockResolvedValueOnce(false);
+
+      await expect(
+        h.service.updateStatus(client, order.id, OrderStatus.CANCELLED),
+      ).rejects.toMatchObject({ kind: Problems.conflict });
+      expect(h.prisma.sku.update).not.toHaveBeenCalled();
+      expect(h.prisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('stops no payment when the move does not release stock', async () => {
+      const order = arrangeStatusChange(OrderStatus.PROCESSING);
+
+      await h.service.updateStatus(manager, order.id, OrderStatus.SHIPPED);
+
+      expect(h.stripe.cancelPaymentIntent).not.toHaveBeenCalled();
     });
 
     it('leaves the reservations alone on any other move', async () => {

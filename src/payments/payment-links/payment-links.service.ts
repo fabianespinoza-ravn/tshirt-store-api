@@ -149,10 +149,24 @@ export class PaymentLinksService {
       // money taken, no order, and an acknowledged event Stripe never
       // redelivers.
       //
-      // Turning the link off is what closes that. It runs before the failure
-      // is re-raised, and its own failure is logged inside the seam rather
-      // than replacing the error the caller needs to see.
+      // Turning the link off is what closes that. It runs before anything
+      // else, and its own failure is logged inside the seam rather than
+      // replacing whatever the caller ends up being told.
       await this.stripe.deactivatePaymentLink(link.id);
+
+      // Losing that race is not a server error, and answering 500 for it was
+      // wrong: the contract for "this SKU already has a link" is 200 with the
+      // link, and after a concurrent create the SKU *does* have one. The
+      // caller asked for the SKU's active link and there is one to give, so
+      // it is given, with `created: false` saying this request is not the one
+      // that made it. Only an SKU left with no link at all is a real failure,
+      // and that error is re-raised untouched.
+      const winner = await this.activeLinkFor(this.prisma, sku.id);
+
+      if (winner) {
+        return { link: toPaymentLink(winner), created: false };
+      }
+
       throw error;
     }
 

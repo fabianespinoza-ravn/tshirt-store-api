@@ -64,6 +64,10 @@ export function aCompletedSession(
     payment_link: 'plink-1',
     payment_intent: 'pi-1',
     amount_total: 2599,
+    // A real session always carries one, and the settlement now compares it:
+    // both amounts are minor units, so 2599 of another currency would equal
+    // 2599 here while being a different sum of money.
+    currency: 'usd',
     customer_details: {
       email: BUYER_EMAIL,
       name: 'Ada Lovelace',
@@ -637,14 +641,14 @@ describe('PaymentLinkCheckoutService', () => {
   });
 
   describe('the buyer', () => {
-    it('creates a GUEST user with no password hash for a new email', async () => {
+    it('creates a GUEST user with no password hash and no reserved address', async () => {
       await settle();
 
       expect(harness.prisma.user.create).toHaveBeenCalledWith({
         data: {
           id: expect.any(String),
           email: BUYER_EMAIL,
-          liveEmail: BUYER_EMAIL,
+          liveEmail: null,
           passwordHash: null,
           role: UserRole.CLIENT,
           state: UserState.GUEST,
@@ -658,26 +662,45 @@ describe('PaymentLinkCheckoutService', () => {
       expect(orderData().userId).toBe(created.id);
     });
 
-    it('looks the buyer up by liveEmail, so a soft-deleted row is skipped', async () => {
-      await settle();
+    it('refuses a session that reports no amount, rather than vouching for it', async () => {
+      // The absent case used to pass the comparison, which turned the one
+      // detector this settlement has into nothing whenever Stripe left the
+      // field out — and `Payment.amount` would then hold the expected figure
+      // instead of the charged one, which is the column a refund reads.
+      await settle(aCompletedSession({ amount_total: null }));
 
-      // `liveEmail` and not `email`: the column is null on a soft-deleted row,
-      // so a returning buyer whose account was deleted gets a new one instead
-      // of the order being attached to the deleted account.
-      expect(harness.prisma.user.findUnique).toHaveBeenCalledWith({
-        where: { liveEmail: BUYER_EMAIL },
-        select: { id: true },
-      });
+      expect(orderData().status).toBe(OrderStatus.FAILED);
+      expect(harness.prisma.sku.update).not.toHaveBeenCalled();
     });
 
-    it('attaches the order to an existing account with the same email', async () => {
+    it('refuses an amount that matches in number but not in currency', async () => {
+      await settle(aCompletedSession({ currency: 'eur' }));
+
+      expect(orderData().status).toBe(OrderStatus.FAILED);
+      expect(harness.prisma.sku.update).not.toHaveBeenCalled();
+    });
+
+    it('never looks for an account by the address the payer typed', async () => {
+      await settle();
+
+      // The whole of the fix. `session.customer_details.email` is written by
+      // whoever paid, so a lookup on it lets anyone put a stranger's address
+      // into Stripe Checkout and have the order appear in that stranger's
+      // history — the CLIENT scope reads by `userId` and would hand it over.
+      expect(harness.prisma.user.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('makes a fresh guest even when an account already holds that address', async () => {
       const existing = { id: newId() };
       harness.prisma.user.findUnique.mockResolvedValue(existing as never);
 
       await settle();
 
-      expect(orderData().userId).toBe(existing.id);
-      expect(harness.prisma.user.create).not.toHaveBeenCalled();
+      const created = harness.prisma.user.create.mock.calls[0][0]
+        .data as never as { id: string };
+
+      expect(orderData().userId).toBe(created.id);
+      expect(orderData().userId).not.toBe(existing.id);
     });
 
     it('throws a plain Error, not a ProblemException, when the session carries no customer email', async () => {
