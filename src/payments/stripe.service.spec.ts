@@ -3,7 +3,11 @@ import { Logger } from '@nestjs/common';
 import Stripe from 'stripe';
 import { StripeService } from './stripe.service';
 
-const paymentIntents = { create: jest.fn(), cancel: jest.fn() };
+const paymentIntents = {
+  create: jest.fn(),
+  cancel: jest.fn(),
+  retrieve: jest.fn(),
+};
 
 jest.mock('stripe', () =>
   jest.fn().mockImplementation(() => ({ paymentIntents })),
@@ -140,10 +144,43 @@ describe('StripeService', () => {
     logger.mockRestore();
   });
 
+  it('releases when Stripe refuses because the intent is already cancelled', async () => {
+    const service = makeService();
+    const logger = withQuietLogger();
+    paymentIntents.cancel.mockRejectedValue(new Error('already canceled'));
+    paymentIntents.retrieve.mockResolvedValue({ status: 'canceled' });
+
+    await expect(service.cancelPaymentIntent('pi_gone')).resolves.toBe(true);
+    logger.mockRestore();
+  });
+
+  it('refuses to release when the intent succeeded, because the money arrived', async () => {
+    const service = makeService();
+    const logger = withQuietLogger();
+    paymentIntents.cancel.mockRejectedValue(new Error('cannot cancel'));
+    paymentIntents.retrieve.mockResolvedValue({ status: 'succeeded' });
+
+    await expect(service.cancelPaymentIntent('pi_paid')).resolves.toBe(false);
+    logger.mockRestore();
+  });
+
+  it('refuses to release when the state cannot be read at all', async () => {
+    const service = makeService();
+    const logger = withQuietLogger();
+    paymentIntents.cancel.mockRejectedValue(new Error('cannot cancel'));
+    paymentIntents.retrieve.mockRejectedValue(new Error('unreachable'));
+
+    await expect(service.cancelPaymentIntent('pi_unknown')).resolves.toBe(
+      false,
+    );
+    logger.mockRestore();
+  });
+
   it('names the intent in the log when a cancellation fails, since the sweep leaves the order alone on that answer', async () => {
     const service = makeService();
     const logger = withQuietLogger();
     paymentIntents.cancel.mockRejectedValue(new Error('already succeeded'));
+    paymentIntents.retrieve.mockResolvedValue({ status: 'succeeded' });
 
     await service.cancelPaymentIntent('pi_named');
 

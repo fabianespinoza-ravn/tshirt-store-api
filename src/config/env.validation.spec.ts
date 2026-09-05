@@ -155,4 +155,31 @@ describe('validateEnv', () => {
       ),
     ).toThrow(/MAIL_FROM/);
   });
+
+  describe('Stripe', () => {
+    it('refuses to boot without the secret key or the webhook secret', () => {
+      expect(() =>
+        validateEnv(anEnvWithout('STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET')),
+      ).toThrow(/STRIPE_SECRET_KEY[\s\S]*STRIPE_WEBHOOK_SECRET/);
+    });
+
+    it('defaults the currency to usd, so the common deployment sets nothing', () => {
+      expect(validateEnv(anEnv()).STRIPE_CURRENCY).toBe('usd');
+    });
+
+    it('keeps a currency that was set', () => {
+      expect(
+        validateEnv(anEnv({ STRIPE_CURRENCY: 'eur' })).STRIPE_CURRENCY,
+      ).toBe('eur');
+    });
+
+    it('refuses a currency that is not three lower-case letters', () => {
+      expect(() => validateEnv(anEnv({ STRIPE_CURRENCY: 'USD' }))).toThrow(
+        /STRIPE_CURRENCY/,
+      );
+      expect(() => validateEnv(anEnv({ STRIPE_CURRENCY: 'dollars' }))).toThrow(
+        /STRIPE_CURRENCY/,
+      );
+    });
+  });
 });

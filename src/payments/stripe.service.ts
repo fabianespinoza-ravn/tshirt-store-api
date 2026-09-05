@@ -82,10 +82,46 @@ export class StripeService {
       await this.client.paymentIntents.cancel(paymentIntentId);
       return true;
     } catch (error) {
+      // A refused cancellation is not automatically a refusal to release,
+      // and treating it as one costs an order forever. The commonest reason
+      // Stripe refuses is that the intent is **already cancelled** — this
+      // sweep's own earlier attempt, whose transaction then lost its race —
+      // and answering `false` to that would leave the order PENDING, its
+      // stock reserved, and the next minute's run refused for exactly the
+      // same reason, every minute, with nothing ever releasing it.
+      //
+      // So the state is read rather than inferred from the error. Only
+      // `canceled` releases. `succeeded` must not, because the money
+      // arrived; anything else is unknown, and unknown means keep holding.
+      const status = await this.statusOf(paymentIntentId);
+
+      if (status === 'canceled') {
+        return true;
+      }
+
       this.logger.error(
-        `Could not cancel ${paymentIntentId}: ${error instanceof Error ? error.message : 'unknown error'}`,
+        `Could not cancel ${paymentIntentId} (now ${status ?? 'unreadable'}): ${
+          error instanceof Error ? error.message : 'unknown error'
+        }`,
       );
+
       return false;
+    }
+  }
+
+  /**
+   * The intent's status, or null when even reading it fails.
+   *
+   * Null is deliberately not an error here: the caller is deciding whether
+   * it is safe to release stock, and "I could not find out" has to mean no.
+   */
+  private async statusOf(paymentIntentId: string): Promise<string | null> {
+    try {
+      const intent = await this.client.paymentIntents.retrieve(paymentIntentId);
+
+      return intent.status;
+    } catch {
+      return null;
     }
   }
 }

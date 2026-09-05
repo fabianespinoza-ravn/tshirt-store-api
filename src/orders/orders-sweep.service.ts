@@ -40,6 +40,13 @@ export interface SweepOutcome {
  * caller would either need a fake caller or a rule granting one user every
  * order — both of which would be a lie in the authorization model.
  */
+/**
+ * How long Stripe keeps an idempotency key, and therefore how long asking
+ * for an order's intent again returns the same one rather than making a new
+ * one. Documented by Stripe as 24 hours.
+ */
+const IDEMPOTENCY_KEY_TTL_MS = 24 * 60 * 60 * 1_000;
+
 @Injectable()
 export class OrdersSweepService {
   private readonly logger = new Logger(OrdersSweepService.name);
@@ -80,10 +87,10 @@ export class OrdersSweepService {
    * the answer wanted: the money arrived, the stock stays reserved, and
    * settlement deals with it.
    */
-  private async stopPayment(order: {
-    id: string;
-    total: number;
-  }): Promise<boolean> {
+  private async stopPayment(
+    order: { id: string; total: number; createdAt: Date },
+    now: Date,
+  ): Promise<boolean> {
     const payment = await this.prisma.payment.findFirst({
       where: { orderId: order.id, stripePaymentIntentId: { not: null } },
       select: { stripePaymentIntentId: true },
@@ -92,6 +99,22 @@ export class OrdersSweepService {
 
     if (payment?.stripePaymentIntentId) {
       return this.stripe.cancelPaymentIntent(payment.stripePaymentIntentId);
+    }
+
+    // Recovery only works while the idempotency key is live. Past that,
+    // asking again does not return the original intent — it creates a
+    // second one, which this would then cancel while the first stayed
+    // active, releasing the stock with a live charge still pointed at it.
+    // That is worse than doing nothing, so past the window the order is
+    // left alone and said out loud. It normally cannot happen:
+    // `PENDING_ORDER_TTL_MS` is thirty minutes against a key that lives a
+    // day, so only a worker down for most of that day gets here.
+    if (now.getTime() - order.createdAt.getTime() > IDEMPOTENCY_KEY_TTL_MS) {
+      this.logger.error(
+        `Expired order ${order.id} is older than Stripe's idempotency window, so its original intent can no longer be reached by key. Left PENDING with its stock reserved; cancel the intent by hand.`,
+      );
+
+      return false;
     }
 
     const recovered = await this.stripe.createPaymentIntent(order);
@@ -144,7 +167,7 @@ export class OrdersSweepService {
         // Before anything is released. The whole ordering argument is on
         // `stopPayment`; what matters here is that a refusal skips the
         // order rather than falling through to the release below.
-        if (!(await this.stopPayment(order))) {
+        if (!(await this.stopPayment(order, now))) {
           failed += 1;
           this.logger.warn(
             `Left expired order ${order.id} alone: its payment could not be cancelled, so releasing its stock could oversell.`,
