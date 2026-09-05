@@ -30,7 +30,11 @@ import {
   UpdateOrderStatusDto,
 } from './dto/orders.dto';
 import { OrdersService } from './orders.service';
-import type { CheckoutOrderView, OrderView } from './orders.views';
+import type {
+  CheckoutOrderView,
+  OrderStatusEventView,
+  OrderView,
+} from './orders.views';
 
 const uuid = ParseUUIDPipe;
 
@@ -115,6 +119,85 @@ export class OrdersController {
     @Param('orderId', uuid) orderId: string,
   ): Promise<OrderView> {
     return this.orders.getOne(user, orderId);
+  }
+
+  /**
+   * The order's status history, as a sub-resource of the order.
+   *
+   * WHY A SUB-RESOURCE. Every transition row is meaningless without its
+   * order — `sequence` is unique per order and not globally — and it is
+   * readable exactly when the order is. A collection at `/order-status-history`
+   * with an `orderId` filter would state the opposite: that the rows are a
+   * resource in their own right whose scope has to be re-derived from a
+   * query parameter, which is the shape that produces an identifier oracle.
+   *
+   * WHY 404 AND NEVER 403. The same reason `getOrder` gives above, and it
+   * comes from the same `where`: `OrdersService.statusHistory` roots its
+   * query at the order and folds the ability's row scope into it, so an
+   * order the caller cannot reach is indistinguishable from one that does
+   * not exist. A 403 here would confirm that an id belongs to somebody, and
+   * it would do it on a route whose whole payload is a list of what happened
+   * to that somebody's order.
+   *
+   * WHAT THE PAYLOAD DOES NOT CARRY: `deliveredById`. The one transition
+   * that records who performed it writes that column on `Order`, not on
+   * `OrderStatusHistory`, so attributing the DELIVERED entry to the courier
+   * currently named there is an inference and not a recorded fact — a later
+   * transition out of DELIVERED, or a re-delivery, would rewrite the column
+   * and silently restate history. It is also personal data about a third
+   * party with no client-facing purpose: a buyer needs to know their order
+   * was delivered and when, not by whom. If the courier's identity is ever
+   * to be published it needs a `performedById` column on the history row so
+   * the attribution is a fact, and a MANAGER-only projection — which
+   * `docs/AUTHORIZATION-MATRIX.md` puts outside the ability, under "the
+   * per-role projection", because CASL's field permissions only restrict and
+   * this one would have to add.
+   *
+   * ─── Extension point: a subject of its own ──────────────────────────────
+   *
+   * This route rides on the existing `read Order` rule, which is what makes
+   * it work today for all three roles the matrix names. If the author would
+   * rather model the history as its own subject — a defensible reading,
+   * since it is a different resource with a different projection — the rules
+   * are the author's to write, not the assistant's, and they are:
+   *
+   *   CLIENT   · read · OrderStatusHistory · { order: { is: { userId: <caller> } } }
+   *   MANAGER  · read · OrderStatusHistory · (unconditional)
+   *   DELIVERY · read · OrderStatusHistory · { order: { is: { status: SHIPPED } } }
+   *   DELIVERY · read · OrderStatusHistory · { order: { is: { deliveredById: <caller> } } }
+   *
+   * from the `getOrderStatusHistory` row this branch adds to the Orders
+   * table of `docs/AUTHORIZATION-MATRIX.md`, whose scope column is copied
+   * verbatim from `getOrder`. Adding `'OrderStatusHistory'` to
+   * `AppSubjectName` without those four rules is strictly worse than not
+   * adding it: `PoliciesGuard` denies what the ability does not grant, so
+   * every role would receive 403 and the route would not exist. Until they
+   * are written, `read Order` is the rule, and the scope this handler
+   * actually applies is the order's.
+   * ────────────────────────────────────────────────────────────────────────
+   */
+  @CheckPolicies({ action: 'read', subject: 'Order' })
+  @ApiOperation({
+    summary: "Read an order's full status history, oldest transition first",
+    description:
+      'Every status the order has taken, ordered by the per-order `sequence` the API assigns when it records the transition. The sequence is the contract: it is unique per order and assigned inside the transaction that moves the order, so it orders two transitions landing in the same millisecond and a client can re-sort or merge entries without trusting the array it received. Scoped exactly as the order is — a CLIENT reads their own, a MANAGER reads any, a DELIVERY courier reads the ones in its scope — and an order outside the caller scope answers 404 and never 403, so the route cannot be used to enumerate identifiers. The courier who completed a delivery is deliberately not published.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'The transitions, ascending by sequence',
+  })
+  @ApiProblems(
+    Problems.unauthorized,
+    Problems.notFound,
+    Problems.internalError,
+    Problems.serviceUnavailable,
+  )
+  @Get(':orderId/status-history')
+  statusHistory(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('orderId', uuid) orderId: string,
+  ): Promise<OrderStatusEventView[]> {
+    return this.orders.statusHistory(user, orderId);
   }
 
   /**

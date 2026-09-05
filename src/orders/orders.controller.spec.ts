@@ -42,6 +42,7 @@ describe('OrdersController', () => {
     checkout: jest.fn(),
     list: jest.fn(),
     getOne: jest.fn(),
+    statusHistory: jest.fn(),
     updateStatus: jest.fn(),
   };
   const controller = new OrdersController(service as unknown as OrdersService);
@@ -117,6 +118,29 @@ describe('OrdersController', () => {
       client,
       manager.id,
       OrderStatus.CANCELLED,
+    );
+  });
+
+  /**
+   * The status-history route, which adds no logic to this layer either and
+   * therefore has exactly one thing worth pinning: that the caller reaching
+   * the service is the authenticated one from the token and the id is the one
+   * from the path. A controller that read an owner from anywhere else would
+   * hand over another buyer's transitions with the service none the wiser,
+   * because the service scopes by the user it is given.
+   *
+   * Stubs, not assertions: the route is the assistant's work, so the
+   * `expect` calls belong to the student.
+   */
+  describe('the status history passthrough', () => {
+    it.todo(
+      'asks the service for the history of the path id, for the token caller',
+    );
+
+    it.todo('returns the entries the service produced, untouched');
+
+    it.todo(
+      'never derives the caller from the path, so a client id in the url reads nothing',
     );
   });
 
