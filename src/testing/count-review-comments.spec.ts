@@ -99,31 +99,32 @@ describe('the review comment counter', () => {
 
   const reviewer = 'claude[bot]';
 
-  it.todo(
-    'adds the top-level comments to the line comments, because the action posts both',
-  );
+  it('adds top-level comments to line comments, because the action posts both', () => {
+    expect(count([reviewer, reviewer], [reviewer])).toBe(3);
+  });
 
-  it.todo(
-    'counts only the reviewer, so a human commenting mid-run cannot satisfy the check',
-  );
+  it('counts only the reviewer, so a human cannot satisfy the check', () => {
+    expect(count([reviewer, 'octocat'], ['octocat'])).toBe(1);
+  });
 
-  it.todo(
-    'counts only the reviewer, so another bot commenting mid-run cannot satisfy it either',
-  );
+  it('ignores another bot commenting mid-run', () => {
+    expect(count(['dependabot[bot]'], ['github-actions[bot]'])).toBe(0);
+  });
 
-  it.todo(
-    'returns zero for a pull request the reviewer never commented on, which is the case that fails the job',
-  );
+  it('returns zero when the reviewer never commented', () => {
+    expect(count([], [])).toBe(0);
+  });
 
-  it.todo(
-    'counts every line it is handed, so a comment list spanning several pages is not undercounted',
-  );
+  it('counts every login across paginated comment lists', () => {
+    expect(
+      count(
+        [reviewer, reviewer, reviewer],
+        [reviewer, reviewer, reviewer, reviewer],
+      ),
+    ).toBe(7);
+  });
 
-  it.todo(
-    'fails rather than reporting zero when gh cannot answer, because a zero would be read as a silent review',
-  );
-
-  // Referenced so the scaffolding above is not reported as unused while the
-  // cases are still stubs. Delete this line with the last `it.todo`.
-  void [count, runWithGhFailing, reviewer];
+  it('fails rather than reporting zero when gh cannot answer', () => {
+    expect(runWithGhFailing).toThrow();
+  });
 });
