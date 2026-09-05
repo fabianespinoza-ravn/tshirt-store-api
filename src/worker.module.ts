@@ -4,9 +4,11 @@ import { validateEnv } from './config/env.validation';
 import { MailTransport } from './mail/mail.transport';
 import { OrdersSweepService } from './orders/orders-sweep.service';
 import { PaymentsModule } from './payments/payments.module';
+import { SettlementService } from './payments/webhooks/settlement.service';
 import { PrismaModule } from './prisma/prisma.module';
 import { MailProcessor } from './queue/processors/mail.processor';
 import { MaintenanceProcessor } from './queue/processors/maintenance.processor';
+import { SettlementProcessor } from './queue/processors/settlement.processor';
 import { QueueModule } from './queue/queue.module';
 import { SweepScheduler } from './queue/sweep.scheduler';
 
@@ -39,6 +41,8 @@ import { SweepScheduler } from './queue/sweep.scheduler';
     SweepScheduler,
     MailTransport,
     MailProcessor,
+    SettlementService,
+    SettlementProcessor,
   ],
 })
 export class WorkerModule {}
