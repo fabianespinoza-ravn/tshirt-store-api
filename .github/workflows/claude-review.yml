@@ -2,7 +2,12 @@ name: Claude review
 
 on:
   pull_request:
-    types: [opened, synchronize]
+    # `reopened` and `ready_for_review` are here because both produce a pull
+    # request that is ready to merge and carries no review: a branch closed
+    # and reopened, or a draft marked ready, fires neither `opened` nor
+    # `synchronize`, so without them the check simply never runs and the
+    # pull request shows no review rather than a failed one.
+    types: [opened, synchronize, reopened, ready_for_review]
 
 # It only comments. It never writes to the branch, so there are no commits
 # of its own in the history: `contents` is read-only on purpose.
@@ -38,6 +43,16 @@ jobs:
             echo "::error::This pull request changes the review workflow, so the action would skip the review and still pass. Review the change by hand before merging."
             exit 1
           fi
+
+      # Counted before and after, so the step below can tell a review that
+      # ran from one that did not. Only this author's comments are counted,
+      # which is why a human or another bot commenting mid-run cannot
+      # satisfy it.
+      - name: Count the review's comments before it runs
+        id: before
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: echo "count=$(./.github/scripts/count-review-comments.sh)" >> "$GITHUB_OUTPUT"
 
       - uses: anthropics/claude-code-action@8251c103ac8c1d761882c86aba1412c7f583c844 # v1
         with:
@@ -94,3 +109,24 @@ jobs:
 
           claude_args: |
             --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*)"
+
+      # The failure this exists for is not the action erroring — that already
+      # turns the check red. It is the action exiting successfully having
+      # posted nothing, which is indistinguishable from a clean review and is
+      # what a green check is then taken to mean. Seven of the first twenty
+      # pull requests with a green review here had no comment from it at all.
+      #
+      # The prompt already requires one line when nothing blocks the merge,
+      # precisely so the two cases can be told apart. This step is what makes
+      # that requirement enforced rather than requested.
+      - name: Fail when the review said nothing
+        if: always() && steps.before.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          after="$(./.github/scripts/count-review-comments.sh)"
+          if [ "$after" -le "${{ steps.before.outputs.count }}" ]; then
+            echo "::error::The review finished without posting a comment, so nothing distinguishes it from a review that never ran. Re-run the job; if it passes silently again, the action is refusing to review and the pull request has not been reviewed."
+            exit 1
+          fi
+          echo "The review posted $((after - ${{ steps.before.outputs.count }})) comment(s)."
