@@ -27,12 +27,24 @@ import type { StorageService } from '../storage/storage.service';
  * crossing. A message that arrives without its picture is a smaller failure
  * than a queue that cannot hold the messages, so the large image is dropped
  * and the send continues.
+ *
+ * It bounds the worker's heap as well as the queue's payload, and that is a
+ * property of *how* it is applied rather than of the number: the body is
+ * counted as it arrives and the read is abandoned on the chunk that crosses
+ * the cap, so an object too large to send is never assembled. Reading the
+ * whole object and measuring it afterwards would have capped what reaches
+ * Redis and capped nothing at all in the process holding the job — which is
+ * the process that also holds every other job on the queue.
  */
 export const MAX_ATTACHMENT_BYTES = 512 * 1024;
 
 /**
  * S3 is a network hop taken while a worker holds a job. Without a bound, an
  * unreachable bucket turns a three-attempt job into three long hangs.
+ *
+ * The signal covers the body as well as the headers, so a bucket that
+ * answers and then trickles is bounded by the same number as one that never
+ * answers at all.
  */
 export const IMAGE_FETCH_TIMEOUT_MS = 5_000;
 
@@ -47,6 +59,85 @@ const CONTENT_TYPE_BY_EXTENSION: Record<string, string> = {
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
   '.webp': 'image/webp',
+};
+
+/**
+ * The size the response claims, when it claims one that can be read as a
+ * size at all.
+ *
+ * `Content-Length` is a hint and this function treats it as one. It is
+ * **absent** on a chunked response, and it can **lie**: an intermediary is
+ * free to state a number the body does not honour. So it is used in one
+ * direction only — to refuse early, never to accept. Missing, unparseable
+ * or understated, nothing is lost, because `readCapped` counts the bytes it
+ * actually receives and that count is what enforces the cap. Overstated,
+ * a picture is dropped for an object that would have fitted, which is the
+ * failure this whole function exists to absorb.
+ */
+const declaredLengthOf = (response: Response): number | undefined => {
+  const header = response.headers.get('content-length');
+
+  if (header === null) return undefined;
+
+  const length = Number(header);
+
+  return Number.isInteger(length) && length >= 0 ? length : undefined;
+};
+
+/**
+ * Reads a response body, refusing rather than returning more than
+ * `MAX_ATTACHMENT_BYTES`.
+ *
+ * The bound is on the bytes held, not on the bytes measured afterwards: the
+ * loop stops on the first chunk that carries the total past the cap and
+ * cancels the rest, so the most this ever holds is the cap plus one chunk.
+ *
+ * The size the error names is where the read stopped, which for a body cut
+ * short is a lower bound on the object rather than its size. That is all
+ * the caller's log needs — which object was refused, and that it was too
+ * big — and the alternative is reading the whole thing to be able to print
+ * an exact number, which is the defect this replaced.
+ */
+const readCapped = async (
+  response: Response,
+  s3Key: string,
+): Promise<Buffer> => {
+  const tooLarge = (size: number): Error =>
+    new Error(
+      `${s3Key} is ${size} bytes, over the ${MAX_ATTACHMENT_BYTES} an attachment may be.`,
+    );
+
+  const declared = declaredLengthOf(response);
+
+  if (declared !== undefined && declared > MAX_ATTACHMENT_BYTES) {
+    await response.body?.cancel();
+    throw tooLarge(declared);
+  }
+
+  if (!response.body) {
+    throw new Error(`Storage answered ${s3Key} without a body.`);
+  }
+
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let read = 0;
+
+  for (;;) {
+    const { done, value } = await reader.read();
+
+    if (done) break;
+
+    read += value.byteLength;
+
+    if (read > MAX_ATTACHMENT_BYTES) {
+      await reader.cancel();
+      throw tooLarge(read);
+    }
+
+    chunks.push(value);
+  }
+
+  return Buffer.concat(chunks, read);
 };
 
 /**
@@ -72,13 +163,7 @@ export async function loadImageAttachment(
     throw new Error(`Storage answered ${response.status} for ${s3Key}.`);
   }
 
-  const bytes = Buffer.from(await response.arrayBuffer());
-
-  if (bytes.byteLength > MAX_ATTACHMENT_BYTES) {
-    throw new Error(
-      `${s3Key} is ${bytes.byteLength} bytes, over the ${MAX_ATTACHMENT_BYTES} an attachment may be.`,
-    );
-  }
+  const bytes = await readCapped(response, s3Key);
 
   // The declared type wins when the object carries one, because that is what
   // `StorageService.put` was told the verified magic bytes said. The

@@ -114,28 +114,37 @@ export const aUniqueViolation = (): Prisma.PrismaClientKnownRequestError =>
  * the bucket answers — including not answering at all, which is why an
  * `Error` is as acceptable an argument as a response.
  */
-export const stubFetch = (
-  response:
-    (Partial<Response> & { arrayBuffer?: () => Promise<ArrayBuffer> }) | Error,
-) => {
+export const stubFetch = (response: Partial<Response> | Error) => {
   const spy = jest.spyOn(globalThis, 'fetch');
   return response instanceof Error
     ? spy.mockRejectedValue(response)
     : spy.mockResolvedValue(response as unknown as Response);
 };
 
-/** Bytes that stand in for a stored PNG, with its declared content type. */
+/**
+ * Bytes that stand in for a stored PNG, with its declared content type.
+ *
+ * The body is a stream and not one finished buffer because that is what
+ * `loadImageAttachment` reads: it counts the bytes as they arrive so that an
+ * object over `MAX_ATTACHMENT_BYTES` is never assembled, and a double that
+ * handed it the whole object at once would not exercise that.
+ *
+ * No `Content-Length` is declared, which is the honest default: S3 sets one
+ * and an intermediary need not, and the cap has to hold either way.
+ */
 export const anImageResponse = (bytes: Buffer) => ({
   ok: true,
   status: 200,
   headers: new Headers({ 'content-type': 'image/png' }),
-  arrayBuffer: () =>
-    Promise.resolve(
-      bytes.buffer.slice(
-        bytes.byteOffset,
-        bytes.byteOffset + bytes.byteLength,
-      ) as ArrayBuffer,
-    ),
+  body: new ReadableStream<Uint8Array<ArrayBuffer>>({
+    start(controller) {
+      const chunk = 64 * 1024;
+      for (let at = 0; at < bytes.byteLength; at += chunk) {
+        controller.enqueue(new Uint8Array(bytes.subarray(at, at + chunk)));
+      }
+      controller.close();
+    },
+  }),
 });
 
 /**

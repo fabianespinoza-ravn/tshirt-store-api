@@ -31,10 +31,29 @@ export const aStorage = (): DeepMockProxy<StorageService> => {
 export const bytesOf = (size: number): Buffer => Buffer.alloc(size, 0x2a);
 
 /**
+ * A body delivered the way `fetch` delivers one — a stream, in chunks —
+ * because a stream is what the function now reads. Handing it one finished
+ * buffer would let a case pass a cap it could not pass in production, where
+ * the whole object is never in hand to be measured.
+ */
+export const aBodyStream = (
+  bytes: Buffer,
+  chunkSize = 64 * 1024,
+): ReadableStream<Uint8Array<ArrayBuffer>> =>
+  new ReadableStream<Uint8Array<ArrayBuffer>>({
+    start(controller) {
+      for (let at = 0; at < bytes.byteLength; at += chunkSize) {
+        controller.enqueue(new Uint8Array(bytes.subarray(at, at + chunkSize)));
+      }
+      controller.close();
+    },
+  });
+
+/**
  * Replaces `fetch` for one case. The object it returns is only as much of
- * `Response` as this function reads — `ok`, `status`, `headers` and
- * `arrayBuffer` — which is deliberate: a fuller double would let a case pass
- * while depending on a field the code never looks at.
+ * `Response` as this function reads — `ok`, `status`, `headers` and `body`
+ * — which is deliberate: a fuller double would let a case pass while
+ * depending on a field the code never looks at.
  */
 export const stubFetch = (answer: Partial<Response> | Error) => {
   const spy = jest.spyOn(globalThis, 'fetch');
@@ -43,20 +62,23 @@ export const stubFetch = (answer: Partial<Response> | Error) => {
     : spy.mockResolvedValue(answer as unknown as Response);
 };
 
+/**
+ * The extra headers are a third argument rather than a `contentLength` one
+ * so that a case can state a `Content-Length` that is absent, wrong, or not
+ * a number at all — which is the whole reason the code treats it as a hint.
+ */
 export const anOkResponse = (
   bytes: Buffer,
   contentType: string | null = 'image/png',
+  headers: Record<string, string> = {},
 ): Partial<Response> => ({
   ok: true,
   status: 200,
-  headers: new Headers(contentType ? { 'content-type': contentType } : {}),
-  arrayBuffer: () =>
-    Promise.resolve(
-      bytes.buffer.slice(
-        bytes.byteOffset,
-        bytes.byteOffset + bytes.byteLength,
-      ) as ArrayBuffer,
-    ),
+  headers: new Headers({
+    ...(contentType ? { 'content-type': contentType } : {}),
+    ...headers,
+  }),
+  body: aBodyStream(bytes),
 });
 
 /**
@@ -228,6 +250,42 @@ describe('the product image attachment', () => {
         MAX_ATTACHMENT_BYTES,
       );
     });
+  });
+
+  /**
+   * The cap used to be measured against a buffer the whole object had
+   * already been read into, so it bounded what reached Redis and nothing at
+   * all in the worker holding the job. It is now applied to the bytes as
+   * they arrive, which adds the branches below.
+   *
+   * Per CLAUDE.md the assertions are the student's to write: the behaviour
+   * these name was generated, and an assertion written alongside it would
+   * only restate it, bugs included.
+   */
+  describe('the cap, which bounds the read and not only the payload', () => {
+    it.todo(
+      'refuses on a Content-Length over the cap, without reading the body',
+    );
+
+    it.todo(
+      'cancels the body it refused on the declared length, rather than draining it',
+    );
+
+    it.todo('reads the object normally when the Content-Length fits');
+
+    it.todo(
+      'ignores a Content-Length that is not a number and counts the bytes instead',
+    );
+
+    it.todo(
+      'refuses an object whose Content-Length understates it, because the count decides',
+    );
+
+    it.todo(
+      'stops on the chunk that crosses the cap rather than buffering what follows',
+    );
+
+    it.todo('throws when a successful response carries no body');
   });
 
   describe('the two numbers, which are decisions', () => {
