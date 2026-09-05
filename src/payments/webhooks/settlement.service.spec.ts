@@ -1,10 +1,19 @@
 import { Logger } from '@nestjs/common';
-import { OrderStatus } from '@prisma/client';
+import {
+  OrderStatus,
+  PaymentMethod,
+  PaymentStatus,
+  Prisma,
+} from '@prisma/client';
 import { buildService, type ServiceHarness } from '../../testing/build-service';
 import { anOrder, anOrderItem, aSku, aUser } from '../../testing/factories';
 import { resetPrismaMock } from '../../testing/prisma.mock';
 import { SettlementEventType, type SettlementJobData } from './settlement.jobs';
 import { SettlementOutcome, SettlementService } from './settlement.service';
+
+/* Jest's asymmetric matchers are typed as `any`; these are partial checks of
+ * Prisma calls and are never values passed to production code. */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
 
 const buyer = aUser();
 const sku = aSku('018f3b6f-0000-7000-8000-0000000000ff', {
@@ -79,7 +88,9 @@ describe('SettlementService', () => {
     // The ordinary settlement: a PENDING order with one line, an update
     // that moves exactly one row, and a refund Stripe would accept. Each
     // stub below changes one of those.
-    h.prisma.order.findUnique.mockResolvedValue(aSettleableOrder());
+    h.prisma.order.findUnique.mockResolvedValue(
+      aSettleableOrder({ id: aSettlementJob().orderId }),
+    );
     h.prisma.order.updateMany.mockResolvedValue({ count: 1 });
     h.prisma.payment.updateMany.mockResolvedValue({ count: 1 });
     h.prisma.webhookEvent.updateMany.mockResolvedValue({ count: 1 });
@@ -88,49 +99,306 @@ describe('SettlementService', () => {
   });
 
   describe('an order that is still PENDING', () => {
-    it.todo(`moves it to ${OrderStatus.PAID} and clears its expiry`);
-    it.todo(
-      `repeats ${OrderStatus.PENDING} in the where of the update, so a sweep that got there first wins`,
-    );
-    it.todo('writes nothing else when that update moved no row');
-    it.todo(
-      'fails the job when that update moved no row, so the retry re-reads the order',
-    );
-    it.todo(
-      'decrements reserved and stock by the line quantity, in the same sku update',
-    );
-    it.todo('decrements each line of a multi-line order');
-    it.todo(`appends the ${OrderStatus.PAID} row to the status history`);
-    it.todo('marks the payment SUCCEEDED with the intent from the job');
-    it.todo(
-      'creates the payment row when checkout died before recording the intent',
-    );
-    it.todo("records the order's total, never an amount read out of the event");
-    it.todo('stamps the webhook event processed inside the same transaction');
-    it.todo('runs the whole settlement at Serializable');
-    it.todo('opens exactly one transaction');
+    it(`moves it to ${OrderStatus.PAID} and clears its expiry`, async () => {
+      const data = aSettlementJob();
+
+      await expect(h.service.settle(data)).resolves.toBe(
+        SettlementOutcome.Paid,
+      );
+
+      expect(h.prisma.order.updateMany).toHaveBeenCalledWith({
+        where: { id: data.orderId, status: OrderStatus.PENDING },
+        data: { status: OrderStatus.PAID, expiresAt: null },
+      });
+    });
+    it(`repeats ${OrderStatus.PENDING} in the where of the update, so a sweep that got there first wins`, async () => {
+      const data = aSettlementJob();
+
+      await h.service.settle(data);
+
+      expect(h.prisma.order.updateMany.mock.calls[0]?.[0].where).toEqual({
+        id: data.orderId,
+        status: OrderStatus.PENDING,
+      });
+    });
+    it('writes nothing else when that update moved no row', async () => {
+      h.prisma.order.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(h.service.settle(aSettlementJob())).rejects.toThrow();
+
+      expect(h.prisma.sku.update).not.toHaveBeenCalled();
+      expect(h.prisma.orderStatusHistory.create).not.toHaveBeenCalled();
+      expect(h.prisma.payment.updateMany).not.toHaveBeenCalled();
+      expect(h.prisma.payment.create).not.toHaveBeenCalled();
+      expect(h.prisma.webhookEvent.updateMany).not.toHaveBeenCalled();
+    });
+    it('fails the job when that update moved no row, so the retry re-reads the order', async () => {
+      const data = aSettlementJob();
+      h.prisma.order.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(h.service.settle(data)).rejects.toThrow(
+        `Order ${data.orderId} stopped being ${OrderStatus.PENDING} while Stripe event ${data.stripeEventId} was settling it; nothing was written and the job must run again.`,
+      );
+    });
+    it('decrements reserved and stock by the line quantity, in the same sku update', async () => {
+      await h.service.settle(aSettlementJob());
+
+      expect(h.prisma.sku.update).toHaveBeenCalledWith({
+        where: { id: sku.id },
+        data: {
+          reserved: { decrement: 3 },
+          stock: { decrement: 3 },
+        },
+      });
+    });
+    it('decrements each line of a multi-line order', async () => {
+      const secondSku = aSku('018f3b6f-0000-7000-8000-0000000000fe', {
+        stock: 8,
+        reserved: 2,
+      });
+      const order = aSettleableOrder();
+      order.items = [
+        order.items[0],
+        anOrderItem(order.id, secondSku.id, { quantity: 2 }),
+      ];
+      h.prisma.order.findUnique.mockResolvedValue(order);
+
+      await h.service.settle(aSettlementJob({ orderId: order.id }));
+
+      expect(h.prisma.sku.update).toHaveBeenNthCalledWith(1, {
+        where: { id: sku.id },
+        data: { reserved: { decrement: 3 }, stock: { decrement: 3 } },
+      });
+      expect(h.prisma.sku.update).toHaveBeenNthCalledWith(2, {
+        where: { id: secondSku.id },
+        data: { reserved: { decrement: 2 }, stock: { decrement: 2 } },
+      });
+    });
+    it(`appends the ${OrderStatus.PAID} row to the status history`, async () => {
+      const data = aSettlementJob();
+
+      await h.service.settle(data);
+
+      expect(h.prisma.orderStatusHistory.count).toHaveBeenCalledWith({
+        where: { orderId: data.orderId },
+      });
+      expect(h.prisma.orderStatusHistory.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          orderId: data.orderId,
+          status: OrderStatus.PAID,
+          sequence: 1,
+        }),
+      });
+    });
+    it('marks the payment SUCCEEDED with the intent from the job', async () => {
+      const data = aSettlementJob({ paymentIntentId: 'pi_from_the_job' });
+
+      await h.service.settle(data);
+
+      expect(h.prisma.payment.updateMany).toHaveBeenCalledWith({
+        where: {
+          orderId: data.orderId,
+          stripePaymentIntentId: data.paymentIntentId,
+          refundedAt: null,
+        },
+        data: { status: PaymentStatus.SUCCEEDED },
+      });
+    });
+    it('creates the payment row when checkout died before recording the intent', async () => {
+      const data = aSettlementJob();
+      h.prisma.payment.updateMany.mockResolvedValue({ count: 0 });
+      h.prisma.payment.count.mockResolvedValue(0);
+
+      await h.service.settle(data);
+
+      expect(h.prisma.payment.create).toHaveBeenCalledWith({
+        data: {
+          id: expect.any(String),
+          orderId: data.orderId,
+          method: PaymentMethod.PAYMENT_INTENT,
+          status: PaymentStatus.SUCCEEDED,
+          amount: 2000,
+          stripePaymentIntentId: data.paymentIntentId,
+        },
+      });
+    });
+    it("records the order's total, never an amount read out of the event", async () => {
+      const order = aSettleableOrder({ total: 9876, subtotal: 9876 });
+      const data = aSettlementJob({ orderId: order.id });
+      h.prisma.order.findUnique.mockResolvedValue(order);
+      h.prisma.payment.updateMany.mockResolvedValue({ count: 0 });
+      h.prisma.payment.count.mockResolvedValue(0);
+
+      await h.service.settle(data);
+
+      expect(h.prisma.payment.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ amount: order.total }),
+      });
+    });
+    it('stamps the webhook event processed inside the same transaction', async () => {
+      const now = new Date('2026-09-05T00:00:00.000Z');
+      const data = aSettlementJob();
+
+      await h.service.settle(data, now);
+
+      expect(h.prisma.webhookEvent.updateMany).toHaveBeenCalledWith({
+        where: { id: data.webhookEventId, processedAt: null },
+        data: { processedAt: now },
+      });
+    });
+    it('runs the whole settlement at Serializable', async () => {
+      await h.service.settle(aSettlementJob());
+
+      expect(h.prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), {
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+      });
+    });
+    it('opens exactly one transaction', async () => {
+      await h.service.settle(aSettlementJob());
+
+      expect(h.prisma.$transaction).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe('an order that was already CANCELLED', () => {
-    it.todo('refunds the intent through Stripe');
-    it.todo('records the refund id and the refunded time on the payment');
-    it.todo('records the refund only after Stripe has answered');
-    it.todo(
-      'leaves the order CANCELLED, because the sweep already sold its units to somebody else',
-    );
-    it.todo('gives nothing back to reserved or to stock');
-    it.todo('lets a refund Stripe refuses fail the job, so BullMQ retries it');
-    it.todo('records no refund id when the refund failed');
-    it.todo(
-      'does not create a second payment row when the only row is one it already refunded',
-    );
-    it.todo('keeps the first refunded time when the job runs again');
+    const cancelledOrder = () =>
+      aSettleableOrder({
+        id: aSettlementJob().orderId,
+        status: OrderStatus.CANCELLED,
+      });
+
+    beforeEach(() => {
+      h.prisma.order.findUnique.mockResolvedValue(cancelledOrder());
+    });
+
+    it('refunds the intent through Stripe', async () => {
+      const data = aSettlementJob({ paymentIntentId: 'pi_cancelled' });
+
+      await expect(h.service.settle(data)).resolves.toBe(
+        SettlementOutcome.Refunded,
+      );
+
+      expect(h.stripe.refundPaymentIntent).toHaveBeenCalledWith('pi_cancelled');
+    });
+    it('records the refund id and the refunded time on the payment', async () => {
+      const now = new Date('2026-09-05T00:00:00.000Z');
+      const data = aSettlementJob();
+
+      await h.service.settle(data, now);
+
+      expect(h.prisma.payment.updateMany).toHaveBeenCalledWith({
+        where: {
+          orderId: data.orderId,
+          stripePaymentIntentId: data.paymentIntentId,
+          refundedAt: null,
+        },
+        data: {
+          status: PaymentStatus.SUCCEEDED,
+          stripeRefundId: 're_refunded_by_the_suite',
+          refundedAt: now,
+        },
+      });
+    });
+    it('records the refund only after Stripe has answered', async () => {
+      await h.service.settle(aSettlementJob());
+
+      expect(
+        h.stripe.refundPaymentIntent.mock.invocationCallOrder[0],
+      ).toBeLessThan(
+        h.prisma.payment.updateMany.mock.invocationCallOrder[0] ??
+          Number.POSITIVE_INFINITY,
+      );
+    });
+    it('leaves the order CANCELLED, because the sweep already sold its units to somebody else', async () => {
+      await h.service.settle(aSettlementJob());
+
+      expect(h.prisma.order.updateMany).not.toHaveBeenCalled();
+      expect(h.prisma.orderStatusHistory.create).not.toHaveBeenCalled();
+    });
+    it('gives nothing back to reserved or to stock', async () => {
+      await h.service.settle(aSettlementJob());
+
+      expect(h.prisma.sku.update).not.toHaveBeenCalled();
+    });
+    it('lets a refund Stripe refuses fail the job, so BullMQ retries it', async () => {
+      const error = new Error('refund declined');
+      h.stripe.refundPaymentIntent.mockRejectedValue(error);
+
+      await expect(h.service.settle(aSettlementJob())).rejects.toBe(error);
+      expect(h.prisma.$transaction).not.toHaveBeenCalled();
+    });
+    it('records no refund id when the refund failed', async () => {
+      h.stripe.refundPaymentIntent.mockRejectedValue(
+        new Error('refund declined'),
+      );
+
+      await expect(h.service.settle(aSettlementJob())).rejects.toThrow(
+        'refund declined',
+      );
+
+      expect(h.prisma.payment.updateMany).not.toHaveBeenCalled();
+      expect(h.prisma.payment.create).not.toHaveBeenCalled();
+    });
+    it('does not create a second payment row when the only row is one it already refunded', async () => {
+      h.prisma.payment.updateMany.mockResolvedValue({ count: 0 });
+      h.prisma.payment.count.mockResolvedValue(1);
+
+      await h.service.settle(aSettlementJob());
+
+      expect(h.prisma.payment.create).not.toHaveBeenCalled();
+    });
+    it('keeps the first refunded time when the job runs again', async () => {
+      h.prisma.payment.updateMany.mockResolvedValue({ count: 0 });
+      h.prisma.payment.count.mockResolvedValue(1);
+
+      await h.service.settle(
+        aSettlementJob(),
+        new Date('2026-09-06T00:00:00.000Z'),
+      );
+
+      expect(h.prisma.payment.updateMany.mock.calls[0]?.[0].where).toEqual({
+        orderId: expect.any(String),
+        stripePaymentIntentId: expect.any(String),
+        refundedAt: null,
+      });
+      expect(h.prisma.payment.create).not.toHaveBeenCalled();
+    });
   });
 
   describe('an order in any other status', () => {
-    it.todo('settles nothing for an order that is already PAID');
-    it.todo('stamps the webhook event processed anyway, so the alert clears');
-    it.todo('opens no transaction');
+    beforeEach(() => {
+      h.prisma.order.findUnique.mockResolvedValue(
+        aSettleableOrder({
+          id: aSettlementJob().orderId,
+          status: OrderStatus.PAID,
+        }),
+      );
+    });
+
+    it('settles nothing for an order that is already PAID', async () => {
+      await expect(h.service.settle(aSettlementJob())).resolves.toBe(
+        SettlementOutcome.AlreadySettled,
+      );
+
+      expect(h.prisma.order.updateMany).not.toHaveBeenCalled();
+      expect(h.prisma.sku.update).not.toHaveBeenCalled();
+      expect(h.prisma.payment.updateMany).not.toHaveBeenCalled();
+    });
+    it('stamps the webhook event processed anyway, so the alert clears', async () => {
+      const data = aSettlementJob();
+
+      await h.service.settle(data);
+
+      expect(h.prisma.webhookEvent.updateMany).toHaveBeenCalledWith({
+        where: { id: data.webhookEventId, processedAt: null },
+        data: { processedAt: expect.any(Date) },
+      });
+    });
+    it('opens no transaction', async () => {
+      await h.service.settle(aSettlementJob());
+
+      expect(h.prisma.$transaction).not.toHaveBeenCalled();
+    });
   });
 
   describe('what it refuses', () => {
@@ -169,8 +437,22 @@ describe('SettlementService', () => {
       warn.mockRestore();
     });
 
-    it.todo(
-      'does not overwrite the processed stamp of a delivery already settled',
-    );
+    it('does not overwrite the processed stamp of a delivery already settled', async () => {
+      const data = aSettlementJob();
+      const alreadyProcessed = new Date('2026-09-01T00:00:00.000Z');
+      h.prisma.order.findUnique.mockResolvedValue(
+        aSettleableOrder({
+          id: aSettlementJob().orderId,
+          status: OrderStatus.PAID,
+        }),
+      );
+
+      await h.service.settle(data, alreadyProcessed);
+
+      expect(h.prisma.webhookEvent.updateMany).toHaveBeenCalledWith({
+        where: { id: data.webhookEventId, processedAt: null },
+        data: { processedAt: alreadyProcessed },
+      });
+    });
   });
 });

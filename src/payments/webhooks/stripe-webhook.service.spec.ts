@@ -274,10 +274,21 @@ describe('StripeWebhookService', () => {
       warn.mockRestore();
     });
 
-    // Left for the author: the guarantee, as opposed to the catch above.
-    it.todo(
-      'writes nothing a second time when P2002 says the event is already recorded',
-    );
+    it('writes nothing a second time when P2002 says the event is already recorded', async () => {
+      const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation();
+      h.prisma.webhookEvent.create.mockRejectedValue(aDuplicateEvent());
+      h.prisma.webhookEvent.findUnique.mockResolvedValue(
+        anAlreadyRecordedRow(new Date('2026-09-01T00:00:00.000Z')),
+      );
+
+      await expect(
+        h.service.receive(rawBodyOf(anEvent()), aSignatureHeader),
+      ).resolves.toBe(WebhookOutcome.Replay);
+
+      expect(queue.add).not.toHaveBeenCalled();
+      expect(h.prisma.webhookEvent.create).toHaveBeenCalledTimes(1);
+      warn.mockRestore();
+    });
 
     it('rethrows a Prisma error that is not P2002, so a database that is down is never acknowledged', async () => {
       const unreachable = new Prisma.PrismaClientKnownRequestError(
@@ -328,9 +339,20 @@ describe('StripeWebhookService', () => {
       warn.mockRestore();
     });
 
-    it.todo(
-      'does not enqueue for a delivery whose recorded row is already stamped processed',
-    );
+    it('does not enqueue for a delivery whose recorded row is already stamped processed', async () => {
+      const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation();
+      h.prisma.webhookEvent.create.mockRejectedValue(aDuplicateEvent());
+      h.prisma.webhookEvent.findUnique.mockResolvedValue(
+        anAlreadyRecordedRow(new Date('2026-09-01T00:00:00.000Z')),
+      );
+
+      await expect(
+        h.service.receive(rawBodyOf(anEvent()), aSignatureHeader),
+      ).resolves.toBe(WebhookOutcome.Replay);
+
+      expect(queue.add).not.toHaveBeenCalled();
+      warn.mockRestore();
+    });
 
     it('asks for the job again when the recorded row was never settled, so a failed enqueue is not final', async () => {
       const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation();
@@ -477,17 +499,59 @@ describe('StripeWebhookService', () => {
       warn.mockRestore();
     });
 
-    // Left for the author: the repeated job id is a convenience in front of
-    // the guarantee, not the guarantee itself.
-    it.todo(
-      'applies nothing twice when the same delivery is settled again, which a repeated job id does not prove',
-    );
+    // The repeated job id is a convenience in front of the guarantee, not
+    // the guarantee itself: a replay must not invoke any order, stock or
+    // payment write on this request path.
+    it('applies nothing twice when the same delivery is settled again, which a repeated job id does not prove', async () => {
+      const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation();
+      const event = anEvent({ id: 'evt_applied_once' });
+      h.stripe.constructWebhookEvent.mockReturnValue(event);
+
+      await h.service.receive(rawBodyOf(event), aSignatureHeader);
+
+      h.prisma.webhookEvent.create.mockRejectedValueOnce(aDuplicateEvent());
+      h.prisma.webhookEvent.findUnique.mockResolvedValue(
+        anAlreadyRecordedRow(new Date('2026-09-01T00:00:00.000Z')),
+      );
+
+      await expect(
+        h.service.receive(rawBodyOf(event), aSignatureHeader),
+      ).resolves.toBe(WebhookOutcome.Replay);
+
+      expect(queue.add).toHaveBeenCalledTimes(1);
+      expect(h.prisma.order.updateMany).not.toHaveBeenCalled();
+      expect(h.prisma.sku.update).not.toHaveBeenCalled();
+      expect(h.prisma.payment.updateMany).not.toHaveBeenCalled();
+      warn.mockRestore();
+    });
   });
 
   describe('what it must not do', () => {
-    it.todo('moves no order');
-    it.todo('touches no sku, so nothing is decremented on the request path');
-    it.todo('writes no payment row');
-    it.todo('calls Stripe for nothing except verifying the signature');
+    it('moves no order', async () => {
+      await h.service.receive(rawBodyOf(anEvent()), aSignatureHeader);
+
+      expect(h.prisma.order.updateMany).not.toHaveBeenCalled();
+      expect(h.prisma.order.update).not.toHaveBeenCalled();
+    });
+    it('touches no sku, so nothing is decremented on the request path', async () => {
+      await h.service.receive(rawBodyOf(anEvent()), aSignatureHeader);
+
+      expect(h.prisma.sku.update).not.toHaveBeenCalled();
+      expect(h.prisma.sku.updateMany).not.toHaveBeenCalled();
+    });
+    it('writes no payment row', async () => {
+      await h.service.receive(rawBodyOf(anEvent()), aSignatureHeader);
+
+      expect(h.prisma.payment.create).not.toHaveBeenCalled();
+      expect(h.prisma.payment.updateMany).not.toHaveBeenCalled();
+    });
+    it('calls Stripe for nothing except verifying the signature', async () => {
+      await h.service.receive(rawBodyOf(anEvent()), aSignatureHeader);
+
+      expect(h.stripe.constructWebhookEvent).toHaveBeenCalledTimes(1);
+      expect(h.stripe.createPaymentIntent).not.toHaveBeenCalled();
+      expect(h.stripe.cancelPaymentIntent).not.toHaveBeenCalled();
+      expect(h.stripe.refundPaymentIntent).not.toHaveBeenCalled();
+    });
   });
 });
