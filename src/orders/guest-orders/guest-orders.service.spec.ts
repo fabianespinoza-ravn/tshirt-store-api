@@ -110,9 +110,21 @@ describe('GuestOrdersService', () => {
       );
     });
 
-    it.todo(
-      'stops finding the order once its buyer verified an account, because verification moved it into their signed-in history',
-    );
+    it('stops finding the order once its buyer verified an account, because verification moved it into their signed-in history', async () => {
+      const orderId = newId();
+      harness.prisma.order.findFirst.mockResolvedValue(null);
+
+      await expect(harness.service.getOne(orderId)).rejects.toMatchObject({
+        kind: Problems.notFound,
+      });
+      expect(harness.prisma.order.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            user: { state: UserState.GUEST, deletedAt: null },
+          }),
+        }),
+      );
+    });
 
     it('selects only the published columns, so the address never leaves Postgres', async () => {
       await harness.service.getOne(newId());

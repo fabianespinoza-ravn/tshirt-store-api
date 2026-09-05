@@ -429,16 +429,67 @@ describe('PaymentLinksService', () => {
      * something had gone wrong while the SKU did have exactly what they
      * asked for. Only an SKU left with no link at all is a real failure.
      */
-    it.todo(
-      'answers with the winning link and created false when the transaction is rejected',
-    );
+    it('answers with the winning link and created false when the transaction is rejected', async () => {
+      const conflict = new Prisma.PrismaClientKnownRequestError(
+        'Transaction failed due to a write conflict',
+        { code: 'P2034', clientVersion: 'from the harness' },
+      );
+      const winner = aPaymentLinkRow(sku.id, {
+        stripePaymentLinkId: 'plink-winner',
+      });
+      harness.prisma.paymentLink.findFirst
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(winner);
+      harness.prisma.$transaction.mockRejectedValue(conflict);
 
-    it.todo(
-      'deactivates its own orphan link at Stripe before answering with the winner',
-    );
+      const result = await harness.service.create({ skuId: sku.id });
 
-    it.todo(
-      'raises the original error when the rejection left the SKU with no active link',
-    );
+      expect(result).toEqual({
+        link: expect.objectContaining({
+          id: winner.id,
+          stripePaymentLinkId: winner.stripePaymentLinkId,
+        }),
+        created: false,
+      });
+    });
+
+    it('deactivates its own orphan link at Stripe before answering with the winner', async () => {
+      const conflict = new Error('transaction conflict');
+      const winner = aPaymentLinkRow(sku.id, {
+        stripePaymentLinkId: 'plink-winner',
+      });
+      harness.prisma.paymentLink.findFirst
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(winner);
+      harness.prisma.$transaction.mockRejectedValue(conflict);
+
+      const result = await harness.service.create({ skuId: sku.id });
+
+      expect(result.created).toBe(false);
+      expect(harness.stripe.deactivatePaymentLink).toHaveBeenCalledWith(
+        'plink-new',
+      );
+      expect(
+        harness.stripe.deactivatePaymentLink.mock.invocationCallOrder[0],
+      ).toBeLessThan(
+        harness.prisma.paymentLink.findFirst.mock.invocationCallOrder[1] ??
+          Number.POSITIVE_INFINITY,
+      );
+    });
+
+    it('raises the original error when the rejection left the SKU with no active link', async () => {
+      const conflict = new Error('transaction conflict');
+      harness.prisma.paymentLink.findFirst
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(null);
+      harness.prisma.$transaction.mockRejectedValue(conflict);
+
+      await expect(harness.service.create({ skuId: sku.id })).rejects.toBe(
+        conflict,
+      );
+      expect(harness.stripe.deactivatePaymentLink).toHaveBeenCalledWith(
+        'plink-new',
+      );
+    });
   });
 });

@@ -1,3 +1,6 @@
+import { Problems } from '../problem.catalog';
+import { translateStripeError } from './stripe.translator';
+
 /**
  * The cases this translator owes, named and left unwritten.
  *
@@ -22,38 +25,84 @@
  */
 describe('translateStripeError', () => {
   describe('the dependency is busy or down', () => {
-    it.todo('answers 503 for a StripeRateLimitError carrying an upstream 429');
+    it('answers 503 for a StripeRateLimitError carrying an upstream 429', () => {
+      expect(
+        translateStripeError({ type: 'StripeRateLimitError', statusCode: 429 }),
+      ).toMatchObject({ kind: Problems.serviceUnavailable });
+    });
 
-    it.todo(
-      'answers 503 for a StripeConnectionError, which carries no status at all',
-    );
+    it('answers 503 for a StripeConnectionError, which carries no status at all', () => {
+      expect(
+        translateStripeError({ type: 'StripeConnectionError' }),
+      ).toMatchObject({
+        kind: Problems.serviceUnavailable,
+      });
+    });
 
-    it.todo('answers 503 for an upstream 500, 502, 503 and 504');
+    it('answers 503 for an upstream 500, 502, 503 and 504', () => {
+      for (const statusCode of [500, 502, 503, 504]) {
+        expect(
+          translateStripeError({ type: 'StripeAPIError', statusCode }),
+        ).toMatchObject({ kind: Problems.serviceUnavailable });
+      }
+    });
 
-    it.todo('serves a detail that does not name Stripe');
+    it('serves a detail that does not name Stripe', () => {
+      const translation = translateStripeError({
+        type: 'StripeRateLimitError',
+        statusCode: 429,
+      });
+
+      expect(translation?.detail).not.toMatch(/stripe/i);
+    });
   });
 
   describe('the upstream status is never passed through', () => {
-    it.todo(
-      'turns a StripeInvalidRequestError with an upstream 400 into a 500 of ours',
-    );
+    it('turns a StripeInvalidRequestError with an upstream 400 into a 500 of ours', () => {
+      expect(
+        translateStripeError({
+          type: 'StripeInvalidRequestError',
+          statusCode: 400,
+        }),
+      ).toMatchObject({ kind: Problems.internalError });
+    });
 
-    it.todo(
-      'turns a StripeAuthenticationError with an upstream 401 into a 500 of ours, not a 401',
-    );
+    it('turns a StripeAuthenticationError with an upstream 401 into a 500 of ours, not a 401', () => {
+      expect(
+        translateStripeError({
+          type: 'StripeAuthenticationError',
+          statusCode: 401,
+        }),
+      ).toMatchObject({ kind: Problems.internalError });
+    });
 
-    it.todo('answers 500 for a Stripe error carrying no upstream status');
+    it('answers 500 for a Stripe error carrying no upstream status', () => {
+      expect(
+        translateStripeError({ type: 'StripeInvalidRequestError' }),
+      ).toMatchObject({
+        kind: Problems.internalError,
+      });
+    });
   });
 
   describe('what it declines', () => {
-    it.todo('declines a socket error whose code is ECONNREFUSED');
+    it('declines a socket error whose code is ECONNREFUSED', () => {
+      expect(translateStripeError({ code: 'ECONNREFUSED' })).toBeUndefined();
+    });
 
-    it.todo(
-      'declines an error that carries only a statusCode, which anything can',
-    );
+    it('declines an error that carries only a statusCode, which anything can', () => {
+      expect(translateStripeError({ statusCode: 503 })).toBeUndefined();
+    });
 
-    it.todo('declines an error whose type is not prefixed Stripe');
+    it('declines an error whose type is not prefixed Stripe', () => {
+      expect(
+        translateStripeError({ type: 'DatabaseError', statusCode: 503 }),
+      ).toBeUndefined();
+    });
 
-    it.todo('declines a primitive and null');
+    it('declines a primitive and null', () => {
+      expect(translateStripeError('StripeConnectionError')).toBeUndefined();
+      expect(translateStripeError(null)).toBeUndefined();
+    });
   });
 });
