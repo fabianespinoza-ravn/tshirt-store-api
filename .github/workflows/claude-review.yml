@@ -59,9 +59,21 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          protected="$(
+          set -euo pipefail
+
+          # Fetched first, filtered second. With the call inside the same
+          # substitution as the `|| true`, a `gh` that could not answer
+          # produced an empty list and the guard passed — a dead API call
+          # disarming the check, which is the third time on this branch that
+          # a failure has reported success. The assignment fails the step
+          # under `set -e`; only the grep, whose empty result is a legitimate
+          # answer, is allowed to return non-zero.
+          changed="$(
             gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" \
-              --paginate --jq '.[].filename' \
+              --paginate --jq '.[].filename'
+          )"
+          protected="$(
+            printf '%s\n' "${changed}" \
             | grep -E '^\.github/(workflows/claude-review\.yml|scripts/)' || true
           )"
           if [ -n "${protected}" ]; then
