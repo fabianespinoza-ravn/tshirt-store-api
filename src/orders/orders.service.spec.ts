@@ -14,7 +14,6 @@ import {
 import { AppAbilityFactory } from '../auth/casl/app-ability.factory';
 import type { AuthenticatedUser } from '../common/decorators/current-user.decorator';
 import { Problems } from '../common/problem/problem.catalog';
-import { ProblemException } from '../common/problem/problem.exception';
 import { buildService, type ServiceHarness } from '../testing/build-service';
 import {
   aCart,
@@ -1018,9 +1017,13 @@ describe('OrdersService', () => {
       } as Payment);
       h.stripe.cancelPaymentIntent.mockResolvedValueOnce(false);
 
-      await expect(h.service.checkout(client, address)).rejects.toBeInstanceOf(
-        ProblemException,
-      );
+      // The problem is named, not just its class: `cartNotCheckoutable`
+      // and `stockUnavailable` are `ProblemException` too, so asserting the
+      // class alone would keep this green while a regression refused for a
+      // reason that has nothing to do with the bound.
+      await expect(h.service.checkout(client, address)).rejects.toMatchObject({
+        kind: Problems.orderAlreadyPending,
+      });
       expect(h.prisma.sku.update).not.toHaveBeenCalled();
     });
 
@@ -1040,9 +1043,13 @@ describe('OrdersService', () => {
       });
       h.prisma.payment.findFirst.mockResolvedValueOnce(null);
 
-      await expect(h.service.checkout(client, address)).rejects.toBeInstanceOf(
-        ProblemException,
-      );
+      // The problem is named, not just its class: `cartNotCheckoutable`
+      // and `stockUnavailable` are `ProblemException` too, so asserting the
+      // class alone would keep this green while a regression refused for a
+      // reason that has nothing to do with the bound.
+      await expect(h.service.checkout(client, address)).rejects.toMatchObject({
+        kind: Problems.orderAlreadyPending,
+      });
       expect(h.stripe.createPaymentIntent).not.toHaveBeenCalled();
       expect(h.prisma.sku.update).not.toHaveBeenCalled();
     });

@@ -33,13 +33,22 @@ describe('the synchronisation helpers', () => {
     await expect(gate.promise).resolves.toBe(42);
   });
 
-  it('lets queued reactions run, which is the whole reason it exists', async () => {
+  it('drains a whole chain of reactions, which a single await would not', async () => {
+    // A one-deep chain proves nothing: awaiting any already-resolved promise
+    // would let it run, so the case would pass against a `flushMicrotasks`
+    // that had become `Promise.resolve()` — and every gated assertion built
+    // on it would then be holding for the wrong reason. Verified: with the
+    // helper reduced to that, an earlier version of this case still passed.
+    // A chain only drains if the wait crosses to the next macrotask.
     const order: string[] = [];
-    void Promise.resolve().then(() => order.push('reaction'));
+    void Promise.resolve()
+      .then(() => order.push('first'))
+      .then(() => order.push('second'))
+      .then(() => order.push('third'));
 
     await flushMicrotasks();
     order.push('after flush');
 
-    expect(order).toEqual(['reaction', 'after flush']);
+    expect(order).toEqual(['first', 'second', 'third', 'after flush']);
   });
 });

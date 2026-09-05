@@ -65,17 +65,13 @@ export class OrdersSweepService {
    * a third party's latency must not be held inside a `Serializable`
    * transaction's locks.
    *
-   * The branch with no recorded intent is the interesting one. Checkout
-   * commits the order before it calls Stripe, so an order can exist whose
-   * intent was created and whose `Payment` row never was — a charge nothing
-   * in this database knows about. Asking for the intent again under the
-   * order's id as the idempotency key returns *that* intent rather than a
-   * new one, so it can be cancelled. When no intent was ever created the
-   * same call makes one, which is then cancelled unused; a cancelled intent
-   * costs nothing, and paying that to close the window is the trade. This
-   * only works while the key is still live — Stripe keeps one for 24 hours
-   * and `PENDING_ORDER_TTL_MS` is 30 minutes, so the sweep always arrives
-   * well inside it.
+   * Which intent to cancel — and whether one can be reached at all — is
+   * `intentToCancel`'s decision, not this method's. It owns the retention
+   * bound too, because checkout reclaims lapsed orders by the same rule and
+   * the two must not disagree; the copy that lived here lost that bound
+   * once already. A `null` from it means no intent can be reached, and this
+   * branch exists precisely for the case the docblock above does not cover:
+   * a worker down long enough for the key to expire.
    *
    * An intent that has already succeeded refuses to cancel, which is exactly
    * the answer wanted: the money arrived, the stock stays reserved, and

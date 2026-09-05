@@ -313,25 +313,6 @@ export class OrdersService {
   }
 
   /**
-   * One pending order at a time, which is what the contract's
-   * `order-already-pending` says, and the only 409 of the seven carrying an
-   * extension: the client needs the expiry to choose between waiting and
-   * paying.
-   *
-   * An order that already expired is not a reason to refuse anyone — it is
-   * work nobody did. It is cancelled here, inside the caller's transaction,
-   * and its reservations go back before the new order takes any. Without
-   * this a client is locked out of their own cart by an order that lapsed an
-   * hour ago.
-   *
-   * The release is conditional on the cancellation having moved the row, and
-   * that is not defensive noise: the sweep cancels expired orders too, so
-   * from block 4 onwards there are two writers for this transition. Whoever
-   * loses the race must give nothing back, or the same units are returned
-   * twice and the store invents stock it does not have. Only the writer that
-   * actually moved PENDING away from the row owns its reservations.
-   */
-  /**
    * Cancels the intent of a lapsed order before anything releases its stock.
    *
    * `settlePendingOrder` used to free those units inside the transaction
@@ -381,6 +362,26 @@ export class OrdersService {
       : null;
   }
 
+  /**
+   * One pending order at a time, which is what the contract's
+   * `order-already-pending` says, and the only 409 of the seven carrying an
+   * extension: the client needs the expiry to choose between waiting and
+   * paying.
+   *
+   * An order that already expired is not a reason to refuse anyone — it is
+   * work nobody did. It is cancelled here, inside the caller's transaction,
+   * and its reservations go back before the new order takes any. Without
+   * this a client is locked out of their own cart by an order that lapsed an
+   * hour ago — but only after `stopLapsedPayment` has disarmed its intent,
+   * which is what `reclaimable` names.
+   *
+   * The release is conditional on the cancellation having moved the row, and
+   * that is not defensive noise: the sweep cancels expired orders too, so
+   * there are two writers for this transition. Whoever loses the race must
+   * give nothing back, or the same units are returned twice and the store
+   * invents stock it does not have. Only the writer that actually moved
+   * PENDING away from the row owns its reservations.
+   */
   private async settlePendingOrder(
     tx: Tx,
     user: AuthenticatedUser,
@@ -396,9 +397,6 @@ export class OrdersService {
 
     if (!pending) return;
 
-    // A PENDING order with no expiry is a row we should never have written.
-    // Treating it as live is the safe reading: releasing stock we cannot
-    // prove is stale would oversell.
     // Only the order whose intent was cancelled a moment ago may be
     // reclaimed. Anything else is treated as live — including a lapsed
     // order whose payment would not cancel, because its charge can still
