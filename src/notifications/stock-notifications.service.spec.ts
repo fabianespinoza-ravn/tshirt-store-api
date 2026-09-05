@@ -1,7 +1,9 @@
 import { getQueueToken } from '@nestjs/bullmq';
-import { QueueName } from '../queue/queue.constants';
+import { JobName, QueueName } from '../queue/queue.constants';
 import { buildService, type ServiceHarness } from '../testing/build-service';
 import { aProduct, aSku } from '../testing/factories';
+import { createPrismaMock, type PrismaMock } from '../testing/prisma.mock';
+import type { StockNotificationJobData } from './stock-notification.jobs';
 import { LOW_STOCK_THRESHOLD } from './stock-threshold';
 import {
   StockNotificationsService,
@@ -16,7 +18,12 @@ import {
  * identifies it, so the queue is replaced at `getQueueToken` — the token
  * `@InjectQueue` would itself have resolved — and nothing else is.
  */
-export const stockQueue = { add: jest.fn() };
+export const stockQueue = {
+  add: jest.fn<
+    Promise<{ id: string }>,
+    [name: string, data: StockNotificationJobData, options: { jobId: string }]
+  >(),
+};
 
 /** A fresh service with the queue and the database replaced. */
 export const buildStockNotificationsHarness = (): Promise<
@@ -42,6 +49,8 @@ export const aCrossedSku = aSku(aLikedProduct.id, {
  * below is one override away from the fixture, which is the point: the case
  * name says which number moved.
  */
+export const aTransactionClient = (): PrismaMock => createPrismaMock();
+
 export const aStockChange = (
   overrides: Partial<StockChange> = {},
 ): StockChange => ({
@@ -61,54 +70,191 @@ export const aStockChange = (
  * returns.
  */
 describe('StockNotificationsService', () => {
-  beforeEach(() => {
+  let h: ServiceHarness<StockNotificationsService>;
+
+  beforeEach(async () => {
     jest.clearAllMocks();
     stockQueue.add.mockResolvedValue({ id: aCrossedSku.id });
+    h = await buildStockNotificationsHarness();
   });
 
   describe('observing a stock change', () => {
-    it.todo(
-      'enqueues one NotifyRestock job when the write took stock down to the threshold',
-    );
+    it('enqueues one NotifyRestock job when the write took stock down to the threshold', async () => {
+      await h.service.observeStockChange(aStockChange());
 
-    it.todo('puts the sku and the cycle in the payload, and nothing else');
+      expect(stockQueue.add).toHaveBeenCalledTimes(1);
+      expect(stockQueue.add).toHaveBeenCalledWith(
+        JobName.NotifyRestock,
+        expect.anything(),
+        expect.anything(),
+      );
+    });
 
-    it.todo(
-      'gives the job an id built from the sku and the cycle, so a repeated crossing collapses',
-    );
+    it('puts the sku and the cycle in the payload, and nothing else', async () => {
+      await h.service.observeStockChange(
+        aStockChange({
+          restockCycle: 4,
+          previousStock: LOW_STOCK_THRESHOLD + 2,
+        }),
+      );
 
-    it.todo(
-      'enqueues nothing when the stock was already at or below the threshold',
-    );
+      // `toEqual` on the payload rather than `objectContaining`: the point of
+      // the job data is what it leaves behind in Redis, so an extra field
+      // must fail here.
+      expect(stockQueue.add.mock.calls[0]?.[1]).toEqual({
+        skuId: aCrossedSku.id,
+        restockCycle: 4,
+      });
+    });
 
-    it.todo('enqueues nothing when the write raised the stock');
+    it('gives the job an id built from the sku and the cycle, so a repeated crossing collapses', async () => {
+      await h.service.observeStockChange(aStockChange({ restockCycle: 2 }));
 
-    it.todo('answers whether it enqueued, so the caller can log the crossing');
+      expect(stockQueue.add.mock.calls[0]?.[2]).toEqual({
+        jobId: `${aCrossedSku.id}:2`,
+      });
+    });
 
-    it.todo(
-      'lets a queue that refuses the job throw, rather than swallowing a lost notification',
-    );
+    it('enqueues nothing when the stock was already at or below the threshold', async () => {
+      await h.service.observeStockChange(
+        aStockChange({
+          previousStock: LOW_STOCK_THRESHOLD,
+          newStock: LOW_STOCK_THRESHOLD - 1,
+        }),
+      );
 
-    it.todo(
-      'writes nothing to the database, because the settlement transaction has already committed',
-    );
+      expect(stockQueue.add).not.toHaveBeenCalled();
+    });
+
+    it('enqueues nothing when the write raised the stock', async () => {
+      await h.service.observeStockChange(
+        aStockChange({
+          previousStock: LOW_STOCK_THRESHOLD + 1,
+          newStock: LOW_STOCK_THRESHOLD + 6,
+        }),
+      );
+
+      expect(stockQueue.add).not.toHaveBeenCalled();
+    });
+
+    it('answers whether it enqueued, so the caller can log the crossing', async () => {
+      await expect(h.service.observeStockChange(aStockChange())).resolves.toBe(
+        true,
+      );
+      await expect(
+        h.service.observeStockChange(
+          aStockChange({ newStock: LOW_STOCK_THRESHOLD + 1 }),
+        ),
+      ).resolves.toBe(false);
+    });
+
+    it('lets a queue that refuses the job throw, rather than swallowing a lost notification', async () => {
+      stockQueue.add.mockRejectedValue(new Error('Redis is away'));
+
+      await expect(
+        h.service.observeStockChange(aStockChange()),
+      ).rejects.toThrow('Redis is away');
+    });
+
+    it('writes nothing to the database, because the settlement transaction has already committed', async () => {
+      await h.service.observeStockChange(aStockChange());
+
+      expect(h.prisma.$transaction).not.toHaveBeenCalled();
+      expect(h.prisma.sku.update).not.toHaveBeenCalled();
+      expect(h.prisma.stockNotification.create).not.toHaveBeenCalled();
+    });
   });
 
   describe('opening the next cycle on a restock', () => {
-    it.todo(
-      'increments the restockCycle when a restock lifts stock back above the threshold',
-    );
+    it('increments the restockCycle when a restock lifts stock back above the threshold', async () => {
+      const tx = aTransactionClient();
 
-    it.todo(
-      'writes through the transaction client it was handed, not through its own connection',
-    );
+      await h.service.openCycleOnRestock(
+        tx,
+        aCrossedSku.id,
+        LOW_STOCK_THRESHOLD,
+        LOW_STOCK_THRESHOLD + 1,
+      );
 
-    it.todo('writes nothing when the restock stopped at the threshold');
+      expect(tx.sku.update).toHaveBeenCalledWith({
+        where: { id: aCrossedSku.id },
+        data: { restockCycle: { increment: 1 } },
+      });
+    });
 
-    it.todo('writes nothing when the stock was already above the threshold');
+    it('writes through the transaction client it was handed, not through its own connection', async () => {
+      const tx = aTransactionClient();
 
-    it.todo('writes nothing when the write lowered the stock');
+      await h.service.openCycleOnRestock(
+        tx,
+        aCrossedSku.id,
+        LOW_STOCK_THRESHOLD,
+        LOW_STOCK_THRESHOLD + 1,
+      );
 
-    it.todo('answers whether the cycle advanced');
+      expect(tx.sku.update).toHaveBeenCalledTimes(1);
+      expect(h.prisma.sku.update).not.toHaveBeenCalled();
+    });
+
+    it('writes nothing when the restock stopped at the threshold', async () => {
+      const tx = aTransactionClient();
+
+      await h.service.openCycleOnRestock(
+        tx,
+        aCrossedSku.id,
+        LOW_STOCK_THRESHOLD - 2,
+        LOW_STOCK_THRESHOLD,
+      );
+
+      expect(tx.sku.update).not.toHaveBeenCalled();
+    });
+
+    it('writes nothing when the stock was already above the threshold', async () => {
+      const tx = aTransactionClient();
+
+      await h.service.openCycleOnRestock(
+        tx,
+        aCrossedSku.id,
+        LOW_STOCK_THRESHOLD + 1,
+        LOW_STOCK_THRESHOLD + 9,
+      );
+
+      expect(tx.sku.update).not.toHaveBeenCalled();
+    });
+
+    it('writes nothing when the write lowered the stock', async () => {
+      const tx = aTransactionClient();
+
+      await h.service.openCycleOnRestock(
+        tx,
+        aCrossedSku.id,
+        LOW_STOCK_THRESHOLD + 1,
+        LOW_STOCK_THRESHOLD,
+      );
+
+      expect(tx.sku.update).not.toHaveBeenCalled();
+    });
+
+    it('answers whether the cycle advanced', async () => {
+      const tx = aTransactionClient();
+
+      await expect(
+        h.service.openCycleOnRestock(
+          tx,
+          aCrossedSku.id,
+          LOW_STOCK_THRESHOLD,
+          LOW_STOCK_THRESHOLD + 1,
+        ),
+      ).resolves.toBe(true);
+
+      await expect(
+        h.service.openCycleOnRestock(
+          tx,
+          aCrossedSku.id,
+          LOW_STOCK_THRESHOLD - 1,
+          LOW_STOCK_THRESHOLD,
+        ),
+      ).resolves.toBe(false);
+    });
   });
 });

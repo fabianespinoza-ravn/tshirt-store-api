@@ -1,14 +1,23 @@
 import { getQueueToken } from '@nestjs/bullmq';
+
+/* Jest's asymmetric matchers are typed as `any`; these are partial checks of
+ * Prisma calls and are never values passed to production code. */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+
 import { NotificationStatus, Prisma } from '@prisma/client';
 import { newId } from '../common/ids';
-import { QueueName } from '../queue/queue.constants';
+import { MailKind, type MailJobData } from '../mail/mail.jobs';
+import { JobName, QueueName } from '../queue/queue.constants';
 import { buildService, type ServiceHarness } from '../testing/build-service';
 import { aProduct, aSku, anImage, aUser } from '../testing/factories';
+import { MAX_ATTACHMENT_BYTES } from './product-image.attachment';
 import { StockNotificationDispatcher } from './stock-notification.dispatcher';
 import { LOW_STOCK_THRESHOLD } from './stock-threshold';
 
 /** Stands in for `QueueName.Mail`, which the dispatcher produces onto. */
-export const mailQueue = { add: jest.fn() };
+export const mailQueue = {
+  add: jest.fn<Promise<{ id: string }>, [name: string, data: MailJobData]>(),
+};
 
 export const buildDispatcherHarness = (): Promise<
   ServiceHarness<StockNotificationDispatcher>
@@ -99,14 +108,18 @@ export const aUniqueViolation = (): Prisma.PrismaClientKnownRequestError =>
 /**
  * Replaces `fetch` for the duration of a case, since the image is read out
  * of S3 through a presigned URL. Returns the spy so a case can decide what
- * the bucket answers — including not answering at all.
+ * the bucket answers — including not answering at all, which is why an
+ * `Error` is as acceptable an argument as a response.
  */
 export const stubFetch = (
-  response: Partial<Response> & { arrayBuffer?: () => Promise<ArrayBuffer> },
-): jest.SpyInstance =>
-  jest
-    .spyOn(globalThis, 'fetch')
-    .mockResolvedValue(response as unknown as Response);
+  response:
+    (Partial<Response> & { arrayBuffer?: () => Promise<ArrayBuffer> }) | Error,
+) => {
+  const spy = jest.spyOn(globalThis, 'fetch');
+  return response instanceof Error
+    ? spy.mockRejectedValue(response)
+    : spy.mockResolvedValue(response as unknown as Response);
+};
 
 /** Bytes that stand in for a stored PNG, with its declared content type. */
 export const anImageResponse = (bytes: Buffer) => ({
@@ -152,30 +165,142 @@ export const anImageResponse = (bytes: Buffer) => ({
  * three times, and then discards it.
  */
 describe('StockNotificationDispatcher', () => {
-  beforeEach(() => {
+  let h: ServiceHarness<StockNotificationDispatcher>;
+
+  /** The stored object the happy path reads out of the bucket. */
+  const theBytes = Buffer.from('the photograph', 'utf8');
+
+  const theLiker = aLikeRow('liker@example.test');
+  const anotherLiker = aLikeRow('other-liker@example.test');
+
+  /**
+   * The ordinary run: the sku is there, one liker wants it, nobody has been
+   * claimed yet and the bucket answers. Every case below overrides exactly
+   * the one thing it is about.
+   */
+  const prime = (
+    options: {
+      sku?: ReturnType<typeof aLoadedSku>;
+      likes?: ReturnType<typeof aLikeRow>[];
+    } = {},
+  ): void => {
+    h.prisma.sku.findUnique.mockResolvedValue(options.sku ?? aLoadedSku());
+    h.prisma.productLike.findMany.mockResolvedValue(
+      (options.likes ?? [theLiker]) as never,
+    );
+    h.prisma.stockNotification.findUnique.mockResolvedValue(null);
+    h.prisma.stockNotification.create.mockResolvedValue({
+      id: 'claim-1',
+    } as never);
+    h.prisma.stockNotification.update.mockResolvedValue({} as never);
+    stubFetch(anImageResponse(theBytes));
+  };
+
+  /** The job the producer would have enqueued for the crossing. */
+  const theJob = (restockCycle = 0) => ({
+    skuId: 'sku-under-test',
+    restockCycle,
+  });
+
+  /** The payloads handed to the mail queue, typed rather than `any`. */
+  const mailJobs = (): MailJobData[] =>
+    mailQueue.add.mock.calls.map((call) => call[1]);
+
+  beforeEach(async () => {
     jest.restoreAllMocks();
     jest.clearAllMocks();
     mailQueue.add.mockResolvedValue({ id: 'mail-job' });
+    h = await buildDispatcherHarness();
   });
 
   describe('the job it was handed', () => {
-    it.todo('loads the sku with its image and its product images');
+    it('loads the sku with its image and its product images', async () => {
+      prime();
 
-    it.todo('notifies nobody when the sku no longer exists');
+      await h.service.dispatch({ skuId: 'sku-under-test', restockCycle: 0 });
 
-    it.todo('notifies nobody when the product has been soft deleted');
+      expect(h.prisma.sku.findUnique).toHaveBeenCalledWith({
+        where: { id: 'sku-under-test' },
+        include: {
+          image: true,
+          product: {
+            include: { images: { orderBy: { id: Prisma.SortOrder.asc } } },
+          },
+        },
+      });
+    });
 
-    it.todo(
-      'notifies nobody when the sku has moved to a later cycle, because the job is stale',
-    );
+    it('notifies nobody when the sku no longer exists', async () => {
+      prime();
+      h.prisma.sku.findUnique.mockResolvedValue(null);
 
-    it.todo(
-      'reports a stale cycle without throwing, so the job is not retried against the new one',
-    );
+      const outcome = await h.service.dispatch(theJob());
+
+      expect(outcome).toEqual({
+        candidates: 0,
+        notified: 0,
+        skipped: 0,
+        failed: 0,
+        withImage: false,
+      });
+      expect(h.prisma.productLike.findMany).not.toHaveBeenCalled();
+      expect(mailQueue.add).not.toHaveBeenCalled();
+    });
+
+    it('notifies nobody when the product has been soft deleted', async () => {
+      prime({ sku: aLoadedSku({ deletedAt: new Date() }) });
+
+      const outcome = await h.service.dispatch(theJob());
+
+      expect(outcome.candidates).toBe(0);
+      expect(h.prisma.productLike.findMany).not.toHaveBeenCalled();
+      expect(mailQueue.add).not.toHaveBeenCalled();
+    });
+
+    it('notifies nobody when the sku has moved to a later cycle, because the job is stale', async () => {
+      prime({ sku: aLoadedSku({ restockCycle: 2 }) });
+
+      const outcome = await h.service.dispatch(theJob(1));
+
+      expect(outcome.candidates).toBe(0);
+      expect(h.prisma.productLike.findMany).not.toHaveBeenCalled();
+      expect(h.prisma.stockNotification.create).not.toHaveBeenCalled();
+      expect(mailQueue.add).not.toHaveBeenCalled();
+    });
+
+    it('reports a stale cycle without throwing, so the job is not retried against the new one', async () => {
+      prime({ sku: aLoadedSku({ restockCycle: 2 }) });
+
+      await expect(h.service.dispatch(theJob(1))).resolves.toEqual({
+        candidates: 0,
+        notified: 0,
+        skipped: 0,
+        failed: 0,
+        withImage: false,
+      });
+    });
   });
 
   describe('who is asked for', () => {
-    it.todo('asks for the likes of the product the sku belongs to');
+    it('asks for the likes of the product the sku belongs to', async () => {
+      prime();
+
+      await h.service.dispatch(theJob());
+
+      expect(h.prisma.productLike.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ productId: theProduct.id }),
+          // Two columns and no more: the recipient list is personal data
+          // and the row it is built from should carry nothing else.
+          select: { userId: true, user: { select: { email: true } } },
+          orderBy: { id: Prisma.SortOrder.asc },
+        }),
+      );
+    });
+
+    it.todo(
+      'restricts those likes to accounts that are neither soft deleted nor unverified and have no paid order for the product',
+    );
 
     it.todo(
       'excludes a liker who has an order for this product in a paid status',
@@ -237,48 +362,196 @@ describe('StockNotificationDispatcher', () => {
   });
 
   describe('the message it produces', () => {
-    it.todo('adds one SendMail job per claimed recipient');
+    it('adds one SendMail job per claimed recipient', async () => {
+      prime({ likes: [theLiker, anotherLiker] });
 
-    it.todo('addresses each job to that recipient and to nobody else');
+      await h.service.dispatch(theJob());
 
-    it.todo('carries the low-stock kind, so the renderer picks that wording');
+      expect(mailQueue.add).toHaveBeenCalledTimes(2);
+      expect(mailQueue.add.mock.calls.map((call) => call[0])).toEqual([
+        JobName.SendMail,
+        JobName.SendMail,
+      ]);
+    });
 
-    it.todo('names the product, the size and the colour of the variant');
+    it('addresses each job to that recipient and to nobody else', async () => {
+      prime({ likes: [theLiker, anotherLiker] });
 
-    it.todo(
-      'reports what is still buyable — stock less reserved — rather than the raw stock',
-    );
+      await h.service.dispatch(theJob());
 
-    it.todo('never reports a negative number of units left');
+      expect(mailJobs().map((job) => job.to)).toEqual([
+        'liker@example.test',
+        'other-liker@example.test',
+      ]);
+    });
 
-    it.todo('carries no token, because this message has nothing to prove');
+    it('carries the low-stock kind, so the renderer picks that wording', async () => {
+      prime();
+
+      await h.service.dispatch(theJob());
+
+      expect(mailJobs()[0]?.kind).toBe(MailKind.LowStock);
+    });
+
+    it('names the product, the size and the colour of the variant', async () => {
+      const sku = aLoadedSku();
+      prime({ sku });
+
+      await h.service.dispatch(theJob());
+
+      expect(mailJobs()[0]?.lowStock).toEqual(
+        expect.objectContaining({
+          productName: theProduct.name,
+          size: sku.size,
+          color: sku.color,
+        }),
+      );
+    });
+
+    it('reports what is still buyable — stock less reserved — rather than the raw stock', async () => {
+      prime({ sku: aLoadedSku({ stock: LOW_STOCK_THRESHOLD, reserved: 1 }) });
+
+      await h.service.dispatch(theJob());
+
+      expect(mailJobs()[0]?.lowStock?.remaining).toBe(LOW_STOCK_THRESHOLD - 1);
+    });
+
+    it('never reports a negative number of units left', async () => {
+      prime({ sku: aLoadedSku({ stock: 1, reserved: 4 }) });
+
+      await h.service.dispatch(theJob());
+
+      expect(mailJobs()[0]?.lowStock?.remaining).toBe(0);
+    });
+
+    it('carries no token, because this message has nothing to prove', async () => {
+      prime();
+
+      await h.service.dispatch(theJob());
+
+      const job = mailJobs()[0];
+      expect(job).toBeDefined();
+      expect(job && 'token' in job).toBe(false);
+      expect(Object.keys(job ?? {}).sort()).toEqual([
+        'attachments',
+        'kind',
+        'lowStock',
+        'to',
+      ]);
+    });
   });
 
   describe('the product image, which must never cost a notification', () => {
-    it.todo(
-      'attaches the base64 of the object behind the sku image when it has one',
-    );
+    it('attaches the base64 of the object behind the sku image when it has one', async () => {
+      prime();
 
-    it.todo(
-      'falls back to the product cover, the first image by ascending id, when the variant has none',
-    );
+      await h.service.dispatch(theJob());
 
-    it.todo('reuses one attachment across every recipient of the crossing');
+      expect(h.storage.urlFor).toHaveBeenCalledWith(theVariantImage.s3Key);
+      expect(mailJobs()[0]?.attachments).toEqual([
+        {
+          filename: `${theVariantImage.id}.png`,
+          content: theBytes.toString('base64'),
+          contentType: 'image/png',
+        },
+      ]);
+    });
 
-    it.todo('sends without an attachment when the product has no image at all');
+    it('falls back to the product cover, the first image by ascending id, when the variant has none', async () => {
+      prime({
+        sku: aLoadedSku({
+          image: null,
+          imageId: null,
+          images: [
+            { s3Key: theCover.s3Key },
+            { s3Key: 'products/p/later.png' },
+          ],
+        }),
+      });
 
-    it.todo('sends without an attachment when storage answers a failure');
+      await h.service.dispatch(theJob());
 
-    it.todo('sends without an attachment when the fetch throws or times out');
+      expect(h.storage.urlFor).toHaveBeenCalledTimes(1);
+      expect(h.storage.urlFor).toHaveBeenCalledWith(theCover.s3Key);
+    });
 
-    it.todo(
-      'sends without an attachment when the object is larger than the cap',
-    );
+    it('reuses one attachment across every recipient of the crossing', async () => {
+      prime({ likes: [theLiker, anotherLiker] });
 
-    it.todo(
-      'never lets a storage failure reach the processor, where it would retry the whole fan-out',
-    );
+      await h.service.dispatch(theJob());
 
-    it.todo('reports in its outcome whether the image made it in');
+      // Read once, not once per liker: the fan-out is the reason the object
+      // is bounded in size at all.
+      expect(h.storage.urlFor).toHaveBeenCalledTimes(1);
+      expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+
+      const [first, second] = mailJobs();
+      expect(first?.attachments?.[0]).toBe(second?.attachments?.[0]);
+    });
+
+    it('sends without an attachment when the product has no image at all', async () => {
+      prime({ sku: aLoadedSku({ image: null, imageId: null, images: [] }) });
+
+      await h.service.dispatch(theJob());
+
+      expect(h.storage.urlFor).not.toHaveBeenCalled();
+      expect(mailQueue.add).toHaveBeenCalledTimes(1);
+      expect(mailJobs()[0]?.attachments).toBeUndefined();
+    });
+
+    it('sends without an attachment when storage answers a failure', async () => {
+      prime();
+      stubFetch({ ok: false, status: 500, headers: new Headers() });
+
+      await h.service.dispatch(theJob());
+
+      expect(mailQueue.add).toHaveBeenCalledTimes(1);
+      expect(mailJobs()[0]?.attachments).toBeUndefined();
+    });
+
+    it('sends without an attachment when the fetch throws or times out', async () => {
+      prime();
+      stubFetch(new Error('The operation was aborted due to timeout'));
+
+      await h.service.dispatch(theJob());
+
+      expect(mailQueue.add).toHaveBeenCalledTimes(1);
+      expect(mailJobs()[0]?.attachments).toBeUndefined();
+    });
+
+    it('sends without an attachment when the object is larger than the cap', async () => {
+      prime();
+      stubFetch(anImageResponse(Buffer.alloc(MAX_ATTACHMENT_BYTES + 1, 0x2a)));
+
+      await h.service.dispatch(theJob());
+
+      expect(mailQueue.add).toHaveBeenCalledTimes(1);
+      expect(mailJobs()[0]?.attachments).toBeUndefined();
+    });
+
+    it('never lets a storage failure reach the processor, where it would retry the whole fan-out', async () => {
+      prime();
+      h.storage.urlFor.mockRejectedValue(new Error('S3 is unreachable'));
+
+      await expect(h.service.dispatch(theJob())).resolves.toEqual(
+        expect.objectContaining({ notified: 1, withImage: false }),
+      );
+      expect(mailQueue.add).toHaveBeenCalledTimes(1);
+    });
+
+    it('reports in its outcome whether the image made it in', async () => {
+      prime();
+
+      await expect(h.service.dispatch(theJob())).resolves.toEqual(
+        expect.objectContaining({ withImage: true }),
+      );
+
+      jest.clearAllMocks();
+      prime({ sku: aLoadedSku({ image: null, imageId: null, images: [] }) });
+
+      await expect(h.service.dispatch(theJob())).resolves.toEqual(
+        expect.objectContaining({ withImage: false }),
+      );
+    });
   });
 });

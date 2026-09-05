@@ -1,5 +1,7 @@
 import { OrderStatus } from '@prisma/client';
 import {
+  fallsToThreshold,
+  risesAboveThreshold,
   LOW_STOCK_THRESHOLD,
   PURCHASED_ORDER_STATUSES,
 } from './stock-threshold';
@@ -15,7 +17,7 @@ import {
  * way into `PURCHASED_ORDER_STATUSES` silences the message for everybody
  * with an abandoned basket. Neither would fail anything else in this suite.
  *
- * The stubs are named for the sentence each one pins rather than for the
+ * The cases are named for the sentence each one pins rather than for the
  * arithmetic: what a reader needs is which reading of the brief is being
  * defended, and the numbers are derived from the constant so a change to it
  * cannot leave a case name lying.
@@ -25,47 +27,76 @@ describe('the low-stock threshold', () => {
   const everyStatus = Object.values(OrderStatus);
 
   describe('falling to it, which is what fires the notification', () => {
-    it.todo(
-      `fires on the sale that takes stock from ${threshold + 1} down to ${threshold}`,
-    );
+    it(`fires on the sale that takes stock from ${threshold + 1} down to ${threshold}`, () => {
+      expect(fallsToThreshold(threshold + 1, threshold)).toBe(true);
+    });
 
-    it.todo(
-      `fires when a multi-unit sale jumps clean over ${threshold}, from ${threshold + 3} to ${threshold - 2}`,
-    );
+    it(`fires when a multi-unit sale jumps clean over ${threshold}, from ${threshold + 3} to ${threshold - 2}`, () => {
+      expect(fallsToThreshold(threshold + 3, threshold - 2)).toBe(true);
+    });
 
-    it.todo(
-      `does not fire again on the next sale, from ${threshold} to ${threshold - 1}`,
-    );
+    it(`does not fire again on the next sale, from ${threshold} to ${threshold - 1}`, () => {
+      expect(fallsToThreshold(threshold, threshold - 1)).toBe(false);
+    });
 
-    it.todo(
-      'does not fire when the stock was already at or below the threshold before the write',
-    );
+    it('does not fire when the stock was already at or below the threshold before the write', () => {
+      expect(fallsToThreshold(threshold, 0)).toBe(false);
+      expect(fallsToThreshold(threshold - 1, threshold - 2)).toBe(false);
+      expect(fallsToThreshold(0, 0)).toBe(false);
+    });
 
-    it.todo('does not fire when the write left the stock unchanged');
+    it('does not fire when the write left the stock unchanged', () => {
+      expect(fallsToThreshold(threshold + 1, threshold + 1)).toBe(false);
+      expect(fallsToThreshold(threshold, threshold)).toBe(false);
+    });
 
-    it.todo('does not fire when the write raised the stock');
+    it('does not fire when the write raised the stock', () => {
+      expect(fallsToThreshold(threshold - 1, threshold + 5)).toBe(false);
+      expect(fallsToThreshold(threshold + 1, threshold + 2)).toBe(false);
+    });
 
-    it.todo(
-      'fires exactly once over a run of sales that walks the stock down to zero',
-    );
+    it('fires exactly once over a run of sales that walks the stock down to zero', () => {
+      const start = threshold + 3;
+      const firings = Array.from({ length: start }, (_, index) =>
+        fallsToThreshold(start - index, start - index - 1),
+      );
+
+      expect(firings.filter(Boolean)).toHaveLength(1);
+      expect(firings.indexOf(true)).toBe(start - threshold - 1);
+    });
   });
 
   describe('rising back above it, which is what ends a cycle', () => {
-    it.todo(
-      `treats a restock from ${threshold} up to ${threshold + 1} as the start of a new cycle`,
-    );
+    it(`treats a restock from ${threshold} up to ${threshold + 1} as the start of a new cycle`, () => {
+      expect(risesAboveThreshold(threshold, threshold + 1)).toBe(true);
+    });
 
-    it.todo(
-      `does not start a cycle for a partial restock that stops at ${threshold}`,
-    );
+    it(`does not start a cycle for a partial restock that stops at ${threshold}`, () => {
+      expect(risesAboveThreshold(0, threshold)).toBe(false);
+      expect(risesAboveThreshold(threshold - 1, threshold)).toBe(false);
+    });
 
-    it.todo(
-      'does not start a cycle when the stock was already above the threshold',
-    );
+    it('does not start a cycle when the stock was already above the threshold', () => {
+      expect(risesAboveThreshold(threshold + 1, threshold + 9)).toBe(false);
+    });
 
-    it.todo(
-      'is never true at the same time as the falling predicate, for any pair of values',
-    );
+    it('is never true at the same time as the falling predicate, for any pair of values', () => {
+      const range = Array.from({ length: threshold * 3 }, (_, value) => value);
+      const bothTrue = range.flatMap((previous) =>
+        range
+          .filter(
+            (next) =>
+              fallsToThreshold(previous, next) &&
+              risesAboveThreshold(previous, next),
+          )
+          .map((next) => [previous, next]),
+      );
+
+      expect(bothTrue).toEqual([]);
+      // And the pair that proves the sweep was capable of finding one.
+      expect(fallsToThreshold(threshold + 1, threshold)).toBe(true);
+      expect(risesAboveThreshold(threshold, threshold + 1)).toBe(true);
+    });
   });
 
   describe('what counts as having purchased the product', () => {

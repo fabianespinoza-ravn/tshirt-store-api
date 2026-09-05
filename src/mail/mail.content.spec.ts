@@ -1,3 +1,4 @@
+import { Color, Size } from '@prisma/client';
 import { renderMail, TOKEN_LINE_PREFIX } from './mail.content';
 import { MailKind, type MailJobData } from './mail.jobs';
 
@@ -120,24 +121,91 @@ describe('renderMail', () => {
    * message has to survive both.
    */
   describe('the low-stock notification', () => {
-    it.todo('names the product in the subject');
+    const lowStock = (
+      overrides: Partial<NonNullable<MailJobData['lowStock']>> = {},
+    ): MailJobData =>
+      data({
+        kind: MailKind.LowStock,
+        lowStock: {
+          productName: 'Analytical Engine tee',
+          size: Size.L,
+          color: Color.NAVY,
+          remaining: 2,
+          ...overrides,
+        },
+      });
 
-    it.todo('names the size and the colour of the variant that is running out');
+    it('names the product in the subject', () => {
+      expect(renderMail(lowStock()).subject).toBe(
+        'Running low: Analytical Engine tee',
+      );
+    });
 
-    it.todo('says how many units are left');
+    it('names the size and the colour of the variant that is running out', () => {
+      const text = renderMail(
+        lowStock({ size: Size.XL, color: Color.GREEN }),
+      ).text;
 
-    it.todo(
-      'says why the recipient is hearing about it: they liked it and never ordered it',
-    );
+      expect(text).toContain(Size.XL);
+      expect(text).toContain(Color.GREEN.toLowerCase());
+      // Lower case, because the enum member is a shout in the middle of a
+      // sentence and the message is read by a person.
+      expect(text).not.toContain(Color.GREEN);
+    });
 
-    it.todo('carries no token line, because this message has nothing to prove');
+    it('says how many units are left', () => {
+      expect(renderMail(lowStock({ remaining: 2 })).text).toContain(
+        'Only 2 left.',
+      );
+      expect(renderMail(lowStock({ remaining: 0 })).text).toContain(
+        'Only 0 left.',
+      );
+    });
 
-    it.todo('passes the product image through as an attachment');
+    it('says why the recipient is hearing about it: they liked it and never ordered it', () => {
+      expect(renderMail(lowStock()).text).toMatch(
+        /liked it and have not ordered it/i,
+      );
+    });
 
-    it.todo('still renders a sendable message when the image was dropped');
+    it('carries no token line, because this message has nothing to prove', () => {
+      const message = renderMail({
+        ...lowStock(),
+        token: 'must-not-leak',
+      });
 
-    it.todo(
-      'still renders a sendable message when the job carries no low-stock detail at all',
-    );
+      expect(message.text).not.toContain(TOKEN_LINE_PREFIX);
+      expect(message.text).not.toContain('must-not-leak');
+    });
+
+    it('passes the product image through as an attachment', () => {
+      const attachments = [
+        {
+          filename: 'shirt.png',
+          content: 'aGVsbG8=',
+          contentType: 'image/png',
+        },
+      ];
+
+      expect(renderMail({ ...lowStock(), attachments }).attachments).toBe(
+        attachments,
+      );
+    });
+
+    it('still renders a sendable message when the image was dropped', () => {
+      const message = renderMail(lowStock());
+
+      expect(message.attachments).toBeUndefined();
+      expect(message.subject).toBe('Running low: Analytical Engine tee');
+      expect(message.text).toContain('Only 2 left.');
+    });
+
+    it('still renders a sendable message when the job carries no low-stock detail at all', () => {
+      const message = renderMail(data({ kind: MailKind.LowStock }));
+
+      expect(message.subject).toBe('Running low: Something you liked');
+      expect(message.text).toContain('Something you liked is nearly out');
+      expect(message.text).toContain('Only a few are left.');
+    });
   });
 });

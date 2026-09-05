@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import type { Job } from 'bullmq';
 import { newId } from '../../common/ids';
 import type { StockNotificationDispatcher } from '../../notifications/stock-notification.dispatcher';
@@ -80,34 +81,137 @@ describe('StockNotificationProcessor', () => {
   });
 
   describe('the job it accepts', () => {
-    it.todo('hands a NotifyRestock job straight to the dispatcher');
+    it('hands a NotifyRestock job straight to the dispatcher', async () => {
+      const job = aNotifyJob();
 
-    it.todo('passes the payload through unchanged, sku and cycle both');
+      await buildProcessor().process(job);
 
-    it.todo('returns the dispatcher outcome, so the queue records the counts');
+      expect(dispatcher.dispatch).toHaveBeenCalledTimes(1);
+      expect(dispatcher.dispatch).toHaveBeenCalledWith(job.data);
+    });
 
-    it.todo(
-      'throws on a job name it does not recognise, naming the name it got',
-    );
+    it('passes the payload through unchanged, sku and cycle both', async () => {
+      const job = aNotifyJob({ skuId: theSkuId, restockCycle: 7 });
 
-    it.todo('dispatches nothing for a job name it does not recognise');
+      await buildProcessor().process(job);
 
-    it.todo(
-      'lets a dispatcher failure escape, so the job retries rather than reporting success',
-    );
+      expect(dispatcher.dispatch).toHaveBeenCalledWith({
+        skuId: theSkuId,
+        restockCycle: 7,
+      });
+    });
+
+    it('returns the dispatcher outcome, so the queue records the counts', async () => {
+      const outcome = anOutcome({ candidates: 5, notified: 4, skipped: 1 });
+      dispatcher.dispatch.mockResolvedValue(outcome);
+
+      await expect(buildProcessor().process(aNotifyJob())).resolves.toBe(
+        outcome,
+      );
+    });
+
+    it('throws on a job name it does not recognise, naming the name it got', async () => {
+      await expect(
+        buildProcessor().process(aJob('sweep-something-else')),
+      ).rejects.toThrow('Unknown stock notification job: sweep-something-else');
+    });
+
+    it('dispatches nothing for a job name it does not recognise', async () => {
+      await expect(
+        buildProcessor().process(aJob('sweep-something-else')),
+      ).rejects.toThrow();
+
+      expect(dispatcher.dispatch).not.toHaveBeenCalled();
+    });
+
+    it('lets a dispatcher failure escape, so the job retries rather than reporting success', async () => {
+      dispatcher.dispatch.mockRejectedValue(new Error('Postgres is away'));
+
+      await expect(buildProcessor().process(aNotifyJob())).rejects.toThrow(
+        'Postgres is away',
+      );
+    });
   });
 
   describe('the failure log, which is all a discarded job leaves', () => {
-    it.todo('names the sku and the cycle that failed');
+    /** The listener writes through `Logger.prototype.error`, as the mail one does. */
+    const captureError = () =>
+      jest.spyOn(Logger.prototype, 'error').mockImplementation();
 
-    it.todo('says how many attempts had been made');
+    it('names the sku and the cycle that failed', () => {
+      const log = captureError();
 
-    it.todo('carries the error message and its stack');
+      buildProcessor().onFailed(
+        aNotifyJob({ skuId: theSkuId, restockCycle: 4 }),
+        new Error('Postgres is away'),
+      );
 
-    it.todo('writes no recipient address, which this payload never held');
+      expect(String(log.mock.calls[0]?.[0])).toContain(
+        `Sku ${theSkuId} (cycle 4)`,
+      );
+      log.mockRestore();
+    });
 
-    it.todo('still logs when the job was removed before the event arrived');
+    it('says how many attempts had been made', () => {
+      const log = captureError();
 
-    it.todo('says which sku is unknown rather than inventing one');
+      buildProcessor().onFailed(aNotifyJob({}, 7), new Error('timeout'));
+
+      expect(String(log.mock.calls[0]?.[0])).toContain('after 7 attempt(s)');
+      log.mockRestore();
+    });
+
+    it('carries the error message and its stack', () => {
+      const log = captureError();
+      const error = new Error('S3 refused the read');
+
+      buildProcessor().onFailed(aNotifyJob(), error);
+
+      expect(String(log.mock.calls[0]?.[0])).toContain('S3 refused the read');
+      expect(log.mock.calls[0]?.[1]).toBe(error.stack);
+      log.mockRestore();
+    });
+
+    /**
+     * The payload holds two identifiers and no address, and the assertion is
+     * that the address a plausible future refactor would reach for — the
+     * recipient of the mail jobs this run enqueues — is absent from the line
+     * rather than merely that a line was written.
+     */
+    it('writes no recipient address, which this payload never held', () => {
+      const log = captureError();
+
+      buildProcessor().onFailed(
+        aNotifyJob(),
+        new Error('the mail queue refused the job'),
+      );
+
+      const written = log.mock.calls.flat().map(String).join(' ');
+      expect(written).not.toContain('@');
+      expect(written).toContain(theSkuId);
+    });
+
+    it('still logs when the job was removed before the event arrived', () => {
+      const log = captureError();
+
+      expect(() =>
+        buildProcessor().onFailed(undefined, new Error('stalled')),
+      ).not.toThrow();
+
+      expect(String(log.mock.calls[0]?.[0])).toContain('stalled');
+      expect(String(log.mock.calls[0]?.[0])).toContain('after 0 attempt(s)');
+      log.mockRestore();
+    });
+
+    it('says which sku is unknown rather than inventing one', () => {
+      const log = captureError();
+
+      buildProcessor().onFailed(undefined, new Error('stalled'));
+
+      const line = String(log.mock.calls[0]?.[0]);
+      expect(line).toContain('A removed stock notification job');
+      expect(line).not.toContain(theSkuId);
+      log.mockRestore();
+    });
   });
 });

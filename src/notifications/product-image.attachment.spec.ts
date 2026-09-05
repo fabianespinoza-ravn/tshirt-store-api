@@ -1,6 +1,16 @@
 import { mockDeep, type DeepMockProxy } from 'jest-mock-extended';
-import type { StorageService } from '../storage/storage.service';
 import {
+  ACCEPTED_IMAGE_TYPES,
+  MAX_IMAGE_BYTES,
+  type AcceptedImageType,
+  type StorageService,
+} from '../storage/storage.service';
+import {
+  SWEEP_EVERY_MS,
+  STOCK_NOTIFICATION_JOB_OPTIONS,
+} from '../queue/queue.constants';
+import {
+  loadImageAttachment,
   IMAGE_FETCH_TIMEOUT_MS,
   MAX_ATTACHMENT_BYTES,
 } from './product-image.attachment';
@@ -26,9 +36,7 @@ export const bytesOf = (size: number): Buffer => Buffer.alloc(size, 0x2a);
  * `arrayBuffer` — which is deliberate: a fuller double would let a case pass
  * while depending on a field the code never looks at.
  */
-export const stubFetch = (
-  answer: Partial<Response> | Error,
-): jest.SpyInstance => {
+export const stubFetch = (answer: Partial<Response> | Error) => {
   const spy = jest.spyOn(globalThis, 'fetch');
   return answer instanceof Error
     ? spy.mockRejectedValue(answer)
@@ -68,59 +76,178 @@ export const anOkResponse = (
  * away.
  */
 describe('the product image attachment', () => {
+  /** The shape of key `StorageService.buildKey` produces. */
+  const aKey = (extension = '.png'): string =>
+    `products/product-1/image-1${extension}`;
+
   beforeEach(() => {
     jest.restoreAllMocks();
   });
 
   describe('reading the object', () => {
-    it.todo('asks storage for a URL for the key it was given');
+    it('asks storage for a URL for the key it was given', async () => {
+      const storage = aStorage();
+      stubFetch(anOkResponse(bytesOf(8)));
 
-    it.todo('returns the object base64-encoded, which is what a job can hold');
+      await loadImageAttachment(storage, aKey());
 
-    it.todo('names the attachment after the object, not after the whole key');
+      expect(storage.urlFor).toHaveBeenCalledWith(aKey());
+    });
+
+    it('returns the object base64-encoded, which is what a job can hold', async () => {
+      const bytes = bytesOf(24);
+      stubFetch(anOkResponse(bytes));
+
+      const attachment = await loadImageAttachment(aStorage(), aKey());
+
+      expect(attachment.content).toBe(bytes.toString('base64'));
+      expect(Buffer.from(attachment.content, 'base64')).toEqual(bytes);
+    });
+
+    it('names the attachment after the object, not after the whole key', async () => {
+      stubFetch(anOkResponse(bytesOf(8)));
+
+      const attachment = await loadImageAttachment(aStorage(), aKey());
+
+      expect(attachment.filename).toBe('image-1.png');
+    });
   });
 
   describe('deciding what kind of image it is', () => {
-    it.todo('uses the content type the object was stored with');
+    it('uses the content type the object was stored with', async () => {
+      stubFetch(anOkResponse(bytesOf(8), 'image/webp'));
 
-    it.todo(
-      'falls back to the extension of the key when the response declares none',
-    );
+      // The key says PNG and the object says WebP: the stored type wins,
+      // because that is the one `StorageService.put` was given after the
+      // magic bytes were verified.
+      const attachment = await loadImageAttachment(aStorage(), aKey('.png'));
 
-    it.todo(
-      'falls back to the extension when the response declares something that is not an image',
-    );
+      expect(attachment.contentType).toBe('image/webp');
+    });
 
-    it.todo('resolves each extension storage is able to produce');
+    it('falls back to the extension of the key when the response declares none', async () => {
+      stubFetch(anOkResponse(bytesOf(8), null));
 
-    it.todo('throws when neither the response nor the key identifies a type');
+      const attachment = await loadImageAttachment(aStorage(), aKey('.jpg'));
+
+      expect(attachment.contentType).toBe('image/jpeg');
+    });
+
+    it('falls back to the extension when the response declares something that is not an image', async () => {
+      stubFetch(anOkResponse(bytesOf(8), 'application/octet-stream'));
+
+      const attachment = await loadImageAttachment(aStorage(), aKey('.webp'));
+
+      expect(attachment.contentType).toBe('image/webp');
+    });
+
+    it('resolves each extension storage is able to produce', async () => {
+      const extensionByType: Record<AcceptedImageType, string> = {
+        'image/jpeg': '.jpg',
+        'image/png': '.png',
+        'image/webp': '.webp',
+      };
+
+      // A fourth accepted type has to be decided on here rather than
+      // silently losing its picture.
+      expect(Object.keys(extensionByType).sort()).toEqual(
+        [...ACCEPTED_IMAGE_TYPES].sort(),
+      );
+
+      for (const [type, extension] of Object.entries(extensionByType)) {
+        stubFetch(anOkResponse(bytesOf(8), null));
+
+        const attachment = await loadImageAttachment(
+          aStorage(),
+          aKey(extension),
+        );
+
+        expect(attachment.contentType).toBe(type);
+        jest.restoreAllMocks();
+      }
+    });
+
+    it('throws when neither the response nor the key identifies a type', async () => {
+      stubFetch(anOkResponse(bytesOf(8), null));
+
+      await expect(
+        loadImageAttachment(aStorage(), aKey('.gif')),
+      ).rejects.toThrow(`Cannot tell what kind of image ${aKey('.gif')} is.`);
+    });
   });
 
   describe('the failures the caller is expected to absorb', () => {
-    it.todo('throws, naming the status, when storage answers a failure');
+    it('throws, naming the status, when storage answers a failure', async () => {
+      stubFetch({ ok: false, status: 403, headers: new Headers() });
 
-    it.todo(
-      'lets a network error out rather than turning it into an empty attachment',
-    );
+      await expect(loadImageAttachment(aStorage(), aKey())).rejects.toThrow(
+        `Storage answered 403 for ${aKey()}.`,
+      );
+    });
 
-    it.todo(
-      `abandons the read after ${IMAGE_FETCH_TIMEOUT_MS}ms rather than holding the job`,
-    );
+    it('lets a network error out rather than turning it into an empty attachment', async () => {
+      stubFetch(new Error('getaddrinfo ENOTFOUND s3.test'));
 
-    it.todo(
-      `throws for an object over ${MAX_ATTACHMENT_BYTES} bytes, naming the size and the cap`,
-    );
+      await expect(loadImageAttachment(aStorage(), aKey())).rejects.toThrow(
+        'getaddrinfo ENOTFOUND s3.test',
+      );
+    });
 
-    it.todo(`accepts an object of exactly ${MAX_ATTACHMENT_BYTES} bytes`);
+    it(`abandons the read after ${IMAGE_FETCH_TIMEOUT_MS}ms rather than holding the job`, async () => {
+      const signal = AbortSignal.abort();
+      const timeout = jest
+        .spyOn(AbortSignal, 'timeout')
+        .mockReturnValue(signal);
+      const fetched = stubFetch(anOkResponse(bytesOf(8)));
+
+      await loadImageAttachment(aStorage(), aKey());
+
+      expect(timeout).toHaveBeenCalledWith(IMAGE_FETCH_TIMEOUT_MS);
+      // The bound has to reach `fetch` rather than merely be constructed:
+      // the signal handed over is the one the timeout produced, and it is
+      // the only option the read is given.
+      expect(fetched.mock.calls[0]?.[1]).toEqual({ signal });
+    });
+
+    it(`throws for an object over ${MAX_ATTACHMENT_BYTES} bytes, naming the size and the cap`, async () => {
+      const oversized = MAX_ATTACHMENT_BYTES + 1;
+      stubFetch(anOkResponse(bytesOf(oversized)));
+
+      await expect(loadImageAttachment(aStorage(), aKey())).rejects.toThrow(
+        `${aKey()} is ${oversized} bytes, over the ${MAX_ATTACHMENT_BYTES} an attachment may be.`,
+      );
+    });
+
+    it(`accepts an object of exactly ${MAX_ATTACHMENT_BYTES} bytes`, async () => {
+      const bytes = bytesOf(MAX_ATTACHMENT_BYTES);
+      stubFetch(anOkResponse(bytes));
+
+      const attachment = await loadImageAttachment(aStorage(), aKey());
+
+      expect(Buffer.from(attachment.content, 'base64').byteLength).toBe(
+        MAX_ATTACHMENT_BYTES,
+      );
+    });
   });
 
   describe('the two numbers, which are decisions', () => {
-    it.todo(
-      'keeps the attachment cap well under storage MAX_IMAGE_BYTES, because the payload is copied per recipient',
-    );
+    it('keeps the attachment cap well under storage MAX_IMAGE_BYTES, because the payload is copied per recipient', () => {
+      expect(MAX_ATTACHMENT_BYTES).toBeLessThan(MAX_IMAGE_BYTES);
+      // Base64 inflates by a third and the result is copied once per
+      // recipient, so a cap anywhere near what storage accepts would put a
+      // gigabyte through Redis for one crossing.
+      expect(MAX_ATTACHMENT_BYTES * (4 / 3)).toBeLessThan(MAX_IMAGE_BYTES / 4);
+    });
 
-    it.todo(
-      'bounds the read, because an unreachable bucket must not hold a worker',
-    );
+    it('bounds the read, because an unreachable bucket must not hold a worker', () => {
+      const attempts = STOCK_NOTIFICATION_JOB_OPTIONS.attempts ?? 1;
+
+      expect(Number.isFinite(IMAGE_FETCH_TIMEOUT_MS)).toBe(true);
+      expect(IMAGE_FETCH_TIMEOUT_MS).toBeGreaterThan(0);
+      // Every attempt of the job pays this wait once, and the run as a whole
+      // has to stay shorter than the interval the sweep already treats as
+      // the longest a background job may reasonably take.
+      expect(IMAGE_FETCH_TIMEOUT_MS * attempts).toBeLessThan(SWEEP_EVERY_MS);
+    });
   });
 });
