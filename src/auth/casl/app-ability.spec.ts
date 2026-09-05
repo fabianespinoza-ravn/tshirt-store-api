@@ -2,6 +2,7 @@ import { accessibleBy } from '@casl/prisma';
 import { OrderStatus, Prisma, UserRole } from '@prisma/client';
 import type { AuthenticatedUser } from '../../common/decorators/current-user.decorator';
 import { AppAbilityFactory, type AppAction } from './app-ability.factory';
+import { exactlyTheseInAnyOrder } from '../../testing/matchers';
 
 describe('AppAbilityFactory', () => {
   const factory = new AppAbilityFactory();
@@ -101,10 +102,10 @@ describe('AppAbilityFactory', () => {
       const scope = scopeFor(delivery, 'read');
 
       expect(scope).toEqual({
-        OR: expect.arrayContaining([
+        OR: exactlyTheseInAnyOrder([
           { status: OrderStatus.SHIPPED },
           { deliveredById: delivery.id },
-        ]) as Prisma.OrderWhereInput[],
+        ]) as unknown as Prisma.OrderWhereInput[],
       });
     });
 
@@ -112,10 +113,10 @@ describe('AppAbilityFactory', () => {
       const scope = scopeFor(delivery, 'update');
 
       expect(scope).toEqual({
-        OR: expect.arrayContaining([
+        OR: exactlyTheseInAnyOrder([
           { status: OrderStatus.SHIPPED },
           { deliveredById: delivery.id },
-        ]) as Prisma.OrderWhereInput[],
+        ]) as unknown as Prisma.OrderWhereInput[],
       });
     });
 
@@ -124,16 +125,16 @@ describe('AppAbilityFactory', () => {
       const second = scopeFor({ ...delivery, id: 'delivery-2' }, 'read');
 
       expect(first).toEqual({
-        OR: expect.arrayContaining([
+        OR: exactlyTheseInAnyOrder([
           { status: OrderStatus.SHIPPED },
           { deliveredById: 'delivery-1' },
-        ]) as Prisma.OrderWhereInput[],
+        ]) as unknown as Prisma.OrderWhereInput[],
       });
       expect(second).toEqual({
-        OR: expect.arrayContaining([
+        OR: exactlyTheseInAnyOrder([
           { status: OrderStatus.SHIPPED },
           { deliveredById: 'delivery-2' },
-        ]) as Prisma.OrderWhereInput[],
+        ]) as unknown as Prisma.OrderWhereInput[],
       });
     });
 

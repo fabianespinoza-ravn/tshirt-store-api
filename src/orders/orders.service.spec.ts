@@ -18,6 +18,7 @@ import {
 } from '../testing/factories';
 import { resetPrismaMock } from '../testing/prisma.mock';
 import { OrdersService } from './orders.service';
+import { exactlyTheseInAnyOrder } from '../testing/matchers';
 
 /**
  * The cases that decide whether this module is safe are the ones about the
@@ -659,7 +660,7 @@ describe('OrdersService', () => {
           where: {
             AND: [
               {
-                OR: expect.arrayContaining([
+                OR: exactlyTheseInAnyOrder([
                   { status: OrderStatus.SHIPPED },
                   { deliveredById: delivery.id },
                 ]),
@@ -686,7 +687,7 @@ describe('OrdersService', () => {
           where: {
             AND: [
               {
-                OR: expect.arrayContaining([
+                OR: exactlyTheseInAnyOrder([
                   { status: OrderStatus.SHIPPED },
                   { deliveredById: delivery.id },
                 ]),
@@ -709,7 +710,7 @@ describe('OrdersService', () => {
           where: {
             AND: [
               {
-                OR: expect.arrayContaining([
+                OR: exactlyTheseInAnyOrder([
                   { status: OrderStatus.SHIPPED },
                   { deliveredById: delivery.id },
                 ]),
@@ -734,7 +735,7 @@ describe('OrdersService', () => {
           where: expect.objectContaining({
             AND: [
               {
-                OR: expect.arrayContaining([
+                OR: exactlyTheseInAnyOrder([
                   { status: OrderStatus.SHIPPED },
                   { deliveredById: delivery.id },
                 ]),
@@ -759,7 +760,7 @@ describe('OrdersService', () => {
           where: {
             AND: [
               {
-                OR: expect.arrayContaining([
+                OR: exactlyTheseInAnyOrder([
                   { status: OrderStatus.SHIPPED },
                   { deliveredById: delivery.id },
                 ]),
@@ -849,7 +850,7 @@ describe('OrdersService', () => {
           where: {
             AND: [
               {
-                OR: expect.arrayContaining([
+                OR: exactlyTheseInAnyOrder([
                   { status: OrderStatus.SHIPPED },
                   { deliveredById: delivery.id },
                 ]),
@@ -875,7 +876,7 @@ describe('OrdersService', () => {
           where: expect.objectContaining({
             AND: [
               {
-                OR: expect.arrayContaining([
+                OR: exactlyTheseInAnyOrder([
                   { status: OrderStatus.SHIPPED },
                   { deliveredById: other.id },
                 ]),
