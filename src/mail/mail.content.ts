@@ -124,5 +124,36 @@ export function renderMail(data: MailJobData): MailMessage {
           'Sign in to see what you ordered and where it is going.',
         ].join('\n'),
       };
+
+    /**
+     * The stock notification the brief marks (MUST). It goes to somebody who
+     * liked a product and never bought it, so it has to read as a nudge and
+     * not as a receipt — and it has to survive its details being absent,
+     * because a rendering that threw would turn a missing field into a mail
+     * job that fails three times and is then discarded with its recipient.
+     *
+     * The product's image rides in `attachments`, which `base` already
+     * carries through: it is bytes rather than a link because the bucket is
+     * private and a presigned URL dies long before an inbox does. See
+     * `src/notifications/product-image.attachment.ts`.
+     */
+    case MailKind.LowStock: {
+      const item = data.lowStock;
+      const named = item ? item.productName : 'Something you liked';
+
+      return {
+        ...base,
+        subject: `Running low: ${named}`,
+        text: [
+          item
+            ? `${item.productName} — ${item.size}, ${item.color.toLowerCase()} — is nearly out of stock.`
+            : `${named} is nearly out of stock.`,
+          '',
+          item ? `Only ${item.remaining} left.` : 'Only a few are left.',
+          '',
+          'You liked it and have not ordered it yet. The photograph is attached.',
+        ].join('\n'),
+      };
+    }
   }
 }

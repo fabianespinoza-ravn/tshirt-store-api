@@ -224,6 +224,41 @@ export class OrdersService {
     const order = await this.loadOrder(user, orderId, 'update');
     this.assertTransition(order.status, status, user);
 
+    // Cancel before releasing, here as everywhere else. A client may take
+    // their own PENDING order to CANCELLED, and that release used to happen
+    // with the Stripe intent untouched — while the client still holds the
+    // `clientSecret` this checkout handed them. Cancel, then confirm, and
+    // the charge lands on units already back on the shelf and possibly
+    // resold. It is the sweep's oversell reached by the shortest path
+    // there is, and unlike the sweep's it needs no outage and no race: it
+    // is two ordinary requests in order.
+    //
+    // Only a transition that releases stock needs this, and only from
+    // PENDING, because that is the only status holding a live intent.
+    // Everything downstream of PAID has already been settled.
+    if (releasesStock(status) && order.status === OrderStatus.PENDING) {
+      const intentId = await intentToCancel(
+        this.prisma,
+        this.stripe,
+        order,
+        new Date(),
+      );
+
+      // Unreachable or uncancellable means unreleasable. The order stays
+      // where it is and the caller is told to try again, rather than being
+      // handed a cancellation that leaves a live charge pointed at stock
+      // somebody else can now buy.
+      if (
+        intentId === null ||
+        !(await this.stripe.cancelPaymentIntent(intentId))
+      ) {
+        throw new ProblemException(
+          Problems.conflict,
+          'The payment for this order could not be stopped, so it cannot be cancelled yet. Try again shortly.',
+        );
+      }
+    }
+
     await this.prisma.$transaction(
       async (tx) => {
         const moved = await tx.order.updateMany({

@@ -1,6 +1,13 @@
 import type { StripeService } from '../../src/payments/stripe.service';
 
 /**
+ * The intent id this stub answers with for an order, derived rather than
+ * random so a fixture can seed the `Payment` row an already-placed order
+ * would carry and name the same intent the application would find.
+ */
+export const intentIdFor = (orderId: string): string => `pi_${orderId}`;
+
+/**
  * Stands in for `StripeService` across the end-to-end suite, so checkout
  * runs for real and only the network is replaced.
  *
@@ -20,19 +27,32 @@ export class StripeStub {
   /** Set false to make cancelling fail, which is the sweep's refusal path. */
   cancelSucceeds = true;
 
+  /**
+   * Runs while a cancellation is in flight, before the caller learns whether
+   * it succeeded.
+   *
+   * It exists for one question the recorded arrays cannot answer: checkout
+   * must stop a lapsed order's payment *before* anything releases its stock,
+   * and both happen inside one request. A hook here is the only vantage point
+   * from which the reservations can be read at the moment the intent is being
+   * cancelled — after that instant the two orderings look identical.
+   */
+  onCancel?: (paymentIntentId: string) => Promise<void> | void;
+
   createPaymentIntent(order: { id: string; total: number }) {
     this.created.push({ orderId: order.id, amount: order.total });
 
     return Promise.resolve({
-      id: `pi_${order.id}`,
-      client_secret: `pi_${order.id}_secret`,
+      id: intentIdFor(order.id),
+      client_secret: `${intentIdFor(order.id)}_secret`,
     } as Awaited<ReturnType<StripeService['createPaymentIntent']>>);
   }
 
-  cancelPaymentIntent(paymentIntentId: string): Promise<boolean> {
+  async cancelPaymentIntent(paymentIntentId: string): Promise<boolean> {
     this.cancelled.push(paymentIntentId);
+    await this.onCancel?.(paymentIntentId);
 
-    return Promise.resolve(this.cancelSucceeds);
+    return this.cancelSucceeds;
   }
 
   /** How many intents were created for one order, which is the double-charge question. */
@@ -44,5 +64,6 @@ export class StripeStub {
     this.created.length = 0;
     this.cancelled.length = 0;
     this.cancelSucceeds = true;
+    this.onCancel = undefined;
   }
 }

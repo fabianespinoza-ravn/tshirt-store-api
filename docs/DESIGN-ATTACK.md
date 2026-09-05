@@ -396,8 +396,26 @@ inside a manager request. They're two different places on the Q1 diagram.
 **Ways out.** Either reading is defensible. What isn't: the ERD having picked one without being able
 to say why.
 
-**Recommendation.** Restock, which is what the ERD already picked. Switching to the scarcity reading
-now costs rebuilding `restock_cycle`, and the brief's wording isn't strong enough to justify that.
+**Decision: scarcity.** Reversed from the recommendation this finding first made, because one of
+that recommendation's two reasons turned out to be false.
+
+It argued that switching cost rebuilding `restock_cycle`. It does not. The column sits in
+`uq_stock_notifications_user_sku_cycle`, so what it really is is the idempotency key of the ledger —
+and it works under both readings, with different jobs. Under restock it is the *trigger*: it rises
+when stock is replenished and that sends the message. Under scarcity it is the *reset*: it rises on
+the same event, and that is what lets the next sell-down notify again. Both readings need the same
+hook in the same place, `SkusService.update`. All that changes is whether that hook sends an email or
+only opens a cycle.
+
+With the cost gone, the remaining argument for restock was that the ERD had already picked it, which
+is a sunk cost. What is left is the sentence itself, and it reads as scarcity: a product *reaching* 3
+is one selling down, not one replenished to exactly three units, and nudging people who liked
+something without buying it is what "only a few left" is for.
+
+**Consequence.** The trigger sits at payment settlement, inside the webhook path, not in `PATCH
+/skus`. The manager request keeps a hook, but only to open a cycle — a restock that raised stock
+without opening one would leave every liker permanently marked as notified and the variant would go
+quiet for the rest of its life.
 **And this is the part to defend:** not the reading itself, but that the ambiguity was noticed and
 one was chosen. **Would change if** the mentor reads the sentence as scarcity — then the trigger
 moves from the `PATCH` to the webhook.

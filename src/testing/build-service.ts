@@ -8,6 +8,7 @@ import { PasswordService } from '../auth/password.service';
 import { TokenService } from '../auth/token.service';
 import { ProductsService } from '../products/products.service';
 import { MailService } from '../mail/mail.service';
+import { StockNotificationsService } from '../notifications/stock-notifications.service';
 import { StripeService } from '../payments/stripe.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
@@ -16,6 +17,7 @@ import { createPrismaMock, type PrismaMock } from './prisma.mock';
 export type StorageMock = DeepMockProxy<StorageService>;
 export type MailMock = DeepMockProxy<MailService>;
 export type StripeMock = DeepMockProxy<StripeService>;
+export type StockNotificationsMock = DeepMockProxy<StockNotificationsService>;
 export type TokenMock = DeepMockProxy<TokenService>;
 export type JwtMock = DeepMockProxy<JwtService>;
 
@@ -25,6 +27,7 @@ export interface ServiceHarness<T> {
   storage: StorageMock;
   mail: MailMock;
   stripe: StripeMock;
+  stockNotifications: StockNotificationsMock;
   tokens: TokenMock;
   jwt: JwtMock;
   // Values the fake ConfigService returns; a test can write to it directly.
@@ -63,6 +66,7 @@ export async function buildService<T>(
   const storage = mockDeep<StorageService>();
   const mail = mockDeep<MailService>();
   const stripe = mockDeep<StripeService>();
+  const stockNotifications = mockDeep<StockNotificationsService>();
   const tokens = mockDeep<TokenService>();
   const jwt = mockDeep<JwtService>();
   const config = { ...CONFIG_DEFAULTS };
@@ -87,6 +91,11 @@ export async function buildService<T>(
   );
   stripe.cancelPaymentIntent.mockResolvedValue(true);
 
+  // A restock that does not cross the threshold is the ordinary case, so
+  // the default is "no cycle opened"; a test about the crossing says so.
+  stockNotifications.openCycleOnRestock.mockResolvedValue(false);
+  stockNotifications.observeStockChange.mockResolvedValue(false);
+
   const configService = {
     get: <V>(key: string, fallback?: V): V | undefined =>
       (config[key] as V) ?? fallback,
@@ -104,6 +113,10 @@ export async function buildService<T>(
       { provide: StorageService, useValue: storage },
       { provide: MailService, useValue: mail },
       { provide: StripeService, useValue: stripe },
+      {
+        provide: StockNotificationsService,
+        useValue: stockNotifications,
+      },
       { provide: JwtService, useValue: jwt },
       { provide: ConfigService, useValue: configService },
       { provide: TokenService, useValue: tokens },
@@ -122,6 +135,7 @@ export async function buildService<T>(
     storage,
     mail,
     stripe,
+    stockNotifications,
     tokens,
     jwt,
     config,

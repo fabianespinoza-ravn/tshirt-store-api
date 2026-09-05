@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { newId } from '../common/ids';
 import { Problems } from '../common/problem/problem.catalog';
 import { ProblemException } from '../common/problem/problem.exception';
+import { StockNotificationsService } from '../notifications/stock-notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
 import { NOT_DELETED } from '../catalog/query';
@@ -16,6 +17,7 @@ export class SkusService {
     private readonly prisma: PrismaService,
     private readonly storage: StorageService,
     private readonly products: ProductsService,
+    private readonly stockNotifications: StockNotificationsService,
   ) {}
 
   async create(productId: string, dto: CreateSkuDto): Promise<ManagerSkuView> {
@@ -80,13 +82,36 @@ export class SkusService {
     // `undefined` means "don't touch it" and `null` means "remove it". The
     // distinction is the way back for a manager who attached the wrong
     // photo, and it can't depend on another image existing.
-    const updated = await this.prisma.sku.update({
-      where: { id: skuId },
-      data: {
-        ...(dto.price === undefined ? {} : { price: dto.price }),
-        ...(dto.stock === undefined ? {} : { stock: dto.stock }),
-        ...(dto.imageId === undefined ? {} : { imageId: dto.imageId }),
-      },
+    // Both writes or neither. Under the scarcity reading of the low-stock
+    // rule, `restockCycle` is not what sends the message — it is what lets
+    // the *next* sell-down send one, because `StockNotification` is unique
+    // on (user, sku, cycle). A restock that raised the stock without opening
+    // a cycle would leave every liker permanently marked as already
+    // notified, and the SKU would go quiet for the rest of its life. That is
+    // a silent failure, so the increment travels with the raise.
+    //
+    // `sku.stock` was read before this transaction opened, so a restock
+    // racing another restock can misjudge the crossing. The cost is one
+    // cycle too many or too few — a message sent again or withheld — and
+    // never stock or money, which is why this is not `Serializable`.
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const written = await tx.sku.update({
+        where: { id: skuId },
+        data: {
+          ...(dto.price === undefined ? {} : { price: dto.price }),
+          ...(dto.stock === undefined ? {} : { stock: dto.stock }),
+          ...(dto.imageId === undefined ? {} : { imageId: dto.imageId }),
+        },
+      });
+
+      await this.stockNotifications.openCycleOnRestock(
+        tx,
+        skuId,
+        sku.stock,
+        written.stock,
+      );
+
+      return written;
     });
 
     // PENDING (Week 4): a price change deactivates this SKU's active Payment
