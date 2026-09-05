@@ -1,4 +1,5 @@
 import { HttpStatus } from '@nestjs/common';
+import { CHECK_POLICIES_KEY } from '../../auth/casl/check-policies.decorator';
 import { newId } from '../../common/ids';
 import { PaymentLinksController } from './payment-links.controller';
 import type { PaymentLinksService } from './payment-links.service';
@@ -93,7 +94,12 @@ describe('PaymentLinksController', () => {
   // CASL subject carrying no rule, so `PoliciesGuard` denies every caller —
   // a MANAGER included — until the rule named in the controller's extension
   // point is written.
-  it.todo(
-    'requires create on PaymentLink, which no ability rule grants yet, so the route answers 403',
-  );
+  it('requires create on PaymentLink, which no ability rule grants yet, so the route answers 403', () => {
+    expect(
+      Reflect.getMetadata(
+        CHECK_POLICIES_KEY,
+        PaymentLinksController.prototype.createPaymentLink,
+      ),
+    ).toEqual([{ action: 'create', subject: 'PaymentLink' }]);
+  });
 });

@@ -1,7 +1,9 @@
 import { HttpStatus, ParseUUIDPipe } from '@nestjs/common';
 import { ROUTE_ARGS_METADATA } from '@nestjs/common/constants';
 import { OrderStatus } from '@prisma/client';
+import { CHECK_POLICIES_KEY } from '../../auth/casl/check-policies.decorator';
 import { newId } from '../../common/ids';
+import { IS_PUBLIC_KEY } from '../../common/decorators/public.decorator';
 import { GuestOrdersController } from './guest-orders.controller';
 import type { GuestOrdersService } from './guest-orders.service';
 import type { GuestOrderView } from './guest-orders.views';
@@ -16,9 +18,10 @@ import type { GuestOrderView } from './guest-orders.views';
  * public route: `@Public()` has to be on the handler or the global JWT guard
  * answers 401 to the buyer the route exists for, and no `@CheckPolicies` may
  * appear on it, because docs/AUTHORIZATION-MATRIX.md puts `getGuestOrder`
- * under "What does NOT go in the ability". Both are left as `it.todo` on
- * purpose: they are the reachability of an unauthenticated route, and
- * CLAUDE.md keeps those assertions with the author.
+ * under "What does NOT go in the ability". Both are asserted here rather
+ * than assumed: they are the reachability of an unauthenticated route, and
+ * a decorator quietly dropped from the handler is invisible until a real
+ * buyer is answered 401 by a route that exists for them.
  */
 const guestView: GuestOrderView = {
   id: newId(),
@@ -64,9 +67,23 @@ describe('GuestOrdersController', () => {
     );
   });
 
-  it.todo('carries @Public(), so an anonymous caller is not answered 401');
+  it('carries @Public(), so an anonymous caller is not answered 401', () => {
+    expect(
+      Reflect.getMetadata(
+        IS_PUBLIC_KEY,
+        GuestOrdersController.prototype.getGuestOrder,
+      ),
+    ).toBe(true);
+  });
 
-  it.todo('carries no @CheckPolicies, because there is no subject to grant');
+  it('carries no @CheckPolicies, because there is no subject to grant', () => {
+    expect(
+      Reflect.getMetadata(
+        CHECK_POLICIES_KEY,
+        GuestOrdersController.prototype.getGuestOrder,
+      ),
+    ).toBeUndefined();
+  });
 
   it('rejects a path segment that is not a UUID before it reaches Prisma', async () => {
     // Two halves, and both are needed: that the pipe is declared on the

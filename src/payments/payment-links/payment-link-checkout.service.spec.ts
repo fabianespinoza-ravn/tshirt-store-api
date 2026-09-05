@@ -1,6 +1,7 @@
 import {
   OrderStatus,
   PaymentMethod,
+  PaymentStatus,
   Prisma,
   UserRole,
   UserState,
@@ -191,9 +192,19 @@ describe('PaymentLinkCheckoutService', () => {
       expect(settlement?.orderId).toBe(orderData().id);
     });
 
-    it.todo(
-      'settles checkout.session.async_payment_succeeded to the same order status and the same stock movement as the completion event',
-    );
+    it('settles checkout.session.async_payment_succeeded to the same order status and the same stock movement as the completion event', async () => {
+      const settlement = await settle(
+        aCompletedSession(),
+        'checkout.session.async_payment_succeeded',
+      );
+
+      expect(settlement?.status).toBe(OrderStatus.PAID);
+      expect(orderData().status).toBe(OrderStatus.PAID);
+      expect(harness.prisma.sku.update).toHaveBeenCalledWith({
+        where: { id: link.skuId },
+        data: { stock: { decrement: PAYMENT_LINK_QUANTITY } },
+      });
+    });
 
     it('answers null for a session that names no payment link', async () => {
       await expect(
@@ -235,11 +246,26 @@ describe('PaymentLinkCheckoutService', () => {
   });
 
   describe('the order it creates', () => {
-    it.todo('writes the order as PAID when the SKU has stock');
+    it('writes the order as PAID when the SKU has stock', async () => {
+      await settle();
 
-    it.todo(
-      'prices the line from PaymentLink.unitPriceAtCreation, not from the SKU current price',
-    );
+      expect(orderData().status).toBe(OrderStatus.PAID);
+    });
+
+    it('prices the line from PaymentLink.unitPriceAtCreation, not from the SKU current price', async () => {
+      harness.prisma.sku.findUnique.mockResolvedValue({
+        ...sku,
+        price: 9999,
+        product,
+      } as never);
+
+      await settle();
+
+      expect(orderData().items.create[0].unitPrice).toBe(
+        link.unitPriceAtCreation,
+      );
+      expect(orderData().total).toBe(link.unitPriceAtCreation);
+    });
 
     it('writes one line of PAYMENT_LINK_QUANTITY units', async () => {
       await settle();
@@ -271,7 +297,17 @@ describe('PaymentLinkCheckoutService', () => {
       );
     });
 
-    it.todo('writes subtotal and total equal, with no discount');
+    it('writes subtotal and total equal, with no discount', async () => {
+      await settle();
+
+      expect(orderData()).toEqual(
+        expect.objectContaining({
+          subtotal: link.unitPriceAtCreation,
+          total: link.unitPriceAtCreation,
+          orderDiscountAmount: 0,
+        }),
+      );
+    });
 
     it('writes expiresAt null, because the order was never PENDING', async () => {
       await settle();
@@ -347,11 +383,22 @@ describe('PaymentLinkCheckoutService', () => {
   });
 
   describe('the stock it moves', () => {
-    it.todo('decrements Sku.stock by the quantity sold');
+    it('decrements Sku.stock by the quantity sold', async () => {
+      await settle();
 
-    it.todo(
-      'leaves Sku.reserved untouched, because a paid order holds nothing',
-    );
+      expect(harness.prisma.sku.update).toHaveBeenCalledWith({
+        where: { id: link.skuId },
+        data: { stock: { decrement: PAYMENT_LINK_QUANTITY } },
+      });
+    });
+
+    it('leaves Sku.reserved untouched, because a paid order holds nothing', async () => {
+      await settle();
+
+      expect(harness.prisma.sku.update.mock.calls[0]?.[0].data).toEqual({
+        stock: { decrement: PAYMENT_LINK_QUANTITY },
+      });
+    });
 
     it('reads the SKU again inside the transaction rather than trusting the link row', async () => {
       await settle();
@@ -370,35 +417,166 @@ describe('PaymentLinkCheckoutService', () => {
       expect(read).toBeGreaterThan(transaction);
     });
 
-    it.todo(
-      'treats availability as stock minus reserved, so units held by a pending order are not sold twice',
-    );
+    it('treats availability as stock minus reserved, so units held by a pending order are not sold twice', async () => {
+      harness.prisma.sku.findUnique.mockResolvedValue({
+        ...sku,
+        stock: PAYMENT_LINK_QUANTITY,
+        reserved: PAYMENT_LINK_QUANTITY,
+        product,
+      } as never);
+
+      const settlement = await settle();
+
+      expect(settlement?.status).toBe(OrderStatus.FAILED);
+      expect(harness.prisma.sku.update).not.toHaveBeenCalled();
+    });
   });
 
   describe('the purchases it refuses to fulfil', () => {
-    it.todo(
-      'writes the order as FAILED when availability is below the quantity',
-    );
+    it('writes the order as FAILED when availability is below the quantity', async () => {
+      harness.prisma.sku.findUnique.mockResolvedValue({
+        ...sku,
+        stock: 0,
+        reserved: 0,
+        product,
+      } as never);
 
-    it.todo(
-      'writes FAILED when the units are only held by a reservation, not sold',
-    );
+      await settle();
 
-    it.todo('writes FAILED when the product has been soft-deleted');
+      expect(orderData().status).toBe(OrderStatus.FAILED);
+    });
 
-    it.todo('writes FAILED when the product is no longer active');
+    it('writes FAILED when the units are only held by a reservation, not sold', async () => {
+      harness.prisma.sku.findUnique.mockResolvedValue({
+        ...sku,
+        stock: PAYMENT_LINK_QUANTITY,
+        reserved: PAYMENT_LINK_QUANTITY,
+        product,
+      } as never);
 
-    it.todo(
-      'writes FAILED when Stripe charged an amount the link does not account for',
-    );
+      await settle();
 
-    it.todo('moves no stock in any of those cases');
+      expect(orderData().status).toBe(OrderStatus.FAILED);
+    });
 
-    it.todo(
-      'still writes the payment as SUCCEEDED, because the money did arrive',
-    );
+    it('writes FAILED when the product has been soft-deleted', async () => {
+      harness.prisma.sku.findUnique.mockResolvedValue({
+        ...sku,
+        product: { ...product, deletedAt: new Date() },
+      } as never);
 
-    it.todo('answers with the FAILED status so the caller can act on it');
+      await settle();
+
+      expect(orderData().status).toBe(OrderStatus.FAILED);
+    });
+
+    it('writes FAILED when the product is no longer active', async () => {
+      harness.prisma.sku.findUnique.mockResolvedValue({
+        ...sku,
+        product: { ...product, isActive: false },
+      } as never);
+
+      await settle();
+
+      expect(orderData().status).toBe(OrderStatus.FAILED);
+    });
+
+    it('writes FAILED when Stripe charged an amount the link does not account for', async () => {
+      await settle(aCompletedSession({ amount_total: 9999 }));
+
+      expect(orderData().status).toBe(OrderStatus.FAILED);
+      expect(harness.prisma.sku.update).not.toHaveBeenCalled();
+    });
+
+    it('moves no stock in any of those cases', async () => {
+      const cases: (() => void)[] = [
+        () => {
+          harness.prisma.sku.findUnique.mockResolvedValue({
+            ...sku,
+            stock: 0,
+            product,
+          } as never);
+        },
+        () => {
+          harness.prisma.sku.findUnique.mockResolvedValue({
+            ...sku,
+            stock: PAYMENT_LINK_QUANTITY,
+            reserved: PAYMENT_LINK_QUANTITY,
+            product,
+          } as never);
+        },
+        () => {
+          harness.prisma.sku.findUnique.mockResolvedValue({
+            ...sku,
+            product: { ...product, deletedAt: new Date() },
+          } as never);
+        },
+        () => {
+          harness.prisma.sku.findUnique.mockResolvedValue({
+            ...sku,
+            product: { ...product, isActive: false },
+          } as never);
+        },
+      ];
+
+      for (const arrange of cases) {
+        resetPrismaMock(harness.prisma);
+        harness.prisma.payment.findUnique.mockResolvedValue(null);
+        harness.prisma.paymentLink.findUnique.mockResolvedValue({
+          ...link,
+          sku: { ...sku, product },
+        } as never);
+        harness.prisma.user.findUnique.mockResolvedValue(null);
+        harness.prisma.orderStatusHistory.count.mockResolvedValue(0);
+        arrange();
+        await settle();
+        expect(harness.prisma.sku.update).not.toHaveBeenCalled();
+      }
+
+      resetPrismaMock(harness.prisma);
+      harness.prisma.payment.findUnique.mockResolvedValue(null);
+      harness.prisma.paymentLink.findUnique.mockResolvedValue({
+        ...link,
+        sku: { ...sku, product },
+      } as never);
+      harness.prisma.sku.findUnique.mockResolvedValue({
+        ...sku,
+        product,
+      } as never);
+      harness.prisma.user.findUnique.mockResolvedValue(null);
+      harness.prisma.orderStatusHistory.count.mockResolvedValue(0);
+      await settle(aCompletedSession({ amount_total: 9999 }));
+      expect(harness.prisma.sku.update).not.toHaveBeenCalled();
+    });
+
+    it('still writes the payment as SUCCEEDED, because the money did arrive', async () => {
+      harness.prisma.sku.findUnique.mockResolvedValue({
+        ...sku,
+        stock: 0,
+        product,
+      } as never);
+
+      await settle();
+
+      expect(harness.prisma.payment.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          status: PaymentStatus.SUCCEEDED,
+          method: PaymentMethod.PAYMENT_LINK,
+        }),
+      });
+    });
+
+    it('answers with the FAILED status so the caller can act on it', async () => {
+      harness.prisma.sku.findUnique.mockResolvedValue({
+        ...sku,
+        stock: 0,
+        product,
+      } as never);
+
+      await expect(settle()).resolves.toEqual(
+        expect.objectContaining({ status: OrderStatus.FAILED }),
+      );
+    });
   });
 
   describe('the payment row', () => {
@@ -449,9 +627,13 @@ describe('PaymentLinkCheckoutService', () => {
       });
     });
 
-    it.todo(
-      'writes the amount Stripe charged rather than the amount the link records',
-    );
+    it('writes the amount Stripe charged rather than the amount the link records', async () => {
+      await settle(aCompletedSession({ amount_total: 3000 }));
+
+      expect(harness.prisma.payment.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ amount: 3000 }),
+      });
+    });
   });
 
   describe('the buyer', () => {
@@ -548,8 +730,12 @@ describe('PaymentLinkCheckoutService', () => {
       expect(harness.prisma.orderStatusHistory.create).not.toHaveBeenCalled();
     });
 
-    it.todo(
-      'moves no stock on a redelivery, so the units the first settlement sold are not decremented twice',
-    );
+    it('moves no stock on a redelivery, so the units the first settlement sold are not decremented twice', async () => {
+      harness.prisma.payment.findUnique.mockResolvedValue(settled as never);
+
+      await settle();
+
+      expect(harness.prisma.sku.update).not.toHaveBeenCalled();
+    });
   });
 });

@@ -1,4 +1,4 @@
-import { OrderStatus } from '@prisma/client';
+import { OrderStatus, PaymentMethod } from '@prisma/client';
 import { newId } from '../../common/ids';
 import { Problems } from '../../common/problem/problem.catalog';
 import { buildService, type ServiceHarness } from '../../testing/build-service';
@@ -94,9 +94,20 @@ describe('GuestOrdersService', () => {
       );
     });
 
-    it.todo(
-      'requires a PAYMENT_LINK payment, so a signed-in client order is unreachable here',
-    );
+    it('requires a PAYMENT_LINK payment, so a signed-in client order is unreachable here', async () => {
+      const orderId = newId();
+
+      await harness.service.getOne(orderId);
+
+      expect(harness.prisma.order.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            id: orderId,
+            payments: { some: { method: PaymentMethod.PAYMENT_LINK } },
+          },
+        }),
+      );
+    });
 
     it('selects only the published columns, so the address never leaves Postgres', async () => {
       await harness.service.getOne(newId());
@@ -137,9 +148,16 @@ describe('GuestOrdersService', () => {
       });
     });
 
-    it.todo(
-      'answers 404 and never 403 for an order that exists but was not paid by link',
-    );
+    it('answers 404 and never 403 for an order that exists but was not paid by link', async () => {
+      harness.prisma.order.findFirst.mockResolvedValue(null);
+
+      const rejected: unknown = await harness.service
+        .getOne(newId())
+        .catch((error: unknown) => error);
+
+      expect(rejected).toMatchObject({ kind: Problems.notFound });
+      expect(rejected).not.toMatchObject({ kind: Problems.forbidden });
+    });
 
     it('computes each line total from the snapshot unit price', async () => {
       harness.prisma.order.findFirst.mockResolvedValue(
