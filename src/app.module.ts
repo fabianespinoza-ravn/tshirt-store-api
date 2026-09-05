@@ -10,6 +10,7 @@ import { MailModule } from './mail/mail.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { OrdersModule } from './orders/orders.module';
 import { PrismaModule } from './prisma/prisma.module';
+import { StripeWebhookModule } from './payments/webhooks/stripe-webhook.module';
 import { ProductsModule } from './products/products.module';
 import { QueueModule } from './queue/queue.module';
 import { SkusModule } from './skus/skus.module';
@@ -50,6 +51,7 @@ import { validateEnv } from './config/env.validation';
     LikesModule,
     CartModule,
     OrdersModule,
+    StripeWebhookModule,
   ],
 })
 export class AppModule {}

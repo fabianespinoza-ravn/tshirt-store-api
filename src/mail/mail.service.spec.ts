@@ -16,7 +16,10 @@ import { MailService } from './mail.service';
  * error.
  */
 describe('MailService', () => {
-  const queue = { add: jest.fn() };
+  // Typed, because one case reads the enqueued payload back out of
+  // `mock.calls` to prove the confirmation carries no token, and an untyped
+  // double makes that read an `any`.
+  const queue = { add: jest.fn<Promise<unknown>, [string, MailJobData]>() };
   const service = new MailService(queue as unknown as Queue<MailJobData>);
 
   beforeEach(() => jest.clearAllMocks());
@@ -71,6 +74,50 @@ describe('MailService', () => {
       JobName.SendMail,
       JobName.SendMail,
     ]);
+  });
+
+  /**
+   * The order confirmation, which is the first payload here that carries
+   * something other than a token.
+   *
+   * What is worth asserting is the same negative as above, pointed the
+   * other way: the job must carry `orderId` and **no `token` field at all**
+   * — this message goes out on a settled purchase and there is no
+   * credential anywhere near it — and it must still be named
+   * `JobName.SendMail`, or it waits in the queue forever without anything
+   * reporting a problem.
+   *
+   * Left as stubs deliberately: the method they describe was written by the
+   * assistant, and an assistant-written assertion would only restate it.
+   */
+  it('enqueues the order confirmation with the order id and no token', async () => {
+    await service.sendOrderConfirmation(
+      'buyer@example.test',
+      'order-confirmation-123',
+    );
+
+    expect(queue.add).toHaveBeenCalledWith(JobName.SendMail, {
+      kind: MailKind.OrderConfirmation,
+      to: 'buyer@example.test',
+      orderId: 'order-confirmation-123',
+    });
+    expect(queue.add.mock.calls[0]?.[1]).not.toHaveProperty('token');
+  });
+  it('names the confirmation job the one the mail processor answers to, like the rest', async () => {
+    await service.sendOrderConfirmation('buyer@example.test', 'order-1');
+
+    expect(queue.add).toHaveBeenCalledWith(
+      JobName.SendMail,
+      expect.objectContaining({ kind: MailKind.OrderConfirmation }),
+    );
+  });
+  it('rejects when the queue does, leaving the caller to decide what that costs', async () => {
+    const failure = new Error('Redis unavailable');
+    queue.add.mockRejectedValueOnce(failure);
+
+    await expect(
+      service.sendOrderConfirmation('buyer@example.test', 'order-1'),
+    ).rejects.toBe(failure);
   });
 
   it('rejects when the queue does, so a sign-up cannot report success', async () => {

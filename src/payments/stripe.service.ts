@@ -22,10 +22,12 @@ export class StripeService {
   private readonly logger = new Logger(StripeService.name);
   private readonly client: Stripe;
   private readonly currency: string;
+  private readonly webhookSecret: string;
 
   constructor(config: ConfigService) {
     this.client = new Stripe(config.getOrThrow<string>('STRIPE_SECRET_KEY'));
     this.currency = config.getOrThrow<string>('STRIPE_CURRENCY');
+    this.webhookSecret = config.getOrThrow<string>('STRIPE_WEBHOOK_SECRET');
   }
 
   /**
@@ -107,6 +109,55 @@ export class StripeService {
 
       return false;
     }
+  }
+
+  /**
+   * The event Stripe signed, or a thrown `StripeSignatureVerificationError`.
+   *
+   * **The payload has to be the raw bytes.** The signature covers exactly
+   * what Stripe put on the wire, so a body that has been parsed and
+   * re-serialised no longer hashes to the same value however faithful the
+   * round trip looks — key order and whitespace are not preserved by JSON.
+   * That is why `main.ts` boots with `rawBody: true` and why this takes a
+   * `Buffer` rather than an object.
+   *
+   * Nothing is caught here on purpose. Whether a bad signature is a 400, a
+   * 500 or a dropped job is a decision about the caller, and this class has
+   * no caller in view: the same method serves the HTTP route today and would
+   * serve a replay tool tomorrow. The route translates it.
+   */
+  constructWebhookEvent(payload: Buffer, signature: string): Stripe.Event {
+    return this.client.webhooks.constructEvent(
+      payload,
+      signature,
+      this.webhookSecret,
+    );
+  }
+
+  /**
+   * Refunds a charge in full and answers with the refund's id.
+   *
+   * **This one throws where `cancelPaymentIntent` reports.** The difference
+   * is what a failure costs. A cancellation that Stripe refuses leaves an
+   * order held for another minute, and the sweep's next run is the retry. A
+   * refund that fails is money taken from a customer whose order no longer
+   * exists, and the only safe answer is to fail the job so BullMQ retries it
+   * for the best part of a day and then parks it where a person can see it —
+   * which is exactly what `SETTLEMENT_JOB_OPTIONS` is shaped for.
+   *
+   * The intent's id is the idempotency key, so a retried job returns the
+   * refund that already exists instead of refunding a second time. The
+   * caller records the id it gets back **after** Stripe has answered, never
+   * before: a `stripe_refund_id` written for a refund that did not happen is
+   * indistinguishable, afterwards, from money that was actually returned.
+   */
+  async refundPaymentIntent(paymentIntentId: string): Promise<string> {
+    const refund = await this.client.refunds.create(
+      { payment_intent: paymentIntentId },
+      { idempotencyKey: `refund:${paymentIntentId}` },
+    );
+
+    return refund.id;
   }
 
   /**

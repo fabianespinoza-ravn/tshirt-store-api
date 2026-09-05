@@ -8,16 +8,24 @@ import { MailKind, type MailJobData } from './mail.jobs';
  * A producer, since block 4. It decides that a message should be sent and
  * stops there; the worker decides what it says and delivers it.
  *
- * The four method signatures are unchanged from the version that logged, so
- * `AuthService` did not have to know that any of this happened — which is
- * the shape the architecture write-up describes and the reason the change
- * is confined to this file.
+ * The account methods kept the signatures they had in the version that
+ * logged, so `AuthService` did not have to know that any of this happened —
+ * which is the shape the architecture write-up describes and the reason
+ * that change was confined to this file.
  *
  * What did change is when the caller's promise resolves. It used to mean
  * "the message was handled"; it now means "the job was accepted". A sign-up
  * that returns 201 is promising that an email will be sent, not that it has
  * been — and if Redis is unreachable, `add` rejects and the sign-up fails
  * rather than silently swallowing the account's only way to be verified.
+ *
+ * **Every method here rejects, and every caller decides what that means.**
+ * `AuthService.notify` swallows a rejection because three of its endpoints
+ * must answer the same way for an address that exists and one that does
+ * not. `SettlementService` swallows it for a different and stronger reason
+ * — by the time it calls, money has moved and an order is PAID — and
+ * `signUp` deliberately does not swallow at all. This class does not
+ * choose for them.
  */
 @Injectable()
 export class MailService {
@@ -39,6 +47,22 @@ export class MailService {
 
   sendPasswordChanged(email: string): Promise<void> {
     return this.enqueue({ kind: MailKind.PasswordChanged, to: email });
+  }
+
+  /**
+   * The only message here that is not about an account.
+   *
+   * It takes the order's id rather than the order, because that is all the
+   * body says and all the payload is allowed to hold — see `MailJobData`.
+   * Passing the row would put the buyer's name and postal address into a
+   * queue that has no use for either.
+   */
+  sendOrderConfirmation(email: string, orderId: string): Promise<void> {
+    return this.enqueue({
+      kind: MailKind.OrderConfirmation,
+      to: email,
+      orderId,
+    });
   }
 
   /**
