@@ -52,6 +52,19 @@ describe('OrdersService', () => {
     role: UserRole.MANAGER,
   };
 
+  /**
+   * The courier, hoisted here because the DELIVERY cases need it in more than
+   * one place. Note that nothing about ownership appears in this fixture: a
+   * courier reaches an order through its status and through `deliveredById`,
+   * never through `userId`, so every order below is owned by `client` and
+   * that is the point rather than an oversight.
+   */
+  const delivery: AuthenticatedUser = {
+    id: 'delivery-1',
+    email: 'delivery@example.test',
+    role: UserRole.DELIVERY,
+  };
+
   beforeEach(async () => {
     h = await buildService(OrdersService, [AppAbilityFactory]);
     resetPrismaMock(h.prisma);
@@ -584,11 +597,6 @@ describe('OrdersService', () => {
     });
 
     it('records the courier and the moment on a delivery, so the ability keeps letting them read it', async () => {
-      const delivery: AuthenticatedUser = {
-        id: 'delivery-1',
-        email: 'delivery@example.test',
-        role: UserRole.DELIVERY,
-      };
       const order = arrangeStatusChange(OrderStatus.SHIPPED);
 
       await h.service.updateStatus(delivery, order.id, OrderStatus.DELIVERED);
@@ -603,6 +611,71 @@ describe('OrdersService', () => {
         }),
       );
     });
+  });
+
+  /**
+   * DELIVERY's row scope. The service does not decide any of it — it folds
+   * `accessibleBy` into the `where` and that is all — so these cases test the
+   * rules in `app-ability.factory.ts` through the only surface that can
+   * actually leak: the Prisma call. They are stubs for the reason the rules
+   * are marked as an extension point there. An assertion written beside a
+   * generated rule agrees with it; the student's disagrees when it is wrong.
+   *
+   * The shape to assert is the same one the CLIENT cases already use:
+   * `expect(h.prisma.order.findMany|findFirst).toHaveBeenCalledWith(...)`
+   * with the scope inside `AND`, never the value the mock was told to return.
+   * A service that dropped the scope entirely would still throw 404 for a
+   * missing row while handing back somebody else's order, and only the `where`
+   * shows the difference.
+   *
+   * `arrangeStatusChange` in the block above already builds an order owned by
+   * `client`; pass it `OrderStatus.SHIPPED` for the reachable cases and
+   * `OrderStatus.PAID` for the ones that must answer 404.
+   */
+  describe('DELIVERY scope', () => {
+    it.todo(
+      'list folds { OR: [{ status: SHIPPED }, { deliveredById: delivery.id }] } into the where, so a courier sees every shipped order plus their own deliveries',
+    );
+
+    it.todo(
+      'list keeps the query filters ANDed with that scope, so ?status=PENDING narrows the page and never widens it',
+    );
+
+    it.todo(
+      'getOne resolves with that same scope inside the where and never by id alone',
+    );
+
+    it.todo(
+      "getOne answers 404 and not 403 for a PAID order outside the courier's scope, so the route is not an identifier oracle",
+    );
+
+    it.todo(
+      'updateStatus resolves the order with the update scope, so a courier cannot deliver an order it could not have read',
+    );
+
+    it.todo(
+      'updateStatus answers 403 when a courier asks for CANCELLED, a destination no DELIVERY move reaches',
+    );
+
+    it.todo(
+      'updateStatus answers 409 when a courier asks for DELIVERED on a PAID order, because the move exists but not from there',
+    );
+
+    it.todo(
+      'updateStatus appends the DELIVERED history row after the status write, numbered after the rows already there',
+    );
+
+    it.todo(
+      'updateStatus releases no reservations on DELIVERED: only CANCELLED gives units back',
+    );
+
+    it.todo(
+      'a courier still reads the order after delivering it, because deliveredById was written in the same statement that left SHIPPED behind',
+    );
+
+    it.todo(
+      "a second courier does not reach the first one's delivered order, because deliveredById names one caller",
+    );
   });
 
   describe('without the Order rules in the ability', () => {

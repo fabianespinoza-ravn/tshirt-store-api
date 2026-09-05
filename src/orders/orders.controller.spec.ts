@@ -113,4 +113,22 @@ describe('OrdersController', () => {
       OrderStatus.CANCELLED,
     );
   });
+
+  /**
+   * The courier changes nothing about this layer, and a stub that proves it
+   * is worth having anyway: the temptation with a third role is to branch
+   * here — read the destination, decide the scope, shortcut the state
+   * machine — and every one of those moves puts an authorization decision
+   * somewhere the service cannot see it. Assert the passthrough and the
+   * branch has nowhere to hide.
+   */
+  describe('the DELIVERY passthrough', () => {
+    it.todo(
+      'hands a courier to list unchanged, so the SHIPPED-plus-own-deliveries scope stays a service decision',
+    );
+
+    it.todo(
+      'sends DELIVERED from the body with the order id from the path, and the courier from the token',
+    );
+  });
 });

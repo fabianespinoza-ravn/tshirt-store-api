@@ -73,7 +73,7 @@ export class OrdersController {
   @ApiOperation({
     summary: 'List orders the caller may see, newest first',
     description:
-      'Filters by status, by placement date range and by total range, all optional and combinable.',
+      'Filters by status, by placement date range and by total range, all optional and combinable. "The caller may see" is the row scope and not a role check: a CLIENT reads their own orders, a MANAGER reads every order, and a DELIVERY courier reads every SHIPPED order plus the ones they delivered.',
   })
   @ApiResponse({ status: 200, description: 'A page of orders' })
   @ApiProblems(
@@ -97,7 +97,11 @@ export class OrdersController {
    * belongs to somebody.
    */
   @CheckPolicies({ action: 'read', subject: 'Order' })
-  @ApiOperation({ summary: 'Get one order with its lines and totals' })
+  @ApiOperation({
+    summary: 'Get one order with its lines and totals',
+    description:
+      'Scoped exactly as the list is. An order outside the caller scope answers 404 and never 403, so the route cannot be used to enumerate identifiers.',
+  })
   @ApiResponse({ status: 200, description: 'The order' })
   @ApiProblems(
     Problems.unauthorized,
@@ -123,7 +127,7 @@ export class OrdersController {
   @ApiOperation({
     summary: 'Move an order to another status',
     description:
-      'A MANAGER advances PAID to PROCESSING to SHIPPED; a CLIENT cancels their own PENDING order. 403 when the role can never reach the destination, 409 when it cannot from the current status.',
+      'A MANAGER advances PAID to PROCESSING to SHIPPED; a CLIENT cancels their own PENDING order; a DELIVERY courier moves a SHIPPED order to DELIVERED, which records the courier on the order. 403 when the role can never reach the destination, 409 when it cannot from the current status, 404 when the order is outside the caller scope.',
   })
   @ApiResponse({ status: 200, description: 'The order after the change' })
   @ApiProblems(

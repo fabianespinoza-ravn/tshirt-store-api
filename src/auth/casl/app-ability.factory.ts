@@ -111,6 +111,49 @@ export class AppAbilityFactory {
       can(['read', 'update'], 'Order', { userId: user.id });
     }
 
+    // ─── Extension point: the DELIVERY rules ────────────────────────────
+    //
+    // The two lines below are the whole authorization model for the courier,
+    // and they are the student's to own rather than the assistant's. They
+    // arrived with the orders block; nothing in this repository asserts them
+    // yet, and `app-ability.spec.ts` carries the `it.todo` stubs that name
+    // every case they have to answer.
+    //
+    // What the matrix asks for, spelled out as rules:
+    //
+    //   DELIVERY · read·update · Order · { status: OrderStatus.SHIPPED }
+    //   DELIVERY · read·update · Order · { deliveredById: <the caller> }
+    //
+    // Both come from docs/AUTHORIZATION-MATRIX.md: the `listOrders`,
+    // `getOrder` and `updateOrderStatus` rows of the Orders table, each
+    // reading "DELIVERY within scope"; the line under that table that defines
+    // the scope — "any SHIPPED order, plus the DELIVERED ones they
+    // delivered"; and the per-role destination table, which gives DELIVERY
+    // exactly `SHIPPED → DELIVERED`.
+    //
+    // Why the rule and not only the guard. `PoliciesGuard` denies what the
+    // ability does not grant, so with no `read`/`update` rule on `Order` a
+    // courier gets 403 on all three routes and the feature does not exist.
+    // With the rule but without the condition it is worse than absent:
+    // `OrdersService.scope` folds whatever this builder produces straight
+    // into the Prisma `where`, and an unconditional rule yields `{}`, which
+    // matches every row — so the courier reads every client's order with a
+    // 200 that no test about a 403 would ever notice.
+    //
+    // Two decisions in these conditions are worth re-deciding rather than
+    // inheriting:
+    //
+    //   - `{ deliveredById: user.id }` states "the ones they delivered", not
+    //     "the DELIVERED ones they delivered". Today the column is written
+    //     only in the statement that sets `OrderStatus.DELIVERED`, so the two
+    //     sets coincide; a later transition out of DELIVERED would widen this
+    //     rule silently. Adding `status: OrderStatus.DELIVERED` to it is the
+    //     narrower reading of the matrix.
+    //   - `update` on any SHIPPED order is broader than the destination
+    //     table. What stops a courier cancelling a shipment is
+    //     `order-state-machine.ts`, not this rule, and that is deliberate:
+    //     one route carries every destination, so the ability cannot see it.
+    // ────────────────────────────────────────────────────────────────────
     if (user?.role === UserRole.DELIVERY) {
       can(['read', 'update'], 'Order', { status: OrderStatus.SHIPPED });
       can(['read', 'update'], 'Order', { deliveredById: user.id });
