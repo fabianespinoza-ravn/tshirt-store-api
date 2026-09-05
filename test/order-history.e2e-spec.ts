@@ -1,4 +1,44 @@
+import { OrderStatus } from '@prisma/client';
+import { Problems } from '../src/common/problem/problem.catalog';
+import type { Paginated } from '../src/common/pagination';
+import type { OrderView } from '../src/orders/orders.views';
 import { createE2eApp, type E2eApp } from './support/app';
+import { MALFORMED_ACCESS_TOKEN, expiredAccessToken } from './support/fixtures';
+import {
+  arrangeOrderHistory,
+  HISTORY_DATES,
+  MALFORMED_ORDER_ID,
+  ORDERS_ROUTE,
+  repriceAndRename,
+  SEEDED_ADDRESS,
+  UNKNOWN_ORDER_ID,
+} from './support/order-fixtures';
+
+function bearer(token: string): string {
+  return `Bearer ${token}`;
+}
+
+function ids(body: { data: { id: string }[] }): string[] {
+  return body.data.map((order) => order.id);
+}
+
+/**
+ * Supertest types `body` as `any`, so every read of it trips the
+ * unsafe-member-access rule and, worse, would let a renamed field pass
+ * unnoticed. These two name the shape once, from the application's own view
+ * types rather than a copy of them: a change to `OrderView` breaks the suite
+ * at compile time, which is where it should break.
+ */
+const listOf = (response: { body: unknown }): Paginated<OrderView> =>
+  response.body as Paginated<OrderView>;
+
+const orderOf = (response: { body: unknown }): OrderView =>
+  response.body as OrderView;
+
+function expectValidation(response: { status: number; body: unknown }): void {
+  expect(response.status).toBe(400);
+  expect(response.body).toMatchObject({ type: Problems.validation.type });
+}
 
 /**
  * The second of the three end-to-end flows the program mandates, after
@@ -6,16 +46,13 @@ import { createE2eApp, type E2eApp } from './support/app';
  * against the real application over the e2e database, reading
  * `GET /api/v1/orders` and `GET /api/v1/orders/{orderId}`.
  *
- * WHAT IS HERE AND WHAT IS NOT. This file is the harness and the case list.
- * Every case below is an `it.todo`, and that is a declared gap, not an
- * oversight: assertions for behaviour an assistant produced would assert that
- * behaviour, bugs included, so they are the student's to write (CLAUDE.md,
- * Tests). The fixtures each case needs already exist and run — see
- * `test/support/order-fixtures.ts` — and every name below states the exact
- * subset, the exact totals in integer cents and the exact statuses the answer
- * is supposed to contain, so writing the `expect` is reading the name.
+ * WHAT IS HERE AND WHAT IS NOT. This file is the harness and the contract
+ * assertions for order history. The fixtures each case needs already exist
+ * and run — see `test/support/order-fixtures.ts` — and every case states the
+ * exact subset, the exact totals in integer cents and the exact statuses the
+ * answer is supposed to contain.
  *
- * HOW TO TURN A STUB INTO A TEST. Each case starts from one line:
+ * Each case starts from one line:
  *
  *   const scene = await arrangeOrderHistory(e2e);
  *
@@ -69,198 +106,628 @@ describe('Order history (e2e)', () => {
   });
 
   describe('GET /orders: the three filters the challenge mandates', () => {
-    it.todo(
-      "with no filters, returns the caller's five seeded orders newest first — PENDING 2025-05-30, PAID 2025-04-05, SHIPPED 2025-03-15, DELIVERED 2025-02-20, CANCELLED 2025-01-10 — with meta { limit: 20, offset: 0, total: 5 }, the contract's defaults",
-    );
+    it("with no filters, returns the caller's five seeded orders newest first with the contract defaults", async () => {
+      const scene = await arrangeOrderHistory(e2e);
+      const response = await e2e
+        .request()
+        .get(ORDERS_ROUTE)
+        .set('Authorization', bearer(scene.owner.accessToken));
 
-    it.todo(
-      'date range: placedFrom=2025-02-01T00:00:00.000Z with placedTo=2025-04-30T23:59:59.999Z returns exactly scene.history.delivered, scene.history.shipped and scene.history.paid, newest first, and meta.total 3 — leaving out the CANCELLED order placed 2025-01-10 and the PENDING one placed 2025-05-30',
-    );
+      expect(response.status).toBe(200);
+      expect(ids(listOf(response))).toEqual(scene.history.all.map((o) => o.id));
+      expect(listOf(response).meta).toEqual({ limit: 20, offset: 0, total: 5 });
+    });
 
-    it.todo(
-      "date range, both bounds inclusive: placedFrom and placedTo both set to 2025-02-20T10:00:00.000Z, the DELIVERED order's own createdAt, return that one order alone and meta.total 1",
-    );
+    it('filters by an inclusive date range', async () => {
+      const scene = await arrangeOrderHistory(e2e);
+      const response = await e2e
+        .request()
+        .get(ORDERS_ROUTE)
+        .set('Authorization', bearer(scene.owner.accessToken))
+        .query({
+          placedFrom: '2025-02-01T00:00:00.000Z',
+          placedTo: '2025-04-30T23:59:59.999Z',
+        });
 
-    it.todo(
-      'date range, open at the top: placedFrom=2025-04-01T00:00:00.000Z with no placedTo returns scene.history.pending and scene.history.paid and meta.total 2',
-    );
+      expect(ids(listOf(response))).toEqual([
+        scene.history.paid.id,
+        scene.history.shipped.id,
+        scene.history.delivered.id,
+      ]);
+      expect(listOf(response).meta.total).toBe(3);
+    });
 
-    it.todo(
-      'date range, open at the bottom: placedTo=2025-02-28T23:59:59.999Z with no placedFrom returns scene.history.delivered and scene.history.cancelled and meta.total 2',
-    );
+    it('includes an order exactly on both date bounds', async () => {
+      const scene = await arrangeOrderHistory(e2e);
+      const date = HISTORY_DATES.delivered.toISOString();
+      const response = await e2e
+        .request()
+        .get(ORDERS_ROUTE)
+        .set('Authorization', bearer(scene.owner.accessToken))
+        .query({ placedFrom: date, placedTo: date });
 
-    it.todo(
-      'order status: status=SHIPPED returns scene.history.shipped alone, with meta.total 1',
-    );
+      expect(ids(listOf(response))).toEqual([scene.history.delivered.id]);
+      expect(listOf(response).meta.total).toBe(1);
+    });
 
-    it.todo(
-      'order status with no match: status=FAILED returns an empty data array and meta.total 0, because nothing seeded ever failed',
-    );
+    it('supports an open upper date bound', async () => {
+      const scene = await arrangeOrderHistory(e2e);
+      const response = await e2e
+        .request()
+        .get(ORDERS_ROUTE)
+        .set('Authorization', bearer(scene.owner.accessToken))
+        .query({ placedFrom: '2025-04-01T00:00:00.000Z' });
 
-    it.todo(
-      'price range: minTotal=4000 with maxTotal=12500 returns scene.history.delivered (4 000), scene.history.pending (7 500) and scene.history.shipped (12 500), newest first, and meta.total 3 — both bounds inclusive, with the PAID order at 25 000 and the CANCELLED one at 1 500 outside',
-    );
+      expect(ids(listOf(response))).toEqual([
+        scene.history.pending.id,
+        scene.history.paid.id,
+      ]);
+      expect(listOf(response).meta.total).toBe(2);
+    });
 
-    it.todo(
-      'price range, open at the top: minTotal=12500 alone returns scene.history.paid (25 000) and scene.history.shipped (12 500) and meta.total 2',
-    );
+    it('supports an open lower date bound', async () => {
+      const scene = await arrangeOrderHistory(e2e);
+      const response = await e2e
+        .request()
+        .get(ORDERS_ROUTE)
+        .set('Authorization', bearer(scene.owner.accessToken))
+        .query({ placedTo: '2025-02-28T23:59:59.999Z' });
 
-    it.todo(
-      'price range, open at the bottom: maxTotal=4000 alone returns scene.history.delivered (4 000) and scene.history.cancelled (1 500) and meta.total 2',
-    );
+      expect(ids(listOf(response))).toEqual([
+        scene.history.delivered.id,
+        scene.history.cancelled.id,
+      ]);
+      expect(listOf(response).meta.total).toBe(2);
+    });
 
-    it.todo(
-      'the three filters combined narrow to one row: status=SHIPPED with placedFrom=2025-02-01T00:00:00.000Z, placedTo=2025-04-30T23:59:59.999Z, minTotal=4000 and maxTotal=12500 returns scene.history.shipped alone and meta.total 1',
-    );
+    it('filters by order status', async () => {
+      const scene = await arrangeOrderHistory(e2e);
+      const response = await e2e
+        .request()
+        .get(ORDERS_ROUTE)
+        .set('Authorization', bearer(scene.owner.accessToken))
+        .query({ status: OrderStatus.SHIPPED });
 
-    it.todo(
-      "the filters are combined with AND and not OR: status=PAID with maxTotal=12500 returns an empty data array and meta.total 0, since the only PAID order of the caller's costs 25 000",
-    );
+      expect(ids(listOf(response))).toEqual([scene.history.shipped.id]);
+      expect(listOf(response).meta.total).toBe(1);
+    });
 
-    it.todo(
-      'rejects an unknown status, status=NOT_A_STATUS, with 400 and the validation problem type',
-    );
+    it('returns no rows for a status with no match', async () => {
+      const scene = await arrangeOrderHistory(e2e);
+      const response = await e2e
+        .request()
+        .get(ORDERS_ROUTE)
+        .set('Authorization', bearer(scene.owner.accessToken))
+        .query({ status: OrderStatus.FAILED });
 
-    it.todo(
-      'rejects a non-integer price bound, minTotal=125.5, with 400 and the validation problem type: money is an integer number of cents',
-    );
+      expect(listOf(response).data).toEqual([]);
+      expect(listOf(response).meta.total).toBe(0);
+    });
 
-    it.todo(
-      'rejects a negative price bound, minTotal=-1, with 400 and the validation problem type',
-    );
+    it('filters by an inclusive price range', async () => {
+      const scene = await arrangeOrderHistory(e2e);
+      const response = await e2e
+        .request()
+        .get(ORDERS_ROUTE)
+        .set('Authorization', bearer(scene.owner.accessToken))
+        .query({ minTotal: 4000, maxTotal: 12500 });
 
-    it.todo(
-      'rejects a date that is not ISO 8601, placedFrom=yesterday, with 400 and the validation problem type',
-    );
+      expect(ids(listOf(response))).toEqual([
+        scene.history.pending.id,
+        scene.history.shipped.id,
+        scene.history.delivered.id,
+      ]);
+      expect(listOf(response).meta.total).toBe(3);
+    });
+
+    it('supports an open upper price bound', async () => {
+      const scene = await arrangeOrderHistory(e2e);
+      const response = await e2e
+        .request()
+        .get(ORDERS_ROUTE)
+        .set('Authorization', bearer(scene.owner.accessToken))
+        .query({ minTotal: 12500 });
+
+      expect(ids(listOf(response))).toEqual([
+        scene.history.paid.id,
+        scene.history.shipped.id,
+      ]);
+      expect(listOf(response).meta.total).toBe(2);
+    });
+
+    it('supports an open lower price bound', async () => {
+      const scene = await arrangeOrderHistory(e2e);
+      const response = await e2e
+        .request()
+        .get(ORDERS_ROUTE)
+        .set('Authorization', bearer(scene.owner.accessToken))
+        .query({ maxTotal: 4000 });
+
+      expect(ids(listOf(response))).toEqual([
+        scene.history.delivered.id,
+        scene.history.cancelled.id,
+      ]);
+      expect(listOf(response).meta.total).toBe(2);
+    });
+
+    it('combines the three filters with AND', async () => {
+      const scene = await arrangeOrderHistory(e2e);
+      const response = await e2e
+        .request()
+        .get(ORDERS_ROUTE)
+        .set('Authorization', bearer(scene.owner.accessToken))
+        .query({
+          status: OrderStatus.SHIPPED,
+          placedFrom: '2025-02-01T00:00:00.000Z',
+          placedTo: '2025-04-30T23:59:59.999Z',
+          minTotal: 4000,
+          maxTotal: 12500,
+        });
+
+      expect(ids(listOf(response))).toEqual([scene.history.shipped.id]);
+      expect(listOf(response).meta.total).toBe(1);
+    });
+
+    it('does not combine filters with OR', async () => {
+      const scene = await arrangeOrderHistory(e2e);
+      const response = await e2e
+        .request()
+        .get(ORDERS_ROUTE)
+        .set('Authorization', bearer(scene.owner.accessToken))
+        .query({ status: OrderStatus.PAID, maxTotal: 12500 });
+
+      expect(listOf(response).data).toEqual([]);
+      expect(listOf(response).meta.total).toBe(0);
+    });
+
+    it('rejects an unknown status', async () => {
+      const scene = await arrangeOrderHistory(e2e);
+      const response = await e2e
+        .request()
+        .get(ORDERS_ROUTE)
+        .set('Authorization', bearer(scene.owner.accessToken))
+        .query({ status: 'NOT_A_STATUS' });
+      expectValidation(response);
+    });
+
+    it('rejects a non-integer price bound', async () => {
+      const scene = await arrangeOrderHistory(e2e);
+      const response = await e2e
+        .request()
+        .get(ORDERS_ROUTE)
+        .set('Authorization', bearer(scene.owner.accessToken))
+        .query({ minTotal: '125.5' });
+      expectValidation(response);
+    });
+
+    it('rejects a negative price bound', async () => {
+      const scene = await arrangeOrderHistory(e2e);
+      const response = await e2e
+        .request()
+        .get(ORDERS_ROUTE)
+        .set('Authorization', bearer(scene.owner.accessToken))
+        .query({ minTotal: -1 });
+      expectValidation(response);
+    });
+
+    it('rejects a non-ISO date', async () => {
+      const scene = await arrangeOrderHistory(e2e);
+      const response = await e2e
+        .request()
+        .get(ORDERS_ROUTE)
+        .set('Authorization', bearer(scene.owner.accessToken))
+        .query({ placedFrom: 'yesterday' });
+      expectValidation(response);
+    });
   });
 
   describe('GET /orders: pagination', () => {
-    it.todo(
-      'limit=2 with offset=0 returns the two newest orders, scene.history.pending then scene.history.paid, with meta { limit: 2, offset: 0, total: 5 }',
-    );
+    it('returns the first page', async () => {
+      const scene = await arrangeOrderHistory(e2e);
+      const response = await e2e
+        .request()
+        .get(ORDERS_ROUTE)
+        .set('Authorization', bearer(scene.owner.accessToken))
+        .query({ limit: 2, offset: 0 });
+      expect(ids(listOf(response))).toEqual([
+        scene.history.pending.id,
+        scene.history.paid.id,
+      ]);
+      expect(listOf(response).meta).toEqual({ limit: 2, offset: 0, total: 5 });
+    });
 
-    it.todo(
-      'limit=2 with offset=2 returns the next two, scene.history.shipped then scene.history.delivered, with meta { limit: 2, offset: 2, total: 5 }',
-    );
+    it('returns the middle page', async () => {
+      const scene = await arrangeOrderHistory(e2e);
+      const response = await e2e
+        .request()
+        .get(ORDERS_ROUTE)
+        .set('Authorization', bearer(scene.owner.accessToken))
+        .query({ limit: 2, offset: 2 });
+      expect(ids(listOf(response))).toEqual([
+        scene.history.shipped.id,
+        scene.history.delivered.id,
+      ]);
+      expect(listOf(response).meta).toEqual({ limit: 2, offset: 2, total: 5 });
+    });
 
-    it.todo(
-      'limit=2 with offset=4 returns the last page, scene.history.cancelled alone, with meta { limit: 2, offset: 4, total: 5 }',
-    );
+    it('returns the final partial page', async () => {
+      const scene = await arrangeOrderHistory(e2e);
+      const response = await e2e
+        .request()
+        .get(ORDERS_ROUTE)
+        .set('Authorization', bearer(scene.owner.accessToken))
+        .query({ limit: 2, offset: 4 });
+      expect(ids(listOf(response))).toEqual([scene.history.cancelled.id]);
+      expect(listOf(response).meta).toEqual({ limit: 2, offset: 4, total: 5 });
+    });
 
-    it.todo(
-      'the boundary one past the end: offset=5 with limit=2 returns an empty data array and 200, while meta.total stays 5 and meta.offset stays 5',
-    );
+    it('returns an empty page exactly one past the end', async () => {
+      const scene = await arrangeOrderHistory(e2e);
+      const response = await e2e
+        .request()
+        .get(ORDERS_ROUTE)
+        .set('Authorization', bearer(scene.owner.accessToken))
+        .query({ limit: 2, offset: 5 });
+      expect(response.status).toBe(200);
+      expect(listOf(response).data).toEqual([]);
+      expect(listOf(response).meta).toEqual({ limit: 2, offset: 5, total: 5 });
+    });
 
-    it.todo(
-      'far past the end: offset=1000 returns an empty data array and 200, while meta.total stays 5',
-    );
+    it('returns an empty page far past the end with the same total', async () => {
+      const scene = await arrangeOrderHistory(e2e);
+      const response = await e2e
+        .request()
+        .get(ORDERS_ROUTE)
+        .set('Authorization', bearer(scene.owner.accessToken))
+        .query({ offset: 1000 });
+      expect(response.status).toBe(200);
+      expect(listOf(response).data).toEqual([]);
+      expect(listOf(response).meta.total).toBe(5);
+    });
 
-    it.todo(
-      'no page is skipped or repeated: the three pages of limit=2 concatenated equal the unpaginated list of five, in the same order and with no duplicate id',
-    );
+    it('does not skip or repeat rows across pages', async () => {
+      const scene = await arrangeOrderHistory(e2e);
+      const pages = await Promise.all(
+        [0, 2, 4].map((offset) =>
+          e2e
+            .request()
+            .get(ORDERS_ROUTE)
+            .set('Authorization', bearer(scene.owner.accessToken))
+            .query({ limit: 2, offset }),
+        ),
+      );
+      expect(pages.flatMap((page) => ids(listOf(page)))).toEqual(
+        scene.history.all.map((order) => order.id),
+      );
+    });
 
-    it.todo(
-      'meta.total counts the filtered set and not the table: minTotal=4000 with maxTotal=12500 and limit=1 returns scene.history.pending alone but reports meta.total 3',
-    );
+    it('counts the filtered set rather than the table', async () => {
+      const scene = await arrangeOrderHistory(e2e);
+      const response = await e2e
+        .request()
+        .get(ORDERS_ROUTE)
+        .set('Authorization', bearer(scene.owner.accessToken))
+        .query({ minTotal: 4000, maxTotal: 12500, limit: 1 });
+      expect(ids(listOf(response))).toEqual([scene.history.pending.id]);
+      expect(listOf(response).meta).toEqual({ limit: 1, offset: 0, total: 3 });
+    });
 
-    it.todo(
-      "rejects limit=0 with 400 and the validation problem type, the contract's minimum being 1",
-    );
+    it('rejects limit zero', async () => {
+      const scene = await arrangeOrderHistory(e2e);
+      const response = await e2e
+        .request()
+        .get(ORDERS_ROUTE)
+        .set('Authorization', bearer(scene.owner.accessToken))
+        .query({ limit: 0 });
+      expectValidation(response);
+    });
 
-    it.todo(
-      "rejects limit=101 with 400 and the validation problem type, the contract's maximum being 100",
-    );
+    it('rejects limit above the contract maximum', async () => {
+      const scene = await arrangeOrderHistory(e2e);
+      const response = await e2e
+        .request()
+        .get(ORDERS_ROUTE)
+        .set('Authorization', bearer(scene.owner.accessToken))
+        .query({ limit: 101 });
+      expectValidation(response);
+    });
 
-    it.todo('rejects offset=-1 with 400 and the validation problem type');
+    it('rejects a negative offset', async () => {
+      const scene = await arrangeOrderHistory(e2e);
+      const response = await e2e
+        .request()
+        .get(ORDERS_ROUTE)
+        .set('Authorization', bearer(scene.owner.accessToken))
+        .query({ offset: -1 });
+      expectValidation(response);
+    });
   });
 
   describe('GET /orders/{orderId}: the detail payload', () => {
-    it.todo(
-      'returns scene.history.shipped with both of its lines — quantity 2 of "E2E Classic Tee" at unitPrice 4000 for a lineTotal of 8000, and quantity 3 of "E2E Cap" at unitPrice 1500 for a lineTotal of 4500 — plus subtotal 12500, discount 0, total 12500 and status SHIPPED',
-    );
+    it('returns the shipped detail with its frozen lines and totals', async () => {
+      const scene = await arrangeOrderHistory(e2e);
+      const response = await e2e
+        .request()
+        .get(`${ORDERS_ROUTE}/${scene.history.shipped.id}`)
+        .set('Authorization', bearer(scene.owner.accessToken));
+      expect(response.body).toMatchObject({
+        status: OrderStatus.SHIPPED,
+        subtotal: 12500,
+        discount: 0,
+        total: 12500,
+        items: expect.arrayContaining([
+          expect.objectContaining({
+            productName: 'E2E Classic Tee',
+            quantity: 2,
+            unitPrice: 4000,
+            lineTotal: 8000,
+          }),
+          expect.objectContaining({
+            productName: 'E2E Cap',
+            quantity: 3,
+            unitPrice: 1500,
+            lineTotal: 4500,
+          }),
+        ]) as OrderView['items'],
+      });
+    });
 
-    it.todo(
-      'every line carries its own skuId, and they are the two SKUs scene.history.skus.tee and scene.history.skus.cap the order was placed from',
-    );
+    it('returns each line with its source sku id', async () => {
+      const scene = await arrangeOrderHistory(e2e);
+      const response = await e2e
+        .request()
+        .get(`${ORDERS_ROUTE}/${scene.history.shipped.id}`)
+        .set('Authorization', bearer(scene.owner.accessToken));
+      expect(orderOf(response).items).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ skuId: scene.history.skus.tee.id }),
+          expect.objectContaining({ skuId: scene.history.skus.cap.id }),
+        ]),
+      );
+    });
 
-    it.todo(
-      'the lines are a snapshot and not a join: after repriceAndRename(e2e, scene.history.skus.tee, { productName: "Renamed Tee", price: 9900 }), scene.history.shipped still reports productName "E2E Classic Tee", unitPrice 4000, lineTotal 8000 and total 12500',
-    );
+    it('reads line snapshots rather than the current catalogue', async () => {
+      const scene = await arrangeOrderHistory(e2e);
+      await repriceAndRename(e2e, scene.history.skus.tee, {
+        productName: 'Renamed Tee',
+        price: 9900,
+      });
+      const response = await e2e
+        .request()
+        .get(`${ORDERS_ROUTE}/${scene.history.shipped.id}`)
+        .set('Authorization', bearer(scene.owner.accessToken));
+      expect(orderOf(response).items).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            productName: 'E2E Classic Tee',
+            unitPrice: 4000,
+            lineTotal: 8000,
+          }),
+        ]),
+      );
+      expect(orderOf(response).total).toBe(12500);
+    });
 
-    it.todo(
-      'returns the shipping address the order was placed with: recipientName "E2E Recipient", line1 "1 Test Street", line2 null, city "Testville", region null and postalCode "00000"',
-    );
+    it('returns the seeded shipping address', async () => {
+      const scene = await arrangeOrderHistory(e2e);
+      const response = await e2e
+        .request()
+        .get(`${ORDERS_ROUTE}/${scene.history.shipped.id}`)
+        .set('Authorization', bearer(scene.owner.accessToken));
+      expect(orderOf(response).shippingAddress).toEqual(SEEDED_ADDRESS);
+    });
 
-    it.todo(
-      'returns expiresAt as an ISO 8601 string for scene.history.pending, the one PENDING order, and null for scene.history.shipped',
-    );
+    it('serializes expiry for pending orders and null for shipped orders', async () => {
+      const scene = await arrangeOrderHistory(e2e);
+      const [pending, shipped] = await Promise.all([
+        e2e
+          .request()
+          .get(`${ORDERS_ROUTE}/${scene.history.pending.id}`)
+          .set('Authorization', bearer(scene.owner.accessToken)),
+        e2e
+          .request()
+          .get(`${ORDERS_ROUTE}/${scene.history.shipped.id}`)
+          .set('Authorization', bearer(scene.owner.accessToken)),
+      ]);
+      expect(orderOf(pending).expiresAt).toEqual(expect.any(String));
+      expect(() =>
+        new Date(orderOf(pending).expiresAt ?? '').toISOString(),
+      ).not.toThrow();
+      expect(orderOf(shipped).expiresAt).toBeNull();
+    });
 
-    it.todo(
-      'returns paymentMethod null for scene.history.paid: no Payment row exists for any seeded order, so the field is declared and empty rather than absent',
-    );
+    it('declares an empty payment method when no payment row exists', async () => {
+      const scene = await arrangeOrderHistory(e2e);
+      const response = await e2e
+        .request()
+        .get(`${ORDERS_ROUTE}/${scene.history.paid.id}`)
+        .set('Authorization', bearer(scene.owner.accessToken));
+      expect(response.body).toHaveProperty('paymentMethod', null);
+    });
 
-    it.todo(
-      'returns createdAt as the ISO 8601 form of the date the order was seeded with, 2025-03-15T10:00:00.000Z for scene.history.shipped',
-    );
+    it('serializes the seeded creation date', async () => {
+      const scene = await arrangeOrderHistory(e2e);
+      const response = await e2e
+        .request()
+        .get(`${ORDERS_ROUTE}/${scene.history.shipped.id}`)
+        .set('Authorization', bearer(scene.owner.accessToken));
+      expect(orderOf(response).createdAt).toBe(
+        HISTORY_DATES.shipped.toISOString(),
+      );
+    });
 
-    it.todo(
-      'the detail and the list agree: for scene.history.paid, whose single line leaves no room for the items array to come back in a different order, the entry inside GET /orders is deep-equal to the body of GET /orders/{scene.history.paid.id}',
-    );
+    it('returns the same representation in list and detail', async () => {
+      const scene = await arrangeOrderHistory(e2e);
+      const [list, detail] = await Promise.all([
+        e2e
+          .request()
+          .get(ORDERS_ROUTE)
+          .set('Authorization', bearer(scene.owner.accessToken)),
+        e2e
+          .request()
+          .get(`${ORDERS_ROUTE}/${scene.history.paid.id}`)
+          .set('Authorization', bearer(scene.owner.accessToken)),
+      ]);
+      expect(
+        listOf(list).data.find(
+          (order: { id: string }) => order.id === scene.history.paid.id,
+        ),
+      ).toEqual(detail.body);
+    });
 
-    it.todo(
-      'rejects a malformed order id, MALFORMED_ORDER_ID, with 400 and the validation problem type, before any row is read',
-    );
+    it('rejects a malformed order id before reading a row', async () => {
+      const scene = await arrangeOrderHistory(e2e);
+      const response = await e2e
+        .request()
+        .get(`${ORDERS_ROUTE}/${MALFORMED_ORDER_ID}`)
+        .set('Authorization', bearer(scene.owner.accessToken));
+      expectValidation(response);
+    });
   });
 
   describe('Authorization: a client reaches their own orders and nothing else', () => {
-    it.todo(
-      "the owner's list holds their five orders and never scene.strangerOrder, whose total 12 500 is the same as scene.history.shipped's on purpose: a leak would survive an assertion on totals alone",
-    );
+    it("lists only the owner's five orders", async () => {
+      const scene = await arrangeOrderHistory(e2e);
+      const response = await e2e
+        .request()
+        .get(ORDERS_ROUTE)
+        .set('Authorization', bearer(scene.owner.accessToken));
+      expect(ids(listOf(response))).toEqual(scene.history.all.map((o) => o.id));
+      expect(ids(listOf(response))).not.toContain(scene.strangerOrder.id);
+    });
 
-    it.todo(
-      "the stranger's list holds scene.strangerOrder alone, with meta.total 1, although six orders exist in the table",
-    );
+    it("lists only the stranger's order for the stranger", async () => {
+      const scene = await arrangeOrderHistory(e2e);
+      const response = await e2e
+        .request()
+        .get(ORDERS_ROUTE)
+        .set('Authorization', bearer(scene.stranger.accessToken));
+      expect(ids(listOf(response))).toEqual([scene.strangerOrder.id]);
+      expect(listOf(response).meta.total).toBe(1);
+    });
 
-    it.todo(
-      "a MANAGER lists all six orders — the owner's five and the stranger's one — with meta.total 6",
-    );
+    it('lets a manager list all six orders', async () => {
+      const scene = await arrangeOrderHistory(e2e);
+      const response = await e2e
+        .request()
+        .get(ORDERS_ROUTE)
+        .set('Authorization', bearer(scene.manager.accessToken));
+      expect(ids(listOf(response))).toEqual(
+        expect.arrayContaining([
+          ...scene.history.all.map((o) => o.id),
+          scene.strangerOrder.id,
+        ]),
+      );
+      expect(listOf(response).meta.total).toBe(6);
+    });
 
-    it.todo(
-      'GET /orders/{scene.strangerOrder.id} as the owner answers 404 with the not-found problem type, and never 403',
-    );
+    it("answers 404 rather than 403 for another client's order", async () => {
+      const scene = await arrangeOrderHistory(e2e);
+      const response = await e2e
+        .request()
+        .get(`${ORDERS_ROUTE}/${scene.strangerOrder.id}`)
+        .set('Authorization', bearer(scene.owner.accessToken));
+      expect(response.status).toBe(404);
+      expect(response.body).toMatchObject({ type: Problems.notFound.type });
+    });
 
-    it.todo(
-      'GET /orders/{scene.history.shipped.id} as the stranger answers 404 with the not-found problem type, and never 403',
-    );
+    it("answers 404 when the stranger asks for the owner's order", async () => {
+      const scene = await arrangeOrderHistory(e2e);
+      const response = await e2e
+        .request()
+        .get(`${ORDERS_ROUTE}/${scene.history.shipped.id}`)
+        .set('Authorization', bearer(scene.stranger.accessToken));
+      expect(response.status).toBe(404);
+      expect(response.body).toMatchObject({ type: Problems.notFound.type });
+    });
 
-    it.todo(
-      'GET /orders/{UNKNOWN_ORDER_ID} as the owner answers 404 with the not-found problem type',
-    );
+    it('answers 404 for an unknown order id', async () => {
+      const scene = await arrangeOrderHistory(e2e);
+      const response = await e2e
+        .request()
+        .get(`${ORDERS_ROUTE}/${UNKNOWN_ORDER_ID}`)
+        .set('Authorization', bearer(scene.owner.accessToken));
+      expect(response.status).toBe(404);
+      expect(response.body).toMatchObject({ type: Problems.notFound.type });
+    });
 
-    it.todo(
-      'the endpoint is not an identifier oracle: as the owner, the response for scene.strangerOrder.id and the response for UNKNOWN_ORDER_ID carry the same status, type, title and detail, so an order id that belongs to somebody cannot be told apart from an invented one — compare the two bodies with `instance` removed, since that member echoes the requested path and differs by construction',
-    );
+    it('does not reveal whether an inaccessible id exists', async () => {
+      const scene = await arrangeOrderHistory(e2e);
+      const [owned, unknown] = await Promise.all([
+        e2e
+          .request()
+          .get(`${ORDERS_ROUTE}/${scene.strangerOrder.id}`)
+          .set('Authorization', bearer(scene.owner.accessToken)),
+        e2e
+          .request()
+          .get(`${ORDERS_ROUTE}/${UNKNOWN_ORDER_ID}`)
+          .set('Authorization', bearer(scene.owner.accessToken)),
+      ]);
+      // `instance` echoes the requested path, so the two bodies differ there
+      // by construction. Copied and deleted rather than rest-destructured:
+      // the discarded binding would be an unused variable, and this says
+      // plainly which member is being excluded and why.
+      const withoutInstance = (body: unknown): Record<string, unknown> => {
+        const rest = { ...(body as Record<string, unknown>) };
+        delete rest.instance;
+        return rest;
+      };
+      expect(owned.status).toBe(404);
+      expect(withoutInstance(owned.body)).toEqual(
+        withoutInstance(unknown.body),
+      );
+    });
 
-    it.todo(
-      'the 404 is scope and not absence: the same scene.strangerOrder.id the owner cannot see answers 200 to scene.manager',
-    );
+    it('allows a manager to read the order a client cannot see', async () => {
+      const scene = await arrangeOrderHistory(e2e);
+      const response = await e2e
+        .request()
+        .get(`${ORDERS_ROUTE}/${scene.strangerOrder.id}`)
+        .set('Authorization', bearer(scene.manager.accessToken));
+      expect(response.status).toBe(200);
+      expect(orderOf(response).id).toBe(scene.strangerOrder.id);
+    });
   });
 
   describe('Unauthenticated access', () => {
-    it.todo(
-      'GET /orders with no Authorization header answers 401 with the unauthorized problem type and the header WWW-Authenticate: Bearer',
-    );
+    it('rejects a list request without credentials', async () => {
+      const response = await e2e.request().get(ORDERS_ROUTE);
+      expect(response.status).toBe(401);
+      expect(response.body).toMatchObject({ type: Problems.unauthorized.type });
+      expect(response.headers['www-authenticate']).toBe('Bearer');
+    });
 
-    it.todo(
-      'GET /orders/{scene.history.shipped.id} with no Authorization header answers 401 and never 404: the missing credential is reported before the row is looked for',
-    );
+    it('rejects a detail request without credentials before looking up a row', async () => {
+      const scene = await arrangeOrderHistory(e2e);
+      const response = await e2e
+        .request()
+        .get(`${ORDERS_ROUTE}/${scene.history.shipped.id}`);
+      expect(response.status).toBe(401);
+      expect(response.body).toMatchObject({ type: Problems.unauthorized.type });
+    });
 
-    it.todo(
-      'GET /orders with MALFORMED_ACCESS_TOKEN answers 401 with the unauthorized problem type and a WWW-Authenticate header containing invalid_token',
-    );
+    it('rejects a malformed access token', async () => {
+      const response = await e2e
+        .request()
+        .get(ORDERS_ROUTE)
+        .set('Authorization', bearer(MALFORMED_ACCESS_TOKEN));
+      expect(response.status).toBe(401);
+      expect(response.body).toMatchObject({ type: Problems.unauthorized.type });
+      expect(response.headers['www-authenticate']).toContain('invalid_token');
+    });
 
-    it.todo(
-      'GET /orders with an expired but correctly signed token, expiredAccessToken(e2e, scene.owner.user), answers 401 with a WWW-Authenticate header containing invalid_token',
-    );
+    it('rejects an expired but correctly signed token', async () => {
+      const scene = await arrangeOrderHistory(e2e);
+      const response = await e2e
+        .request()
+        .get(ORDERS_ROUTE)
+        .set(
+          'Authorization',
+          bearer(expiredAccessToken(e2e, scene.owner.user)),
+        );
+      expect(response.status).toBe(401);
+      expect(response.body).toMatchObject({ type: Problems.unauthorized.type });
+      expect(response.headers['www-authenticate']).toContain('invalid_token');
+    });
   });
 });
