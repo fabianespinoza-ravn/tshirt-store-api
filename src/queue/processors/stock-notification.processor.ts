@@ -35,7 +35,7 @@ export class StockNotificationProcessor extends WorkerHost {
   ): Promise<StockNotificationOutcome> {
     // BullMQ types a job's name as a bare string, so the enum member is
     // widened rather than compared across types.
-    const notifyJob: string = JobName.NotifyRestock;
+    const notifyJob: string = JobName.NotifyLowStock;
 
     if (job.name !== notifyJob) {
       throw new Error(`Unknown stock notification job: ${job.name}`);

@@ -35,7 +35,7 @@ export const aNotifyJob = (
   data: Partial<StockNotificationJobData> = {},
   attemptsMade = 3,
 ): Job<StockNotificationJobData> =>
-  aJob(JobName.NotifyRestock, data, attemptsMade);
+  aJob(JobName.NotifyLowStock, data, attemptsMade);
 
 export const anOutcome = (
   overrides: Partial<StockNotificationOutcome> = {},
@@ -81,7 +81,7 @@ describe('StockNotificationProcessor', () => {
   });
 
   describe('the job it accepts', () => {
-    it('hands a NotifyRestock job straight to the dispatcher', async () => {
+    it('hands a NotifyLowStock job straight to the dispatcher', async () => {
       const job = aNotifyJob();
 
       await buildProcessor().process(job);

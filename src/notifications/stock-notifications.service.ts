@@ -75,7 +75,7 @@ export class StockNotificationsService {
     if (!fallsToThreshold(change.previousStock, change.newStock)) return false;
 
     await this.queue.add(
-      JobName.NotifyRestock,
+      JobName.NotifyLowStock,
       { skuId: change.skuId, restockCycle: change.restockCycle },
       { jobId: `${change.skuId}:${change.restockCycle}` },
     );

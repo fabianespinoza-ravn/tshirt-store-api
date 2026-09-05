@@ -79,12 +79,12 @@ describe('StockNotificationsService', () => {
   });
 
   describe('observing a stock change', () => {
-    it('enqueues one NotifyRestock job when the write took stock down to the threshold', async () => {
+    it('enqueues one NotifyLowStock job when the write took stock down to the threshold', async () => {
       await h.service.observeStockChange(aStockChange());
 
       expect(stockQueue.add).toHaveBeenCalledTimes(1);
       expect(stockQueue.add).toHaveBeenCalledWith(
-        JobName.NotifyRestock,
+        JobName.NotifyLowStock,
         expect.anything(),
         expect.anything(),
       );
