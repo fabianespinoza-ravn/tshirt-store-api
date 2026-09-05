@@ -1,0 +1,42 @@
+# Build context for the production image. Everything the build stage does not
+# read is excluded: a smaller context uploads faster, and nothing that is not
+# listed here can end up in a layer by accident.
+
+# Installed and generated inside the image, never copied from the host: a
+# host node_modules holds the wrong platform's Prisma engine and native
+# bindings, and dist/ would shadow the build the image just produced.
+node_modules
+dist
+dist-deploy
+coverage
+
+# Local environment. .env holds real credentials and .env.example is only a
+# template for a developer, so neither belongs in an image.
+.env
+.env.*
+
+# History and tooling the build does not read.
+.git
+.gitattributes
+.gitignore
+.github
+.claude
+.coderabbit.yaml
+.prettierrc
+commitlint.config.mjs
+eslint.config.mjs
+
+# Tests and documentation. `npm run build` compiles with tsconfig.build.json,
+# which excludes test/ already; leaving them out of the context keeps the
+# build from invalidating a layer when only a test or a document changes.
+test
+docs
+*.md
+
+# Development-only infrastructure. render.yaml describes the deployment but is
+# read by Render from the repository, not from inside the image.
+docker-compose.yml
+render.yaml
+
+*.log
+.DS_Store

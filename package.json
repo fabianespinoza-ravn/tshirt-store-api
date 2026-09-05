@@ -7,6 +7,7 @@
   "license": "UNLICENSED",
   "scripts": {
     "build": "nest build",
+    "build:deploy": "tsc -p tsconfig.deploy.json",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\" \"prisma/**/*.ts\"",
     "start": "nest start",
     "start:dev": "nest start --watch",
@@ -27,6 +28,7 @@
     "prisma:sync-schema": "ts-node -r tsconfig-paths/register prisma/sync-schema.ts",
     "prisma:backfill": "ts-node -r tsconfig-paths/register prisma/backfill-live-columns.ts",
     "prisma:sync": "npm run prisma:sync-schema && npm run prisma:backfill",
+    "prisma:sync:prod": "node dist-deploy/sync-schema.js && node dist-deploy/backfill-live-columns.js",
     "prisma:studio": "prisma studio",
     "precommit": "lint-staged",
     "check:coverage-floor": "node scripts/check-coverage-floor.mjs",
