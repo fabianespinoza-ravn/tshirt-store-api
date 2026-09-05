@@ -110,9 +110,15 @@ export class OrdersService {
     user: AuthenticatedUser,
     dto: CheckoutDto,
   ): Promise<CheckoutOrderView> {
+    // Before the transaction, and outside it, for the reason the sweep gives:
+    // stopping a payment is a network call, and no stock may be released
+    // until it has succeeded. What comes back is the one order this checkout
+    // is allowed to reclaim.
+    const reclaimable = await this.stopLapsedPayment(user);
+
     const placed = await this.prisma.$transaction(
       async (tx) => {
-        await this.settlePendingOrder(tx, user);
+        await this.settlePendingOrder(tx, user, reclaimable);
         const cart = await this.loadCheckoutableCart(tx, user);
         return this.placeOrder(tx, user, cart, dto);
       },
@@ -324,9 +330,62 @@ export class OrdersService {
    * twice and the store invents stock it does not have. Only the writer that
    * actually moved PENDING away from the row owns its reservations.
    */
+  /**
+   * Cancels the intent of a lapsed order before anything releases its stock.
+   *
+   * `settlePendingOrder` used to free those units inside the transaction
+   * with the intent left untouched, and once checkout started handing out a
+   * `clientSecret` that became an oversell: the client still holds the
+   * secret for the lapsed order and can confirm it afterwards, landing a
+   * successful charge on units already sold to somebody else. It is the
+   * same failure the sweep's ordering prevents, reached through the door a
+   * returning customer walks in by.
+   *
+   * The id it returns is the only order the transaction may reclaim.
+   * Anything else it finds — a pending order that is still live, or a
+   * lapsed one whose payment could not be stopped — has to stay held,
+   * because releasing stock we could not disarm is the thing being avoided.
+   */
+  private async stopLapsedPayment(
+    user: AuthenticatedUser,
+  ): Promise<string | null> {
+    const pending = await this.prisma.order.findFirst({
+      where: {
+        AND: [this.scope(user, 'read'), { status: OrderStatus.PENDING }],
+      },
+      select: { id: true, expiresAt: true, total: true, createdAt: true },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    // A PENDING order with no expiry is a row we should never have written.
+    // Treating it as live is the safe reading.
+    const lapsed =
+      pending?.expiresAt != null && pending.expiresAt <= new Date();
+
+    if (!pending || !lapsed) return null;
+
+    const payment = await this.prisma.payment.findFirst({
+      where: { orderId: pending.id, stripePaymentIntentId: { not: null } },
+      select: { stripePaymentIntentId: true },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    // No recorded intent means the window between the commit and the row,
+    // and the recovery is the same one the sweep uses: the order's id is
+    // the idempotency key, so asking again returns whatever was created.
+    const intentId =
+      payment?.stripePaymentIntentId ??
+      (await this.stripe.createPaymentIntent(pending)).id;
+
+    return (await this.stripe.cancelPaymentIntent(intentId))
+      ? pending.id
+      : null;
+  }
+
   private async settlePendingOrder(
     tx: Tx,
     user: AuthenticatedUser,
+    reclaimable: string | null,
   ): Promise<void> {
     const pending = await tx.order.findFirst({
       where: {
@@ -341,10 +400,11 @@ export class OrdersService {
     // A PENDING order with no expiry is a row we should never have written.
     // Treating it as live is the safe reading: releasing stock we cannot
     // prove is stale would oversell.
-    const lapsed =
-      pending.expiresAt !== null && pending.expiresAt <= new Date();
-
-    if (!lapsed) {
+    // Only the order whose intent was cancelled a moment ago may be
+    // reclaimed. Anything else is treated as live — including a lapsed
+    // order whose payment would not cancel, because its charge can still
+    // land and its units must stay reserved for it.
+    if (pending.id !== reclaimable) {
       throw new ProblemException(
         Problems.orderAlreadyPending,
         'Pay the pending order or wait for it to expire.',

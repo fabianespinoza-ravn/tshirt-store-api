@@ -1,6 +1,7 @@
 import {
   CartStatus,
   OrderStatus,
+  type Payment,
   PaymentMethod,
   PaymentStatus,
   UserRole,
@@ -13,6 +14,7 @@ import {
 import { AppAbilityFactory } from '../auth/casl/app-ability.factory';
 import type { AuthenticatedUser } from '../common/decorators/current-user.decorator';
 import { Problems } from '../common/problem/problem.catalog';
+import { ProblemException } from '../common/problem/problem.exception';
 import { buildService, type ServiceHarness } from '../testing/build-service';
 import {
   aCart,
@@ -112,6 +114,12 @@ describe('OrdersService', () => {
         payments: [],
       };
 
+      // Two reads of the pending order, in this order: `stopLapsedPayment`
+      // outside the transaction, to decide whether an intent has to be
+      // cancelled before anything is released, and `settlePendingOrder`
+      // inside it, which is the one Serializable can actually protect. The
+      // third and later reads are the view.
+      h.prisma.order.findFirst.mockResolvedValueOnce(options.pending ?? null);
       h.prisma.order.findFirst.mockResolvedValueOnce(options.pending ?? null);
       h.prisma.order.findFirst.mockResolvedValue(result);
       h.prisma.cart.findFirst.mockResolvedValue(cart);
@@ -921,7 +929,10 @@ describe('OrdersService', () => {
       postalCode: 'E1 6AN',
     };
 
-    function arrangePaymentCheckout(total = 4_599) {
+    function arrangePaymentCheckout(
+      total = 4_599,
+      options: { pending?: unknown } = {},
+    ) {
       const product = aProduct({ name: 'Payment tee' });
       const sku = {
         ...aSku(product.id, { price: total }),
@@ -937,7 +948,11 @@ describe('OrdersService', () => {
         payments: [],
       };
 
-      h.prisma.order.findFirst.mockResolvedValueOnce(null);
+      // The pending order is read twice: once outside the transaction by
+      // `stopLapsedPayment`, once inside it by `settlePendingOrder`.
+      const pending = (options.pending ?? null) as never;
+      h.prisma.order.findFirst.mockResolvedValueOnce(pending);
+      h.prisma.order.findFirst.mockResolvedValueOnce(pending);
       h.prisma.order.findFirst.mockResolvedValue(order);
       h.prisma.cart.findFirst.mockResolvedValue(cart);
       h.prisma.sku.findUnique.mockResolvedValue(sku);
@@ -960,6 +975,48 @@ describe('OrdersService', () => {
     const placedOrderId = (): string =>
       (h.prisma.order.create.mock.calls[0]?.[0] as { data: { id: string } })
         .data.id;
+
+    it('cancels the intent of a lapsed order before its stock goes back on the shelf', async () => {
+      // The returning-customer path. The client still holds the
+      // `clientSecret` of the lapsed order, so releasing its units without
+      // disarming the intent lets a later confirmation charge for goods
+      // that have since been resold — the sweep's oversell, reached through
+      // the door a customer walks in by.
+      const lapsed = anOrder(client.id, {
+        id: 'order-lapsed',
+        status: OrderStatus.PENDING,
+        expiresAt: new Date('2026-08-28T11:00:00.000Z'),
+      });
+      arrangePaymentCheckout(undefined, { pending: { ...lapsed, items: [] } });
+      h.prisma.payment.findFirst.mockResolvedValueOnce({
+        stripePaymentIntentId: 'pi_lapsed',
+      } as Payment);
+
+      await h.service.checkout(client, address);
+
+      expect(h.stripe.cancelPaymentIntent).toHaveBeenCalledWith('pi_lapsed');
+      expect(
+        h.stripe.cancelPaymentIntent.mock.invocationCallOrder[0],
+      ).toBeLessThan(h.prisma.$transaction.mock.invocationCallOrder[0]);
+    });
+
+    it('refuses the checkout when a lapsed payment will not cancel', async () => {
+      const lapsed = anOrder(client.id, {
+        id: 'order-stuck',
+        status: OrderStatus.PENDING,
+        expiresAt: new Date('2026-08-28T11:00:00.000Z'),
+      });
+      arrangePaymentCheckout(undefined, { pending: { ...lapsed, items: [] } });
+      h.prisma.payment.findFirst.mockResolvedValueOnce({
+        stripePaymentIntentId: 'pi_stuck',
+      } as Payment);
+      h.stripe.cancelPaymentIntent.mockResolvedValueOnce(false);
+
+      await expect(h.service.checkout(client, address)).rejects.toBeInstanceOf(
+        ProblemException,
+      );
+      expect(h.prisma.sku.update).not.toHaveBeenCalled();
+    });
 
     it('creates the intent only after the reservation transaction has committed', async () => {
       arrangePaymentCheckout();
