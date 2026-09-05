@@ -129,7 +129,10 @@ attempt, and the repeatable sweep cancels the intent and releases the stock.
 
 One container image runs both the API and the worker under different entrypoints. Build and
 pipeline are shared, but each process scales on its own signal: request latency
-for the API, queue depth for the worker. The schema is synced once as its own
+for the API, queue depth for the worker. The `Dockerfile` is multi-stage and the
+final stage installs production dependencies only, so what runs the API, the
+worker and the pre-deploy step is the same image and none of it carries a
+compiler. The schema is synced once as its own
 pre-deploy step, after the release is tagged and the image is built, and never
 on boot, so instances never race to sync it. No migration history is kept. The
 step (`prisma/sync-schema.ts`) has `prisma migrate diff` compute the SQL that
@@ -138,7 +141,10 @@ log, refuses it when it contains a statement class that loses data or locks
 rows out — `DROP TABLE`, `DROP COLUMN`, a column type change, `SET NOT NULL`,
 `DROP CONSTRAINT` — and otherwise has `prisma db execute` apply it as one
 transaction, so a unique constraint that meets duplicates fails loudly with
-nothing applied. The pipeline never prompts and never passes
+nothing applied. It runs from JavaScript in the image and not from TypeScript:
+`ts-node` is a devDependency, the pre-deploy command runs inside the production
+image, and so the image compiles that script — and the backfill beside it — to
+`dist-deploy/` at build time. The pipeline never prompts and never passes
 `--accept-data-loss`: `prisma db push` would stop to ask before adding a unique
 constraint to an existing table, and in a pipeline nobody answers. The
 "contract" half of a rollout is let through for a single deploy by setting
@@ -151,9 +157,10 @@ later release — because a rollback is just redeploying the previous tag from
 the registry, and there is no migration history to roll back through either way.
 The one exception is this repository's first schema change, `live_email` and
 `live_user_id`: it shipped in a single release together with the code that reads
-it, because nothing had been deployed yet — `render.yaml` describes the target
-topology, no image exists in a registry, and so there was no window in which an
-old instance and a new one serve traffic at once. Expand-then-contract applies
+it, because nothing had been deployed yet — `render.yaml` and the `Dockerfile`
+it builds describe a topology nothing is running, no image exists in a registry,
+and so there was no window in which an old instance and a new one serve traffic
+at once. Expand-then-contract applies
 from the first deploy with live rows onward.
 
 Connection pooling is a design constraint here rather than a detail. Prisma pools

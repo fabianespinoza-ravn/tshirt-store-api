@@ -1,0 +1,22 @@
+{
+  // The pre-deploy steps (prisma/sync-schema.ts, prisma/backfill-live-columns.ts)
+  // compiled to plain JavaScript, so the production image can run them with
+  // `node` instead of carrying ts-node, tsconfig-paths and typescript — all
+  // devDependencies — into its final stage.
+  //
+  // Its own output directory rather than dist/: `nest build` runs with
+  // `deleteOutDir: true` and would wipe anything already there, and widening
+  // tsconfig.build.json's `include` past src/ to cover prisma/ would move the
+  // API entrypoint to dist/src/main.js, which is exactly the failure the
+  // entrypoint check in .github/workflows/ci.yml exists to catch.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "./prisma",
+    "outDir": "./dist-deploy",
+    "declaration": false,
+    "sourceMap": false,
+    "incremental": false
+  },
+  "include": ["prisma/**/*.ts"],
+  "exclude": ["node_modules", "dist", "dist-deploy"]
+}
