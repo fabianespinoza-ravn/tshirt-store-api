@@ -129,6 +129,7 @@ describe('Order history (e2e)', () => {
           placedTo: '2025-04-30T23:59:59.999Z',
         });
 
+      expect(response.status).toBe(200);
       expect(ids(listOf(response))).toEqual([
         scene.history.paid.id,
         scene.history.shipped.id,
@@ -146,6 +147,7 @@ describe('Order history (e2e)', () => {
         .set('Authorization', bearer(scene.owner.accessToken))
         .query({ placedFrom: date, placedTo: date });
 
+      expect(response.status).toBe(200);
       expect(ids(listOf(response))).toEqual([scene.history.delivered.id]);
       expect(listOf(response).meta.total).toBe(1);
     });
@@ -162,6 +164,7 @@ describe('Order history (e2e)', () => {
         scene.history.pending.id,
         scene.history.paid.id,
       ]);
+      expect(response.status).toBe(200);
       expect(listOf(response).meta.total).toBe(2);
     });
 
@@ -177,6 +180,7 @@ describe('Order history (e2e)', () => {
         scene.history.delivered.id,
         scene.history.cancelled.id,
       ]);
+      expect(response.status).toBe(200);
       expect(listOf(response).meta.total).toBe(2);
     });
 
@@ -200,6 +204,7 @@ describe('Order history (e2e)', () => {
         .set('Authorization', bearer(scene.owner.accessToken))
         .query({ status: OrderStatus.FAILED });
 
+      expect(response.status).toBe(200);
       expect(listOf(response).data).toEqual([]);
       expect(listOf(response).meta.total).toBe(0);
     });
@@ -217,6 +222,7 @@ describe('Order history (e2e)', () => {
         scene.history.shipped.id,
         scene.history.delivered.id,
       ]);
+      expect(response.status).toBe(200);
       expect(listOf(response).meta.total).toBe(3);
     });
 
@@ -232,6 +238,7 @@ describe('Order history (e2e)', () => {
         scene.history.paid.id,
         scene.history.shipped.id,
       ]);
+      expect(response.status).toBe(200);
       expect(listOf(response).meta.total).toBe(2);
     });
 
@@ -247,6 +254,7 @@ describe('Order history (e2e)', () => {
         scene.history.delivered.id,
         scene.history.cancelled.id,
       ]);
+      expect(response.status).toBe(200);
       expect(listOf(response).meta.total).toBe(2);
     });
 
@@ -264,6 +272,7 @@ describe('Order history (e2e)', () => {
           maxTotal: 12500,
         });
 
+      expect(response.status).toBe(200);
       expect(ids(listOf(response))).toEqual([scene.history.shipped.id]);
       expect(listOf(response).meta.total).toBe(1);
     });
@@ -329,6 +338,7 @@ describe('Order history (e2e)', () => {
         .get(ORDERS_ROUTE)
         .set('Authorization', bearer(scene.owner.accessToken))
         .query({ limit: 2, offset: 0 });
+      expect(response.status).toBe(200);
       expect(ids(listOf(response))).toEqual([
         scene.history.pending.id,
         scene.history.paid.id,
@@ -343,6 +353,7 @@ describe('Order history (e2e)', () => {
         .get(ORDERS_ROUTE)
         .set('Authorization', bearer(scene.owner.accessToken))
         .query({ limit: 2, offset: 2 });
+      expect(response.status).toBe(200);
       expect(ids(listOf(response))).toEqual([
         scene.history.shipped.id,
         scene.history.delivered.id,
@@ -357,6 +368,7 @@ describe('Order history (e2e)', () => {
         .get(ORDERS_ROUTE)
         .set('Authorization', bearer(scene.owner.accessToken))
         .query({ limit: 2, offset: 4 });
+      expect(response.status).toBe(200);
       expect(ids(listOf(response))).toEqual([scene.history.cancelled.id]);
       expect(listOf(response).meta).toEqual({ limit: 2, offset: 4, total: 5 });
     });
@@ -408,6 +420,7 @@ describe('Order history (e2e)', () => {
         .get(ORDERS_ROUTE)
         .set('Authorization', bearer(scene.owner.accessToken))
         .query({ minTotal: 4000, maxTotal: 12500, limit: 1 });
+      expect(response.status).toBe(200);
       expect(ids(listOf(response))).toEqual([scene.history.pending.id]);
       expect(listOf(response).meta).toEqual({ limit: 1, offset: 0, total: 3 });
     });
@@ -478,6 +491,7 @@ describe('Order history (e2e)', () => {
         .request()
         .get(`${ORDERS_ROUTE}/${scene.history.shipped.id}`)
         .set('Authorization', bearer(scene.owner.accessToken));
+      expect(response.status).toBe(200);
       expect(orderOf(response).items).toEqual(
         expect.arrayContaining([
           expect.objectContaining({ skuId: scene.history.skus.tee.id }),
@@ -496,6 +510,7 @@ describe('Order history (e2e)', () => {
         .request()
         .get(`${ORDERS_ROUTE}/${scene.history.shipped.id}`)
         .set('Authorization', bearer(scene.owner.accessToken));
+      expect(response.status).toBe(200);
       expect(orderOf(response).items).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
@@ -514,6 +529,7 @@ describe('Order history (e2e)', () => {
         .request()
         .get(`${ORDERS_ROUTE}/${scene.history.shipped.id}`)
         .set('Authorization', bearer(scene.owner.accessToken));
+      expect(response.status).toBe(200);
       expect(orderOf(response).shippingAddress).toEqual(SEEDED_ADDRESS);
     });
 
@@ -529,10 +545,12 @@ describe('Order history (e2e)', () => {
           .get(`${ORDERS_ROUTE}/${scene.history.shipped.id}`)
           .set('Authorization', bearer(scene.owner.accessToken)),
       ]);
+      expect(pending.status).toBe(200);
       expect(orderOf(pending).expiresAt).toEqual(expect.any(String));
       expect(() =>
         new Date(orderOf(pending).expiresAt ?? '').toISOString(),
       ).not.toThrow();
+      expect(shipped.status).toBe(200);
       expect(orderOf(shipped).expiresAt).toBeNull();
     });
 
@@ -551,6 +569,7 @@ describe('Order history (e2e)', () => {
         .request()
         .get(`${ORDERS_ROUTE}/${scene.history.shipped.id}`)
         .set('Authorization', bearer(scene.owner.accessToken));
+      expect(response.status).toBe(200);
       expect(orderOf(response).createdAt).toBe(
         HISTORY_DATES.shipped.toISOString(),
       );
@@ -592,6 +611,7 @@ describe('Order history (e2e)', () => {
         .request()
         .get(ORDERS_ROUTE)
         .set('Authorization', bearer(scene.owner.accessToken));
+      expect(response.status).toBe(200);
       expect(ids(listOf(response))).toEqual(scene.history.all.map((o) => o.id));
       expect(ids(listOf(response))).not.toContain(scene.strangerOrder.id);
     });
@@ -612,6 +632,7 @@ describe('Order history (e2e)', () => {
         .request()
         .get(ORDERS_ROUTE)
         .set('Authorization', bearer(scene.manager.accessToken));
+      expect(response.status).toBe(200);
       expect(ids(listOf(response))).toEqual(
         expect.arrayContaining([
           ...scene.history.all.map((o) => o.id),
