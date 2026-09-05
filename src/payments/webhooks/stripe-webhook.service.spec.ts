@@ -340,18 +340,27 @@ describe('StripeWebhookService', () => {
     });
 
     it('does not enqueue for a delivery whose recorded row is already stamped processed', async () => {
-      const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation();
+      // The stamped and unstamped branches both answer `Replay` and both
+      // enqueue nothing, so asserting only that pair proves the P2002
+      // handling and not which branch ran. The log line is what separates
+      // them: this one says the delivery was already settled, and the case
+      // below asks for the job again instead.
+      const log = jest.spyOn(Logger.prototype, 'log').mockImplementation();
+      const event = anEvent();
       h.prisma.webhookEvent.create.mockRejectedValue(aDuplicateEvent());
       h.prisma.webhookEvent.findUnique.mockResolvedValue(
         anAlreadyRecordedRow(new Date('2026-09-01T00:00:00.000Z')),
       );
 
       await expect(
-        h.service.receive(rawBodyOf(anEvent()), aSignatureHeader),
+        h.service.receive(rawBodyOf(event), aSignatureHeader),
       ).resolves.toBe(WebhookOutcome.Replay);
 
       expect(queue.add).not.toHaveBeenCalled();
-      warn.mockRestore();
+      expect(log).toHaveBeenCalledWith(
+        `Stripe event ${event.id} was already settled.`,
+      );
+      log.mockRestore();
     });
 
     it('asks for the job again when the recorded row was never settled, so a failed enqueue is not final', async () => {

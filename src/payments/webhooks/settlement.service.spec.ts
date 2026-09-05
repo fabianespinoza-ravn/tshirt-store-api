@@ -215,6 +215,10 @@ describe('SettlementService', () => {
     });
     it('creates the payment row when checkout died before recording the intent', async () => {
       const data = aSettlementJob();
+      // The same row the settlement reads, so the amount asserted below is
+      // the order's total and not whatever the factory happens to default to.
+      const order = aSettleableOrder({ id: data.orderId });
+      h.prisma.order.findUnique.mockResolvedValue(order);
       h.prisma.payment.updateMany.mockResolvedValue({ count: 0 });
       h.prisma.payment.count.mockResolvedValue(0);
 
@@ -226,7 +230,7 @@ describe('SettlementService', () => {
           orderId: data.orderId,
           method: PaymentMethod.PAYMENT_INTENT,
           status: PaymentStatus.SUCCEEDED,
-          amount: 2000,
+          amount: order.total,
           stripePaymentIntentId: data.paymentIntentId,
         },
       });
@@ -455,8 +459,15 @@ describe('SettlementService', () => {
           status: OrderStatus.PAID,
         }),
       );
+      // What Postgres returns when the row is already stamped: the
+      // `processedAt: null` guard matched nothing. Asserting only the call
+      // proved the guard was written, never that a zero-row result is a
+      // survivable answer — and it is the answer a redelivery produces.
+      h.prisma.webhookEvent.updateMany.mockResolvedValue({ count: 0 });
 
-      await h.service.settle(data, alreadyProcessed);
+      await expect(
+        h.service.settle(data, alreadyProcessed),
+      ).resolves.toBeDefined();
 
       expect(h.prisma.webhookEvent.updateMany).toHaveBeenCalledWith({
         where: { id: data.webhookEventId, processedAt: null },
