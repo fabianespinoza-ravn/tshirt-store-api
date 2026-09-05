@@ -106,4 +106,38 @@ describe('renderMail', () => {
       expect(renderMail(data()).attachments).toBeUndefined();
     });
   });
+
+  /**
+   * The fifth kind, and the first that renders a payload rather than a
+   * token.
+   *
+   * Two of the cases below are about a message that must go out anyway. The
+   * product image is fetched from S3 while the worker holds a job and is
+   * dropped whenever that fails, so `attachments` is routinely absent — and
+   * `lowStock` itself is optional on `MailJobData`, which means a renderer
+   * that reached into it unguarded would turn a missing field into a job
+   * that fails three times and is then discarded with its recipient. The
+   * message has to survive both.
+   */
+  describe('the low-stock notification', () => {
+    it.todo('names the product in the subject');
+
+    it.todo('names the size and the colour of the variant that is running out');
+
+    it.todo('says how many units are left');
+
+    it.todo(
+      'says why the recipient is hearing about it: they liked it and never ordered it',
+    );
+
+    it.todo('carries no token line, because this message has nothing to prove');
+
+    it.todo('passes the product image through as an attachment');
+
+    it.todo('still renders a sendable message when the image was dropped');
+
+    it.todo(
+      'still renders a sendable message when the job carries no low-stock detail at all',
+    );
+  });
 });

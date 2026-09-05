@@ -2,13 +2,17 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { validateEnv } from './config/env.validation';
 import { MailTransport } from './mail/mail.transport';
+import { NotificationsModule } from './notifications/notifications.module';
+import { StockNotificationDispatcher } from './notifications/stock-notification.dispatcher';
 import { OrdersSweepService } from './orders/orders-sweep.service';
 import { PaymentsModule } from './payments/payments.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { MailProcessor } from './queue/processors/mail.processor';
 import { MaintenanceProcessor } from './queue/processors/maintenance.processor';
+import { StockNotificationProcessor } from './queue/processors/stock-notification.processor';
 import { QueueModule } from './queue/queue.module';
 import { SweepScheduler } from './queue/sweep.scheduler';
+import { StorageModule } from './storage/storage.module';
 
 /**
  * What the worker process loads, and nothing more.
@@ -32,6 +36,11 @@ import { SweepScheduler } from './queue/sweep.scheduler';
     PrismaModule,
     QueueModule,
     PaymentsModule,
+    // The stock notification is the first job that reads an object back out
+    // of S3 — the product's image travels inside the message rather than as
+    // a link — so the worker needs storage for the first time.
+    StorageModule,
+    NotificationsModule,
   ],
   providers: [
     OrdersSweepService,
@@ -39,6 +48,8 @@ import { SweepScheduler } from './queue/sweep.scheduler';
     SweepScheduler,
     MailTransport,
     MailProcessor,
+    StockNotificationDispatcher,
+    StockNotificationProcessor,
   ],
 })
 export class WorkerModule {}

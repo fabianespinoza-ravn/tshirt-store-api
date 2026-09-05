@@ -7,6 +7,7 @@ import { CategoriesModule } from './categories/categories.module';
 import { ImagesModule } from './images/images.module';
 import { LikesModule } from './likes/likes.module';
 import { MailModule } from './mail/mail.module';
+import { NotificationsModule } from './notifications/notifications.module';
 import { OrdersModule } from './orders/orders.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { ProductsModule } from './products/products.module';
@@ -39,6 +40,7 @@ import { validateEnv } from './config/env.validation';
     PrismaModule,
     QueueModule,
     MailModule,
+    NotificationsModule,
     StorageModule,
     AuthModule,
     CategoriesModule,
