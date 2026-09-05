@@ -1,10 +1,25 @@
-import type { PaymentLink, Product, Sku } from '@prisma/client';
+import {
+  OrderStatus,
+  PaymentMethod,
+  Prisma,
+  UserRole,
+  UserState,
+  type PaymentLink,
+  type Product,
+  type Sku,
+} from '@prisma/client';
 import type Stripe from 'stripe';
 import { newId } from '../../common/ids';
+import { ProblemException } from '../../common/problem/problem.exception';
 import { buildService, type ServiceHarness } from '../../testing/build-service';
 import { aProduct, aSku } from '../../testing/factories';
 import { resetPrismaMock } from '../../testing/prisma.mock';
+import { PAYMENT_LINK_QUANTITY } from '../stripe.service';
 import { PaymentLinkCheckoutService } from './payment-link-checkout.service';
+
+/* Jest's asymmetric matchers are typed as `any`; the assertions below are
+ * deliberately partial Prisma-call checks, not values passed to production. */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
 
 const now = () => new Date('2026-08-28T12:00:00.000Z');
 
@@ -80,6 +95,32 @@ export function aCheckoutEvent(
   } as unknown as Stripe.Event;
 }
 
+/** The order row as this service writes it, past Prisma's create-input union. */
+interface OrderCreateData {
+  id: string;
+  userId: string;
+  status: OrderStatus;
+  expiresAt: Date | null;
+  subtotal: number;
+  orderDiscountAmount: number;
+  total: number;
+  recipientName: string;
+  line1: string;
+  line2: string | null;
+  city: string;
+  region: string | null;
+  postalCode: string;
+  items: {
+    create: {
+      id: string;
+      sku: { connect: { id: string } };
+      productName: string;
+      unitPrice: number;
+      quantity: number;
+    }[];
+  };
+}
+
 describe('PaymentLinkCheckoutService', () => {
   let harness: ServiceHarness<PaymentLinkCheckoutService>;
   let product: Product;
@@ -105,29 +146,92 @@ describe('PaymentLinkCheckoutService', () => {
       ...link,
       sku: { ...sku, product },
     } as never);
-    harness.prisma.sku.findUnique.mockResolvedValue(sku);
+    // With the product, because the re-read inside the transaction is what
+    // decides whether the sale can be fulfilled and the service reaches for
+    // `sku.product` on the row it gets back.
+    harness.prisma.sku.findUnique.mockResolvedValue({
+      ...sku,
+      product,
+    } as never);
     harness.prisma.user.findUnique.mockResolvedValue(null);
     harness.prisma.orderStatusHistory.count.mockResolvedValue(0);
   });
 
+  const settle = (
+    session: Stripe.Checkout.Session = aCompletedSession(),
+    type = 'checkout.session.completed',
+  ) => harness.service.settleCheckoutSession(aCheckoutEvent(session, type));
+
+  /** The nth `order.create` payload, past the Prisma create-input union. */
+  const orderData = (call = 0): OrderCreateData =>
+    harness.prisma.order.create.mock.calls[call][0]
+      .data as unknown as OrderCreateData;
+
   describe('the events it does not own', () => {
-    it.todo(
-      'answers null for an event type other than checkout.session.completed',
-    );
+    it('answers null for an event type other than checkout.session.completed', async () => {
+      await expect(
+        settle(aCompletedSession(), 'checkout.session.expired'),
+      ).resolves.toBeNull();
+    });
+
+    it('answers null for a completed session whose payment_status is not paid', async () => {
+      await expect(
+        settle(aCompletedSession({ payment_status: 'unpaid' })),
+      ).resolves.toBeNull();
+    });
+
+    it('settles checkout.session.async_payment_succeeded rather than answering null', async () => {
+      const settlement = await settle(
+        aCompletedSession(),
+        'checkout.session.async_payment_succeeded',
+      );
+
+      expect(settlement).not.toBeNull();
+      expect(harness.prisma.order.create).toHaveBeenCalledTimes(1);
+      expect(settlement?.orderId).toBe(orderData().id);
+    });
 
     it.todo(
-      'answers null for a completed session whose payment_status is not paid',
+      'settles checkout.session.async_payment_succeeded to the same order status and the same stock movement as the completion event',
     );
 
-    it.todo(
-      'settles checkout.session.async_payment_succeeded once the delayed method pays',
-    );
+    it('answers null for a session that names no payment link', async () => {
+      await expect(
+        settle(aCompletedSession({ payment_link: null })),
+      ).resolves.toBeNull();
+    });
 
-    it.todo('answers null for a session that names no payment link');
+    it('answers null for a payment link this API never wrote a row for', async () => {
+      harness.prisma.paymentLink.findUnique.mockResolvedValue(null);
 
-    it.todo('answers null for a payment link this API never wrote a row for');
+      await expect(settle()).resolves.toBeNull();
+      expect(harness.prisma.paymentLink.findUnique).toHaveBeenCalledWith({
+        where: { stripePaymentLinkId: 'plink-1' },
+        include: { sku: { include: { product: true } } },
+      });
+    });
 
-    it.todo('writes nothing at all for any of those');
+    it('writes nothing at all for any of those', async () => {
+      const notOurs: (() => Promise<unknown>)[] = [
+        () => settle(aCompletedSession(), 'checkout.session.expired'),
+        () => settle(aCompletedSession({ payment_status: 'unpaid' })),
+        () => settle(aCompletedSession({ payment_link: null })),
+        () => {
+          harness.prisma.paymentLink.findUnique.mockResolvedValue(null);
+          return settle();
+        },
+      ];
+
+      for (const arrange of notOurs) {
+        await expect(arrange()).resolves.toBeNull();
+      }
+
+      expect(harness.prisma.$transaction).not.toHaveBeenCalled();
+      expect(harness.prisma.order.create).not.toHaveBeenCalled();
+      expect(harness.prisma.payment.create).not.toHaveBeenCalled();
+      expect(harness.prisma.user.create).not.toHaveBeenCalled();
+      expect(harness.prisma.orderStatusHistory.create).not.toHaveBeenCalled();
+    });
   });
 
   describe('the order it creates', () => {
@@ -137,21 +241,109 @@ describe('PaymentLinkCheckoutService', () => {
       'prices the line from PaymentLink.unitPriceAtCreation, not from the SKU current price',
     );
 
-    it.todo('writes one line of PAYMENT_LINK_QUANTITY units');
+    it('writes one line of PAYMENT_LINK_QUANTITY units', async () => {
+      await settle();
 
-    it.todo('snapshots the product name onto the order line');
+      const lines = orderData().items.create;
+
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toEqual(
+        expect.objectContaining({
+          quantity: PAYMENT_LINK_QUANTITY,
+          sku: { connect: { id: link.skuId } },
+        }),
+      );
+    });
+
+    it('snapshots the product name onto the order line', async () => {
+      // Renamed between the link being published and the money arriving, so
+      // a line that copied `link.sku.product.name` instead of the row read in
+      // the transaction says the old name.
+      harness.prisma.sku.findUnique.mockResolvedValue({
+        ...sku,
+        product: { ...product, name: 'Renamed before the money arrived' },
+      } as never);
+
+      await settle();
+
+      expect(orderData().items.create[0].productName).toBe(
+        'Renamed before the money arrived',
+      );
+    });
 
     it.todo('writes subtotal and total equal, with no discount');
 
-    it.todo('writes expiresAt null, because the order was never PENDING');
+    it('writes expiresAt null, because the order was never PENDING', async () => {
+      await settle();
 
-    it.todo(
-      'writes the address from customer_details and blanks the fields Stripe omitted',
-    );
+      expect(orderData().expiresAt).toBeNull();
+    });
 
-    it.todo('appends the order status history row for the status it wrote');
+    it('writes the address from customer_details and blanks the fields Stripe omitted', async () => {
+      await settle();
 
-    it.todo('opens one Serializable transaction for the whole settlement');
+      expect(orderData()).toEqual(
+        expect.objectContaining({
+          recipientName: 'Ada Lovelace',
+          line1: '1 Analytical Street',
+          line2: null,
+          city: 'London',
+          region: null,
+          postalCode: 'E1 6AN',
+        }),
+      );
+
+      // Nothing but the email: the empty string and a warning rather than a
+      // refusal, because the money has already arrived.
+      await settle(
+        aCompletedSession({
+          id: 'cs-2',
+          customer_details: { email: BUYER_EMAIL } as never,
+        }),
+      );
+
+      expect(orderData(1)).toEqual(
+        expect.objectContaining({
+          recipientName: BUYER_EMAIL,
+          line1: '',
+          line2: null,
+          city: '',
+          region: null,
+          postalCode: '',
+        }),
+      );
+    });
+
+    it('appends the order status history row for the status it wrote', async () => {
+      await settle();
+
+      const order = orderData();
+
+      // The status the order was written with, read off the order itself:
+      // which status that is belongs to the cases about fulfilment, and this
+      // one only asserts that the history says the same thing the order does.
+      expect(harness.prisma.orderStatusHistory.count).toHaveBeenCalledWith({
+        where: { orderId: order.id },
+      });
+      expect(harness.prisma.orderStatusHistory.create).toHaveBeenCalledWith({
+        data: {
+          id: expect.any(String),
+          orderId: order.id,
+          status: order.status,
+          sequence: 0,
+        },
+      });
+    });
+
+    it('opens one Serializable transaction for the whole settlement', async () => {
+      await settle();
+
+      expect(harness.prisma.$transaction).toHaveBeenCalledTimes(1);
+      expect(harness.prisma.$transaction).toHaveBeenCalledWith(
+        expect.any(Function),
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      );
+    });
   });
 
   describe('the stock it moves', () => {
@@ -161,9 +353,22 @@ describe('PaymentLinkCheckoutService', () => {
       'leaves Sku.reserved untouched, because a paid order holds nothing',
     );
 
-    it.todo(
-      'reads the SKU again inside the transaction rather than trusting the link row',
-    );
+    it('reads the SKU again inside the transaction rather than trusting the link row', async () => {
+      await settle();
+
+      expect(harness.prisma.sku.findUnique).toHaveBeenCalledWith({
+        where: { id: link.skuId },
+        include: { product: true },
+      });
+
+      // Inside, not before: a read taken outside the transaction is not in
+      // its read set and Serializable has nothing to protect.
+      const [read] = harness.prisma.sku.findUnique.mock.invocationCallOrder;
+      const [transaction] =
+        harness.prisma.$transaction.mock.invocationCallOrder;
+
+      expect(read).toBeGreaterThan(transaction);
+    });
 
     it.todo(
       'treats availability as stock minus reserved, so units held by a pending order are not sold twice',
@@ -197,9 +402,52 @@ describe('PaymentLinkCheckoutService', () => {
   });
 
   describe('the payment row', () => {
-    it.todo('writes method PAYMENT_LINK');
+    it('writes method PAYMENT_LINK', async () => {
+      await settle();
 
-    it.todo('writes the checkout session id and the payment intent id');
+      expect(harness.prisma.payment.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          method: PaymentMethod.PAYMENT_LINK,
+          orderId: orderData().id,
+        }),
+      });
+    });
+
+    it('writes the checkout session id and the payment intent id', async () => {
+      await settle();
+
+      expect(harness.prisma.payment.create).toHaveBeenNthCalledWith(1, {
+        data: expect.objectContaining({
+          stripeCheckoutSessionId: 'cs-1',
+          stripePaymentIntentId: 'pi-1',
+        }),
+      });
+
+      // The SDK types the intent as an id or the expanded object, and a
+      // webhook payload can carry either.
+      await settle(
+        aCompletedSession({
+          id: 'cs-2',
+          payment_intent: { id: 'pi-2' } as never,
+        }),
+      );
+
+      expect(harness.prisma.payment.create).toHaveBeenNthCalledWith(2, {
+        data: expect.objectContaining({
+          stripeCheckoutSessionId: 'cs-2',
+          stripePaymentIntentId: 'pi-2',
+        }),
+      });
+
+      await settle(aCompletedSession({ id: 'cs-3', payment_intent: null }));
+
+      expect(harness.prisma.payment.create).toHaveBeenNthCalledWith(3, {
+        data: expect.objectContaining({
+          stripeCheckoutSessionId: 'cs-3',
+          stripePaymentIntentId: null,
+        }),
+      });
+    });
 
     it.todo(
       'writes the amount Stripe charged rather than the amount the link records',
@@ -207,24 +455,101 @@ describe('PaymentLinkCheckoutService', () => {
   });
 
   describe('the buyer', () => {
-    it.todo('creates a GUEST user with no password hash for a new email');
+    it('creates a GUEST user with no password hash for a new email', async () => {
+      await settle();
 
-    it.todo(
-      'looks the buyer up by liveEmail, so a soft-deleted row is skipped',
-    );
+      expect(harness.prisma.user.create).toHaveBeenCalledWith({
+        data: {
+          id: expect.any(String),
+          email: BUYER_EMAIL,
+          liveEmail: BUYER_EMAIL,
+          passwordHash: null,
+          role: UserRole.CLIENT,
+          state: UserState.GUEST,
+          emailVerifiedAt: null,
+        },
+      });
 
-    it.todo('attaches the order to an existing account with the same email');
+      const created = harness.prisma.user.create.mock.calls[0][0]
+        .data as never as { id: string };
 
-    it.todo(
-      'throws a plain Error, not a ProblemException, when the session carries no customer email',
-    );
+      expect(orderData().userId).toBe(created.id);
+    });
+
+    it('looks the buyer up by liveEmail, so a soft-deleted row is skipped', async () => {
+      await settle();
+
+      // `liveEmail` and not `email`: the column is null on a soft-deleted row,
+      // so a returning buyer whose account was deleted gets a new one instead
+      // of the order being attached to the deleted account.
+      expect(harness.prisma.user.findUnique).toHaveBeenCalledWith({
+        where: { liveEmail: BUYER_EMAIL },
+        select: { id: true },
+      });
+    });
+
+    it('attaches the order to an existing account with the same email', async () => {
+      const existing = { id: newId() };
+      harness.prisma.user.findUnique.mockResolvedValue(existing as never);
+
+      await settle();
+
+      expect(orderData().userId).toBe(existing.id);
+      expect(harness.prisma.user.create).not.toHaveBeenCalled();
+    });
+
+    it('throws a plain Error, not a ProblemException, when the session carries no customer email', async () => {
+      const refused: unknown = await settle(
+        aCompletedSession({
+          customer_details: { email: null, name: 'Ada Lovelace' } as never,
+        }),
+      ).catch((error: unknown) => error);
+
+      expect(refused).toBeInstanceOf(Error);
+      expect(refused).not.toBeInstanceOf(ProblemException);
+      expect((refused as object).constructor).toBe(Error);
+      expect((refused as Error).message).toContain('carries no customer email');
+      expect(harness.prisma.$transaction).not.toHaveBeenCalled();
+    });
   });
 
   describe('a redelivered event', () => {
-    it.todo(
-      'answers with the existing settlement when a Payment already has the session id',
-    );
+    // A status that is neither PAID nor FAILED, so this reads as the
+    // passthrough it is: whatever the first settlement recorded is what comes
+    // back, and this case decides nothing about it.
+    const settled = {
+      id: newId(),
+      orderId: newId(),
+      order: { status: OrderStatus.SHIPPED },
+    };
 
-    it.todo('creates no second order and moves no stock on redelivery');
+    it('answers with the existing settlement when a Payment already has the session id', async () => {
+      harness.prisma.payment.findUnique.mockResolvedValue(settled as never);
+
+      await expect(settle()).resolves.toEqual({
+        orderId: settled.orderId,
+        paymentId: settled.id,
+        status: OrderStatus.SHIPPED,
+      });
+      expect(harness.prisma.payment.findUnique).toHaveBeenCalledWith({
+        where: { stripeCheckoutSessionId: 'cs-1' },
+        include: { order: { select: { status: true } } },
+      });
+    });
+
+    it('creates no second order on redelivery', async () => {
+      harness.prisma.payment.findUnique.mockResolvedValue(settled as never);
+
+      await settle();
+
+      expect(harness.prisma.$transaction).not.toHaveBeenCalled();
+      expect(harness.prisma.order.create).not.toHaveBeenCalled();
+      expect(harness.prisma.payment.create).not.toHaveBeenCalled();
+      expect(harness.prisma.orderStatusHistory.create).not.toHaveBeenCalled();
+    });
+
+    it.todo(
+      'moves no stock on a redelivery, so the units the first settlement sold are not decremented twice',
+    );
   });
 });
