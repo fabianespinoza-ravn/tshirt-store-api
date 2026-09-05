@@ -374,4 +374,29 @@ describe('OrdersSweepService', () => {
       });
     });
   });
+
+  describe('cancelling the payment before releasing the stock', () => {
+    /**
+     * The ordering is the whole point, and only these cases hold it in
+     * place. Released first, a payment confirming inside the window leaves a
+     * charged order whose units have already been sold to someone else.
+     */
+    it.todo('cancels the intent before it releases a single reservation');
+
+    it.todo(
+      'leaves the order PENDING and its stock reserved when the intent will not cancel',
+    );
+
+    it.todo(
+      'counts an order it could not stop as failed rather than as cancelled',
+    );
+
+    it.todo(
+      'reaches for the intent by the order id when no payment row recorded one',
+    );
+
+    it.todo(
+      'cancels the intent recorded on the newest payment row when there is one',
+    );
+  });
 });

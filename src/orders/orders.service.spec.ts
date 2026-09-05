@@ -615,4 +615,34 @@ describe('OrdersService', () => {
       );
     });
   });
+
+  describe('the payment intent checkout creates', () => {
+    /**
+     * Stripe is called after the transaction commits, which is what makes
+     * these cases worth having. The reservation is already durable when the
+     * intent is asked for, so the order can outlive a failed call — and the
+     * intent can outlive a failed row. Both directions are named below.
+     */
+    it.todo(
+      'creates the intent only after the reservation transaction has committed',
+    );
+
+    it.todo('asks Stripe for the order total, in cents, with nothing rounded');
+
+    it.todo('records the attempt as a PENDING payment carrying the intent id');
+
+    it.todo(
+      'records the method as PAYMENT_INTENT, so the order view stops reading null',
+    );
+
+    it.todo('returns the client secret alongside the order');
+
+    it.todo(
+      'leaves the order PENDING when Stripe refuses, so the sweep can reclaim it',
+    );
+
+    it.todo(
+      'writes no payment row when Stripe refuses, because there is no intent to record',
+    );
+  });
 });

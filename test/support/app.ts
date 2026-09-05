@@ -6,6 +6,8 @@ import request from 'supertest';
 import { AppModule } from '../../src/app.module';
 import { configureApp } from '../../src/app.setup';
 import { MailTransport } from '../../src/mail/mail.transport';
+import { StripeService } from '../../src/payments/stripe.service';
+import { StripeStub } from './stripe-stub';
 import { PrismaService } from '../../src/prisma/prisma.service';
 import { SweepScheduler } from '../../src/queue/sweep.scheduler';
 import { WorkerModule } from '../../src/worker.module';
@@ -21,6 +23,8 @@ export interface E2eApp {
   worker: INestApplicationContext;
   prisma: PrismaService;
   mail: MailRecorder;
+  /** Records what checkout asked Stripe for, so a double charge is visible. */
+  stripe: StripeStub;
   throttler: ResettableThrottlerStorage;
   /** A Supertest client bound to the application's own HTTP server. */
   request: () => HttpClient;
@@ -40,14 +44,18 @@ export interface E2eApp {
  * the job, the processor and the rendering all run, so a suite that passes
  * has proved the two halves talk to each other.
  *
- * Three providers are replaced and no more. `MailTransport`, so nothing
+ * Four providers are replaced and no more. `MailTransport`, so nothing
  * reaches a real server and a test can read what would have been sent.
- * The throttler's storage, so counters reset between tests. And
- * `SweepScheduler`, because a suite has no business registering a
- * repeatable job that would outlive it in Redis.
+ * `StripeService`, for the same reason and on both trees: checkout creates
+ * an intent and the sweep cancels one, so leaving it real would make the
+ * suite depend on a Stripe account and on the network. The throttler's
+ * storage, so counters reset between tests. And `SweepScheduler`, because a
+ * suite has no business registering a repeatable job that would outlive it
+ * in Redis.
  */
 export async function createE2eApp(): Promise<E2eApp> {
   const mail = new MailRecorder();
+  const stripe = new StripeStub();
   const throttler = new ResettableThrottlerStorage();
 
   const moduleFixture = await Test.createTestingModule({
@@ -55,6 +63,8 @@ export async function createE2eApp(): Promise<E2eApp> {
   })
     .overrideProvider(ThrottlerStorage)
     .useValue(throttler)
+    .overrideProvider(StripeService)
+    .useValue(stripe)
     .compile();
 
   const app = moduleFixture.createNestApplication();
@@ -72,6 +82,8 @@ export async function createE2eApp(): Promise<E2eApp> {
     .useValue(mail)
     .overrideProvider(SweepScheduler)
     .useValue({ onApplicationBootstrap: () => Promise.resolve() })
+    .overrideProvider(StripeService)
+    .useValue(stripe)
     .compile();
 
   const worker = await workerFixture.init();
@@ -79,6 +91,7 @@ export async function createE2eApp(): Promise<E2eApp> {
   const resetData = async (): Promise<void> => {
     await resetDatabase(prisma);
     mail.reset();
+    stripe.reset();
   };
 
   return {
@@ -86,6 +99,7 @@ export async function createE2eApp(): Promise<E2eApp> {
     worker,
     prisma,
     mail,
+    stripe,
     throttler,
     // getHttpServer() is typed `any`; the assertion keeps the client typed
     // without pretending to know more than Nest does about the server.

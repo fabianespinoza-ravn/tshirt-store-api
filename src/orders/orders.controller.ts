@@ -30,7 +30,7 @@ import {
   UpdateOrderStatusDto,
 } from './dto/orders.dto';
 import { OrdersService } from './orders.service';
-import type { OrderView } from './orders.views';
+import type { CheckoutOrderView, OrderView } from './orders.views';
 
 const uuid = ParseUUIDPipe;
 
@@ -65,7 +65,7 @@ export class OrdersController {
   checkout(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: CheckoutDto,
-  ): Promise<OrderView> {
+  ): Promise<CheckoutOrderView> {
     return this.orders.checkout(user, dto);
   }
 

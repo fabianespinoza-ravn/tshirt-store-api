@@ -1,6 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { accessibleBy } from '@casl/prisma';
-import { CartStatus, OrderStatus, Prisma } from '@prisma/client';
+import {
+  CartStatus,
+  OrderStatus,
+  PaymentMethod,
+  PaymentStatus,
+  Prisma,
+} from '@prisma/client';
 import {
   AppAbilityFactory,
   type AppAction,
@@ -12,6 +18,7 @@ import { loadOrThrow } from '../common/load-or-throw';
 import { paginate, type Paginated } from '../common/pagination';
 import { Problems } from '../common/problem/problem.catalog';
 import { ProblemException } from '../common/problem/problem.exception';
+import { StripeService } from '../payments/stripe.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { recordStatus, releaseReservations } from './order-writes';
 import type { CheckoutDto, ListOrdersQueryDto } from './dto/orders.dto';
@@ -21,7 +28,12 @@ import {
   TransitionVerdict,
   verdictFor,
 } from './order-state-machine';
-import { ORDER_INCLUDE, toOrder, type OrderView } from './orders.views';
+import {
+  ORDER_INCLUDE,
+  toOrder,
+  type CheckoutOrderView,
+  type OrderView,
+} from './orders.views';
 
 /**
  * How long a PENDING order holds its stock.
@@ -46,6 +58,7 @@ export class OrdersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly abilities: AppAbilityFactory,
+    private readonly stripe: StripeService,
   ) {}
 
   /**
@@ -85,7 +98,7 @@ export class OrdersService {
   async checkout(
     user: AuthenticatedUser,
     dto: CheckoutDto,
-  ): Promise<OrderView> {
+  ): Promise<CheckoutOrderView> {
     const orderId = await this.prisma.$transaction(
       async (tx) => {
         await this.settlePendingOrder(tx, user);
@@ -95,7 +108,46 @@ export class OrdersService {
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
 
-    return this.getOne(user, orderId);
+    const order = await this.getOne(user, orderId);
+
+    return { ...order, clientSecret: await this.startPayment(order) };
+  }
+
+  /**
+   * Creates the intent and records the attempt, after the reservation has
+   * already committed.
+   *
+   * **Stripe is called outside the transaction on purpose.** An HTTP round
+   * trip inside a `Serializable` transaction holds the reservation — and the
+   * locks under it — for as long as a third party takes to answer, which
+   * turns their latency into this database's contention. The cost of being
+   * outside is a window: the order can exist with no intent. That window is
+   * survivable and the other arrangement is not, because `createPaymentIntent`
+   * keys on the order's id, so asking again returns the same intent rather
+   * than a second one, and the sweep cancels whatever it finds.
+   *
+   * The `Payment` row is written after Stripe answers, because it is the
+   * intent's id that makes the row worth having. Its status is `PENDING`:
+   * the intent exists and nothing has been charged. Only the webhook's
+   * settlement moves it, which is why this method never writes `SUCCEEDED`.
+   */
+  private async startPayment(order: OrderView): Promise<string> {
+    const intent = await this.stripe.createPaymentIntent(order);
+
+    await this.prisma.payment.create({
+      data: {
+        id: newId(),
+        orderId: order.id,
+        method: PaymentMethod.PAYMENT_INTENT,
+        status: PaymentStatus.PENDING,
+        amount: order.total,
+        stripePaymentIntentId: intent.id,
+      },
+    });
+
+    // Non-null because a created intent always carries one; the SDK types it
+    // as nullable for intents read back in states this one cannot be in.
+    return intent.client_secret ?? '';
   }
 
   async list(

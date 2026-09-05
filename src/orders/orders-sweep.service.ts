@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { OrderStatus, Prisma } from '@prisma/client';
+import { StripeService } from '../payments/stripe.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { recordStatus, releaseReservations } from './order-writes';
 
@@ -43,7 +44,60 @@ export interface SweepOutcome {
 export class OrdersSweepService {
   private readonly logger = new Logger(OrdersSweepService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly stripe: StripeService,
+  ) {}
+
+  /**
+   * Stops the order's payment from landing, and answers whether the stock is
+   * now safe to release.
+   *
+   * **Cancel before releasing, never after.** Released first, a payment
+   * confirming inside the window leaves a charged order whose units have
+   * already been sold to somebody else — money taken for goods that are
+   * gone. So this runs first, and a `false` here means the caller leaves the
+   * order alone entirely: still PENDING, still holding its stock, swept
+   * again next minute.
+   *
+   * Stripe is called outside the transaction for the reason checkout gives:
+   * a third party's latency must not be held inside a `Serializable`
+   * transaction's locks.
+   *
+   * The branch with no recorded intent is the interesting one. Checkout
+   * commits the order before it calls Stripe, so an order can exist whose
+   * intent was created and whose `Payment` row never was — a charge nothing
+   * in this database knows about. Asking for the intent again under the
+   * order's id as the idempotency key returns *that* intent rather than a
+   * new one, so it can be cancelled. When no intent was ever created the
+   * same call makes one, which is then cancelled unused; a cancelled intent
+   * costs nothing, and paying that to close the window is the trade. This
+   * only works while the key is still live — Stripe keeps one for 24 hours
+   * and `PENDING_ORDER_TTL_MS` is 30 minutes, so the sweep always arrives
+   * well inside it.
+   *
+   * An intent that has already succeeded refuses to cancel, which is exactly
+   * the answer wanted: the money arrived, the stock stays reserved, and
+   * settlement deals with it.
+   */
+  private async stopPayment(order: {
+    id: string;
+    total: number;
+  }): Promise<boolean> {
+    const payment = await this.prisma.payment.findFirst({
+      where: { orderId: order.id, stripePaymentIntentId: { not: null } },
+      select: { stripePaymentIntentId: true },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (payment?.stripePaymentIntentId) {
+      return this.stripe.cancelPaymentIntent(payment.stripePaymentIntentId);
+    }
+
+    const recovered = await this.stripe.createPaymentIntent(order);
+
+    return this.stripe.cancelPaymentIntent(recovered.id);
+  }
 
   /**
    * One transaction per order, deliberately, and not one for the batch.
@@ -87,6 +141,17 @@ export class OrdersSweepService {
       // the next minute's run is the retry; that only works if a single
       // conflict costs one order.
       try {
+        // Before anything is released. The whole ordering argument is on
+        // `stopPayment`; what matters here is that a refusal skips the
+        // order rather than falling through to the release below.
+        if (!(await this.stopPayment(order))) {
+          failed += 1;
+          this.logger.warn(
+            `Left expired order ${order.id} alone: its payment could not be cancelled, so releasing its stock could oversell.`,
+          );
+          continue;
+        }
+
         const settled = await this.prisma.$transaction(
           async (tx) => {
             const moved = await tx.order.updateMany({

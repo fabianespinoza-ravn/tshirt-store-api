@@ -26,6 +26,8 @@ function anEnv(overrides: Record<string, unknown> = {}) {
     SMTP_USER: 'mailer',
     SMTP_PASSWORD: 'mailer-password',
     MAIL_FROM: 'T-Shirt Store <store@example.test>',
+    STRIPE_SECRET_KEY: 'stripe-key',
+    STRIPE_WEBHOOK_SECRET: 'stripe-webhook',
     ...overrides,
   };
 }
