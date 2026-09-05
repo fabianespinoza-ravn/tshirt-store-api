@@ -16,7 +16,7 @@ export enum JobName {
   SendMail = 'send-mail',
   SweepExpiredOrders = 'sweep-expired-orders',
   SettlePayment = 'settle-payment',
-  NotifyRestock = 'notify-restock',
+  NotifyLowStock = 'notify-low-stock',
 }
 
 /**
