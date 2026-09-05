@@ -4,7 +4,7 @@ import { getQueueToken } from '@nestjs/bullmq';
  * Prisma calls and are never values passed to production code. */
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
 
-import { NotificationStatus, Prisma } from '@prisma/client';
+import { NotificationStatus, OrderStatus, Prisma } from '@prisma/client';
 import { newId } from '../common/ids';
 import { MailKind, type MailJobData } from '../mail/mail.jobs';
 import { JobName, QueueName } from '../queue/queue.constants';
@@ -12,7 +12,10 @@ import { buildService, type ServiceHarness } from '../testing/build-service';
 import { aProduct, aSku, anImage, aUser } from '../testing/factories';
 import { MAX_ATTACHMENT_BYTES } from './product-image.attachment';
 import { StockNotificationDispatcher } from './stock-notification.dispatcher';
-import { LOW_STOCK_THRESHOLD } from './stock-threshold';
+import {
+  LOW_STOCK_THRESHOLD,
+  PURCHASED_ORDER_STATUSES,
+} from './stock-threshold';
 
 /** Stands in for `QueueName.Mail`, which the dispatcher produces onto. */
 export const mailQueue = {
@@ -298,67 +301,380 @@ describe('StockNotificationDispatcher', () => {
       );
     });
 
-    it.todo(
-      'restricts those likes to accounts that are neither soft deleted nor unverified and have no paid order for the product',
-    );
+    it('restricts those likes to accounts that are neither soft deleted nor unverified and have no paid order for the product', async () => {
+      prime();
 
-    it.todo(
-      'excludes a liker who has an order for this product in a paid status',
-    );
+      await h.service.dispatch(theJob());
 
-    it.todo(
-      'excludes a liker who bought a different variant of the same product',
-    );
+      expect(h.prisma.productLike.findMany).toHaveBeenCalledWith({
+        where: {
+          productId: theProduct.id,
+          user: {
+            deletedAt: null,
+            emailVerifiedAt: { not: null },
+            NOT: {
+              orders: {
+                some: {
+                  status: { in: [...PURCHASED_ORDER_STATUSES] },
+                  items: { some: { sku: { productId: theProduct.id } } },
+                },
+              },
+            },
+          },
+        },
+        select: { userId: true, user: { select: { email: true } } },
+        orderBy: { id: Prisma.SortOrder.asc },
+      });
+    });
 
-    it.todo(
-      'still notifies a liker whose only order for the product is PENDING',
-    );
+    it('excludes a liker who has an order for this product in a paid status', async () => {
+      prime();
 
-    it.todo('still notifies a liker whose order for the product was cancelled');
+      await h.service.dispatch(theJob());
 
-    it.todo('still notifies a liker whose order for the product failed');
+      expect(h.prisma.productLike.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            user: expect.objectContaining({
+              NOT: {
+                orders: {
+                  some: expect.objectContaining({
+                    status: { in: [...PURCHASED_ORDER_STATUSES] },
+                    items: { some: { sku: { productId: theProduct.id } } },
+                  }),
+                },
+              },
+            }),
+          }),
+        }),
+      );
+    });
 
-    it.todo(
-      'still notifies a liker who has bought something else entirely, from another product',
-    );
+    it('excludes a liker who bought a different variant of the same product', async () => {
+      prime();
 
-    it.todo('excludes a soft-deleted account, which asked not to exist');
+      await h.service.dispatch(theJob());
 
-    it.todo('excludes an address that was never verified');
+      expect(h.prisma.productLike.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            user: expect.objectContaining({
+              NOT: expect.objectContaining({
+                orders: expect.objectContaining({
+                  some: expect.objectContaining({
+                    items: { some: { sku: { productId: theProduct.id } } },
+                  }),
+                }),
+              }),
+            }),
+          }),
+        }),
+      );
+    });
+
+    it('still notifies a liker whose only order for the product is PENDING', async () => {
+      prime();
+
+      await h.service.dispatch(theJob());
+
+      expect(h.prisma.productLike.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            user: expect.objectContaining({
+              NOT: expect.objectContaining({
+                orders: expect.objectContaining({
+                  some: expect.objectContaining({
+                    status: {
+                      in: expect.not.arrayContaining([OrderStatus.PENDING]),
+                    },
+                  }),
+                }),
+              }),
+            }),
+          }),
+        }),
+      );
+    });
+
+    it('still notifies a liker whose order for the product was cancelled', async () => {
+      prime();
+
+      await h.service.dispatch(theJob());
+
+      const [call] = h.prisma.productLike.findMany.mock.calls;
+      expect(call?.[0]).toEqual(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            user: expect.objectContaining({
+              NOT: expect.objectContaining({
+                orders: expect.objectContaining({
+                  some: expect.objectContaining({
+                    status: {
+                      in: expect.not.arrayContaining([OrderStatus.CANCELLED]),
+                    },
+                  }),
+                }),
+              }),
+            }),
+          }),
+        }),
+      );
+    });
+
+    it('still notifies a liker whose order for the product failed', async () => {
+      prime();
+
+      await h.service.dispatch(theJob());
+
+      const [call] = h.prisma.productLike.findMany.mock.calls;
+      expect(call?.[0]).toEqual(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            user: expect.objectContaining({
+              NOT: expect.objectContaining({
+                orders: expect.objectContaining({
+                  some: expect.objectContaining({
+                    status: {
+                      in: expect.not.arrayContaining([OrderStatus.FAILED]),
+                    },
+                  }),
+                }),
+              }),
+            }),
+          }),
+        }),
+      );
+    });
+
+    it('still notifies a liker who has bought something else entirely, from another product', async () => {
+      prime();
+
+      await h.service.dispatch(theJob());
+
+      const [call] = h.prisma.productLike.findMany.mock.calls;
+      expect(call?.[0]).toEqual(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            productId: theProduct.id,
+            user: expect.objectContaining({
+              NOT: expect.objectContaining({
+                orders: expect.objectContaining({
+                  some: expect.objectContaining({
+                    items: { some: { sku: { productId: theProduct.id } } },
+                  }),
+                }),
+              }),
+            }),
+          }),
+        }),
+      );
+    });
+
+    it('excludes a soft-deleted account, which asked not to exist', async () => {
+      prime();
+
+      await h.service.dispatch(theJob());
+
+      expect(h.prisma.productLike.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            user: expect.objectContaining({ deletedAt: null }),
+          }),
+        }),
+      );
+    });
+
+    it('excludes an address that was never verified', async () => {
+      prime();
+
+      await h.service.dispatch(theJob());
+
+      expect(h.prisma.productLike.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            user: expect.objectContaining({ emailVerifiedAt: { not: null } }),
+          }),
+        }),
+      );
+    });
   });
 
   describe('notified once, which lives in the database', () => {
-    it.todo(
-      'creates a StockNotification row for each recipient before enqueuing their mail',
-    );
+    it('creates a StockNotification row for each recipient before enqueuing their mail', async () => {
+      prime();
 
-    it.todo('records the row against the cycle the crossing belongs to');
+      await h.service.dispatch(theJob());
 
-    it.todo('enqueues nothing for a recipient whose row is already SENT');
+      expect(h.prisma.stockNotification.create).toHaveBeenCalledTimes(1);
+      expect(mailQueue.add).toHaveBeenCalledTimes(1);
+      expect(
+        h.prisma.stockNotification.create.mock.invocationCallOrder[0],
+      ).toBeLessThan(
+        mailQueue.add.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY,
+      );
+    });
 
-    it.todo(
-      'retries a recipient whose row is still PENDING, which is a run that died mid-way',
-    );
+    it('records the row against the cycle the crossing belongs to', async () => {
+      const sku = aLoadedSku({ restockCycle: 7 });
+      prime({ sku });
 
-    it.todo('retries a recipient whose row is FAILED');
+      await h.service.dispatch(theJob(7));
 
-    it.todo(
-      'treats losing the unique constraint as another worker owning that recipient, not as an error',
-    );
+      expect(h.prisma.stockNotification.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          userId: theLiker.userId,
+          skuId: sku.id,
+          restockCycle: 7,
+        }),
+      });
+    });
 
-    it.todo(
-      'lets a database error that is not a unique violation escape, rather than skipping a recipient',
-    );
+    it('enqueues nothing for a recipient whose row is already SENT', async () => {
+      prime();
+      h.prisma.stockNotification.findUnique.mockResolvedValue(
+        aNotification(
+          theLiker.userId,
+          'sku-under-test',
+          NotificationStatus.SENT,
+        ),
+      );
 
-    it.todo('marks the row SENT, with a sentAt, once the mail job is accepted');
+      await expect(h.service.dispatch(theJob())).resolves.toEqual(
+        expect.objectContaining({ candidates: 1, notified: 0, skipped: 1 }),
+      );
+      expect(mailQueue.add).not.toHaveBeenCalled();
+      expect(h.prisma.stockNotification.create).not.toHaveBeenCalled();
+    });
 
-    it.todo('marks the row FAILED when the mail queue refuses the job');
+    it('retries a recipient whose row is still PENDING, which is a run that died mid-way', async () => {
+      prime();
+      h.prisma.stockNotification.findUnique.mockResolvedValue(
+        aNotification(
+          theLiker.userId,
+          'sku-under-test',
+          NotificationStatus.PENDING,
+        ),
+      );
 
-    it.todo(
-      'keeps going through the remaining recipients after one of them fails',
-    );
+      const outcome = await h.service.dispatch(theJob());
 
-    it.todo('counts what it did: candidates, notified, skipped and failed');
+      expect(outcome.notified).toBe(1);
+      expect(mailQueue.add).toHaveBeenCalledTimes(1);
+      expect(h.prisma.stockNotification.create).not.toHaveBeenCalled();
+    });
+
+    it('retries a recipient whose row is FAILED', async () => {
+      prime();
+      h.prisma.stockNotification.findUnique.mockResolvedValue(
+        aNotification(
+          theLiker.userId,
+          'sku-under-test',
+          NotificationStatus.FAILED,
+        ),
+      );
+
+      const outcome = await h.service.dispatch(theJob());
+
+      expect(outcome.notified).toBe(1);
+      expect(mailQueue.add).toHaveBeenCalledTimes(1);
+      expect(h.prisma.stockNotification.create).not.toHaveBeenCalled();
+    });
+
+    it('treats losing the unique constraint as another worker owning that recipient, not as an error', async () => {
+      prime();
+      h.prisma.stockNotification.create.mockRejectedValue(aUniqueViolation());
+
+      await expect(h.service.dispatch(theJob())).resolves.toEqual(
+        expect.objectContaining({
+          candidates: 1,
+          notified: 0,
+          skipped: 1,
+          failed: 0,
+        }),
+      );
+      expect(mailQueue.add).not.toHaveBeenCalled();
+    });
+
+    it('lets a database error that is not a unique violation escape, rather than skipping a recipient', async () => {
+      prime();
+      h.prisma.stockNotification.create.mockRejectedValue(
+        new Error('database unavailable'),
+      );
+
+      await expect(h.service.dispatch(theJob())).rejects.toThrow(
+        'database unavailable',
+      );
+      expect(mailQueue.add).not.toHaveBeenCalled();
+    });
+
+    it('marks the row SENT, with a sentAt, once the mail job is accepted', async () => {
+      prime();
+
+      await h.service.dispatch(theJob());
+
+      expect(h.prisma.stockNotification.update).toHaveBeenCalledWith({
+        where: { id: 'claim-1' },
+        data: { status: NotificationStatus.SENT, sentAt: expect.any(Date) },
+      });
+    });
+
+    it('marks the row FAILED when the mail queue refuses the job', async () => {
+      prime();
+      mailQueue.add.mockRejectedValue(new Error('queue unavailable'));
+
+      const outcome = await h.service.dispatch(theJob());
+
+      expect(outcome).toEqual(
+        expect.objectContaining({ notified: 0, failed: 1 }),
+      );
+      expect(h.prisma.stockNotification.update).toHaveBeenCalledWith({
+        where: { id: 'claim-1' },
+        data: { status: NotificationStatus.FAILED },
+      });
+    });
+
+    it('keeps going through the remaining recipients after one of them fails', async () => {
+      prime({ likes: [theLiker, anotherLiker] });
+      h.prisma.stockNotification.create
+        .mockResolvedValueOnce({ id: 'claim-1' } as never)
+        .mockResolvedValueOnce({ id: 'claim-2' } as never);
+      mailQueue.add
+        .mockRejectedValueOnce(new Error('first recipient failed'))
+        .mockResolvedValueOnce({ id: 'mail-2' });
+
+      const outcome = await h.service.dispatch(theJob());
+
+      expect(outcome).toEqual(
+        expect.objectContaining({ candidates: 2, notified: 1, failed: 1 }),
+      );
+      expect(mailQueue.add).toHaveBeenCalledTimes(2);
+      expect(h.prisma.stockNotification.update).toHaveBeenCalledWith({
+        where: { id: 'claim-2' },
+        data: { status: NotificationStatus.SENT, sentAt: expect.any(Date) },
+      });
+    });
+
+    it('counts what it did: candidates, notified, skipped and failed', async () => {
+      prime({ likes: [theLiker, anotherLiker] });
+      h.prisma.stockNotification.findUnique
+        .mockResolvedValueOnce(
+          aNotification(
+            theLiker.userId,
+            'sku-under-test',
+            NotificationStatus.SENT,
+          ),
+        )
+        .mockResolvedValueOnce(null);
+
+      await expect(h.service.dispatch(theJob())).resolves.toEqual(
+        expect.objectContaining({
+          candidates: 2,
+          notified: 1,
+          skipped: 1,
+          failed: 0,
+        }),
+      );
+    });
   });
 
   describe('the message it produces', () => {

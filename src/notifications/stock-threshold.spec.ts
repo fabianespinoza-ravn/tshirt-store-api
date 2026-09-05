@@ -100,22 +100,55 @@ describe('the low-stock threshold', () => {
   });
 
   describe('what counts as having purchased the product', () => {
-    it.todo('counts an order that settled, and the three states after it');
+    it('counts an order that settled, and the three states after it', () => {
+      expect(PURCHASED_ORDER_STATUSES).toEqual([
+        OrderStatus.PAID,
+        OrderStatus.PROCESSING,
+        OrderStatus.SHIPPED,
+        OrderStatus.DELIVERED,
+      ]);
+    });
 
-    it.todo(
-      'does not count a PENDING order, which is a reservation that expires on its own',
-    );
+    it('does not count a PENDING order, which is a reservation that expires on its own', () => {
+      expect(PURCHASED_ORDER_STATUSES).not.toContain(OrderStatus.PENDING);
+    });
 
-    it.todo('does not count a cancelled order');
+    it('does not count a cancelled order', () => {
+      expect(PURCHASED_ORDER_STATUSES).not.toContain(OrderStatus.CANCELLED);
+    });
 
-    it.todo('does not count a failed order');
+    it('does not count a failed order', () => {
+      expect(PURCHASED_ORDER_STATUSES).not.toContain(OrderStatus.FAILED);
+    });
 
-    it.todo(
-      `classifies each of the ${everyStatus.length} statuses OrderStatus declares, so a new one has to be decided on purpose`,
-    );
+    it(`classifies each of the ${everyStatus.length} statuses OrderStatus declares, so a new one has to be decided on purpose`, () => {
+      const classified = new Set(PURCHASED_ORDER_STATUSES);
+      const expected: Record<OrderStatus, boolean> = {
+        [OrderStatus.PENDING]: false,
+        [OrderStatus.PAID]: true,
+        [OrderStatus.PROCESSING]: true,
+        [OrderStatus.SHIPPED]: true,
+        [OrderStatus.DELIVERED]: true,
+        [OrderStatus.CANCELLED]: false,
+        [OrderStatus.FAILED]: false,
+      };
 
-    it.todo(
-      `keeps ${PURCHASED_ORDER_STATUSES.length} statuses in the list, every one of them downstream of a settled payment`,
-    );
+      expect(Object.keys(expected)).toHaveLength(everyStatus.length);
+      expect(
+        everyStatus.map((status) => [status, classified.has(status)]),
+      ).toEqual(everyStatus.map((status) => [status, expected[status]]));
+    });
+
+    it(`keeps ${PURCHASED_ORDER_STATUSES.length} statuses in the list, every one of them downstream of a settled payment`, () => {
+      expect(PURCHASED_ORDER_STATUSES).toHaveLength(4);
+      expect(new Set(PURCHASED_ORDER_STATUSES)).toEqual(
+        new Set([
+          OrderStatus.PAID,
+          OrderStatus.PROCESSING,
+          OrderStatus.SHIPPED,
+          OrderStatus.DELIVERED,
+        ]),
+      );
+    });
   });
 });
