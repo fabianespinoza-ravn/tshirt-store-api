@@ -1,6 +1,6 @@
 # Authorization matrix
 
-Extracted from `W2-API/openapi.yaml` at `1.0.1`, all 38 operations, no exceptions. **This is not
+Extracted from `W2-API/openapi.yaml` at `1.0.3`, all 38 operations, no exceptions. **This is not
 an authorization model**: it is your contract reordered by who can do what, which is the raw
 material the ability is built from. You write the model.
 
