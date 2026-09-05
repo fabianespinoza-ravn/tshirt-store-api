@@ -131,7 +131,16 @@ describe('StripeWebhookService', () => {
       'rethrows a Prisma error that is not P2002, so a database that is down is never acknowledged',
     );
     it.todo(
-      'does not enqueue a settlement job for a delivery it has already recorded',
+      'reads the recorded row when the insert collides, and carries its id into the job',
+    );
+    it.todo(
+      'does not enqueue for a delivery whose recorded row is already stamped processed',
+    );
+    it.todo(
+      'asks for the job again when the recorded row was never settled, so a failed enqueue is not final',
+    );
+    it.todo(
+      'rethrows when the row that won the insert cannot be read back, rather than acknowledging it',
     );
   });
 
@@ -150,6 +159,9 @@ describe('StripeWebhookService', () => {
     );
     it.todo(
       'lets a failure to enqueue surface, so the caller answers 500 and Stripe redelivers',
+    );
+    it.todo(
+      'reuses the stripe event id as the job id on the second attempt too, so the retry cannot double the work',
     );
   });
 

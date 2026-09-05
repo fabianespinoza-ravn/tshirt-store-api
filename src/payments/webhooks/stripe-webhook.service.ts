@@ -20,8 +20,20 @@ export enum WebhookOutcome {
   Queued = 'queued',
   /** Recorded; this API settles nothing for that event type. */
   Recorded = 'recorded',
-  /** Seen before. Nothing was written and nothing was queued. */
+  /** Seen before and already settled. Nothing was written, nothing was queued. */
   Replay = 'replay',
+  /** Seen before but never settled: the job was asked for again. */
+  Requeued = 'requeued',
+}
+
+/** The recorded event a delivery corresponds to, however it got there. */
+interface RecordedEvent {
+  /** The `webhook_events` row's id, which the settlement job stamps. */
+  id: string;
+  /** Null until the worker has settled it. */
+  processedAt: Date | null;
+  /** Whether this call is the one that wrote the row. */
+  fresh: boolean;
 }
 
 /**
@@ -53,37 +65,47 @@ export class StripeWebhookService {
     signature: string | undefined,
   ): Promise<WebhookOutcome> {
     const event = this.verify(rawBody, signature);
-    const webhookEventId = newId();
+    const recorded = await this.record(event);
+    const job = settlementJobFor(event, recorded.id);
 
-    if (!(await this.record(event, webhookEventId))) {
-      // The retry the sequence diagram describes: it collided with the
-      // unique constraint, so nothing was applied a second time and Stripe
-      // gets its acknowledgement.
-      this.logger.log(`Stripe event ${event.id} was already recorded.`);
+    if (!job) {
+      return recorded.fresh ? WebhookOutcome.Recorded : WebhookOutcome.Replay;
+    }
+
+    // A delivery already settled is the replay the sequence diagram
+    // describes: it collided with the unique constraint, nothing was applied
+    // a second time, and Stripe gets its acknowledgement.
+    if (!recorded.fresh && recorded.processedAt !== null) {
+      this.logger.log(`Stripe event ${event.id} was already settled.`);
       return WebhookOutcome.Replay;
     }
 
-    const job = settlementJobFor(event, webhookEventId);
-
-    if (!job) return WebhookOutcome.Recorded;
-
-    // The queue is asked after the row exists, and a failure here is
-    // deliberately not swallowed: the caller answers 500, Stripe redelivers,
-    // and the redelivery collides with the row this call just wrote. What is
-    // left is a recorded event that never became a job, which is precisely
-    // what the "recorded but not settled for more than N minutes" alert in
-    // `docs/ARQUITECTURA.md` exists to catch. The alert is the backstop, not
-    // an afterthought: no ordering of these two writes removes the window,
-    // because Redis and Postgres do not share a transaction.
+    // Redis and Postgres do not share a transaction, so there is a window
+    // where the row exists and the job does not — a failed `add`, or a
+    // process that died between the two. **Stripe's own retry is what closes
+    // it**, and only because this asks again for a recorded event that was
+    // never settled. Answering 200 to that redelivery and stopping would end
+    // the three days of retries with a charge taken, an order still PENDING
+    // and its units reserved against everybody else forever.
+    //
+    // Nothing is applied twice by asking. The job id below collapses a
+    // duplicate onto the job that already exists, and the settlement itself
+    // repeats every precondition in the `where` of its writes, so a job that
+    // does run a second time moves no row a second time.
     await this.settlement.add(JobName.SettlePayment, job, {
-      // Same delivery, same job. BullMQ drops a duplicate id while the job
-      // still exists, which is a second line of defence in front of the
-      // constraint above — never a replacement for it, since a completed job
-      // is eventually trimmed and a webhook can be replayed for three days.
+      // Same delivery, same job. This is a convenience in front of the
+      // constraint above and never a replacement for it: a completed job is
+      // eventually trimmed, and a webhook can be replayed for three days.
       jobId: event.id,
     });
 
-    return WebhookOutcome.Queued;
+    if (recorded.fresh) return WebhookOutcome.Queued;
+
+    this.logger.warn(
+      `Stripe event ${event.id} was recorded but never settled; its job was asked for again.`,
+    );
+
+    return WebhookOutcome.Requeued;
   }
 
   /**
@@ -141,27 +163,33 @@ export class StripeWebhookService {
   }
 
   /**
-   * Writes the event down, and answers whether this call is the one that
-   * did it.
+   * Writes the event down, and answers with the row a delivery corresponds
+   * to — the one this call inserted, or the one that was already there.
    *
-   * `false` is a duplicate delivery. The idempotency lives in the unique
-   * index on `stripe_event_id` rather than in a read-then-write here, and
-   * the difference is the point: two deliveries of the same event arriving
-   * together would both pass a check, and only one can win an insert.
+   * The idempotency lives in the unique index on `stripe_event_id` rather
+   * than in a read-then-write, and the difference is the point: two
+   * deliveries of the same event arriving together would both pass a check,
+   * and only one can win an insert. The read below happens **after** the
+   * insert has lost, so it is a lookup of a row that certainly exists rather
+   * than a check that could race.
+   *
+   * The existing row's id, not the fresh uuid, is what comes back. A
+   * settlement job stamps `processed_at` by id, and one carrying an id no
+   * row has would settle the order and leave the event looking unhandled
+   * forever.
    *
    * Only P2002 is caught. Catching more would turn a database that is down
    * into an acknowledgement Stripe never redelivers, and that is a payment
    * lost quietly. The table carries exactly one unique constraint, so a
    * P2002 on it can only be this one.
    */
-  private async record(
-    event: Stripe.Event,
-    webhookEventId: string,
-  ): Promise<boolean> {
+  private async record(event: Stripe.Event): Promise<RecordedEvent> {
+    const id = newId();
+
     try {
       await this.prisma.webhookEvent.create({
         data: {
-          id: webhookEventId,
+          id,
           stripeEventId: event.id,
           eventType: event.type,
           // The verified event, whole. It is the only copy of what Stripe
@@ -172,16 +200,28 @@ export class StripeWebhookService {
         },
       });
 
-      return true;
+      return { id, processedAt: null, fresh: true };
     } catch (error) {
       if (
-        error instanceof Prisma.PrismaClientKnownRequestError &&
-        error.code === UNIQUE_VIOLATION
+        !(error instanceof Prisma.PrismaClientKnownRequestError) ||
+        error.code !== UNIQUE_VIOLATION
       ) {
-        return false;
+        throw error;
       }
 
-      throw error;
+      const existing = await this.prisma.webhookEvent.findUnique({
+        where: { stripeEventId: event.id },
+        select: { id: true, processedAt: true },
+      });
+
+      if (!existing) {
+        // The row that won the insert is gone again, which nothing in this
+        // API does. Rethrowing keeps Stripe retrying rather than
+        // acknowledging an event this call can no longer account for.
+        throw error;
+      }
+
+      return { ...existing, fresh: false };
     }
   }
 }
