@@ -18,13 +18,23 @@
  * sound for anything holding a Date, a RegExp or a key whose order can vary.
  */
 export const exactlyTheseInAnyOrder = (expected: unknown[]) => ({
-  asymmetricMatch: (actual: unknown): boolean =>
-    Array.isArray(actual) &&
-    actual.length === expected.length &&
-    expected.every((want) =>
-      (actual as unknown[]).some(
-        (got) => JSON.stringify(got) === JSON.stringify(want),
-      ),
-    ),
+  asymmetricMatch: (actual: unknown): boolean => {
+    if (!Array.isArray(actual) || actual.length !== expected.length) {
+      return false;
+    }
+
+    // Each match consumes the member it matched. Without that, `some` lets
+    // two identical expected members both match one actual member, and the
+    // equal lengths then hide an unrelated extra alongside it — the same
+    // shape of hole this matcher was written to close, one level down.
+    const remaining = (actual as unknown[]).map((got) => JSON.stringify(got));
+
+    return expected.every((want) => {
+      const at = remaining.indexOf(JSON.stringify(want));
+      if (at === -1) return false;
+      remaining.splice(at, 1);
+      return true;
+    });
+  },
   toString: (): string => `ExactlyTheseInAnyOrder(${JSON.stringify(expected)})`,
 });
