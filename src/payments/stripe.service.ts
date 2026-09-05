@@ -17,6 +17,22 @@ import Stripe from 'stripe';
  * copy of the same fact, free to drift from the types the compiler checks
  * these calls against.
  */
+/**
+ * One unit per Payment Link purchase, and the quantity the settlement
+ * handler assumes on the way back.
+ *
+ * It is a named constant rather than a bare `1` because it is the same fact
+ * in two places: the link is created without `adjustable_quantity`, so the
+ * buyer cannot change it, and that is the only reason the handler is allowed
+ * to derive an order total from `unitPriceAtCreation` without reading the
+ * session's line items back from Stripe.
+ */
+export const PAYMENT_LINK_QUANTITY = 1;
+
+/** Stripe's `billing_address_collection`, which is a union and not an enum. */
+const BILLING_ADDRESS_REQUIRED: Stripe.PaymentLinkCreateParams.BillingAddressCollection =
+  'required';
+
 @Injectable()
 export class StripeService {
   private readonly logger = new Logger(StripeService.name);
@@ -101,6 +117,93 @@ export class StripeService {
 
       this.logger.error(
         `Could not cancel ${paymentIntentId} (now ${status ?? 'unreadable'}): ${
+          error instanceof Error ? error.message : 'unknown error'
+        }`,
+      );
+
+      return false;
+    }
+  }
+
+  /**
+   * The Payment Link for one SKU, which is the second payment method the
+   * contract mandates.
+   *
+   * **The price travels inline rather than as a `Price` id we keep.** A
+   * Payment Link needs a `Price`, and there are two ways to get one: create
+   * and store a Stripe `Price` per SKU, or let `price_data` mint one as the
+   * link is created. The second is chosen because it removes a whole class
+   * of drift — with a stored id, `Sku.price` and the Stripe price are two
+   * copies of one number that nothing keeps in step, and a manager editing
+   * the price would silently keep charging the old one. Here the amount that
+   * reaches Stripe is the amount the caller passed, once, and
+   * `PaymentLink.unitPriceAtCreation` records it on our side so a later edit
+   * cannot rewrite what an already-published link charges.
+   *
+   * `unitAmount` is cents, which is what `Sku.price` already holds; nothing
+   * converts and nothing rounds.
+   *
+   * `metadata` carries the SKU id because Stripe copies a Payment Link's
+   * metadata onto every Checkout Session the link creates. Settlement does
+   * not read it — it looks the `PaymentLink` row up by
+   * `session.payment_link`, which is the authoritative join — so this is the
+   * self-describing copy: what an operator sees in the dashboard, and what
+   * remains if the event ever has to be reconciled against a row that is no
+   * longer there. Correlation by value, the same reason `WebhookEvent`
+   * carries no foreign key.
+   *
+   * `requestId` is the idempotency key and is meant to be the id of the
+   * `PaymentLink` row about to be written: a retried request creates one
+   * link, not two. It is deliberately *not* the SKU id — the same SKU must
+   * be able to get a second link after the first is deactivated, and Stripe
+   * refuses a reused key whose parameters changed.
+   */
+  async createPaymentLink(params: {
+    requestId: string;
+    skuId: string;
+    productName: string;
+    unitAmount: number;
+  }): Promise<Stripe.PaymentLink> {
+    return this.client.paymentLinks.create(
+      {
+        line_items: [
+          {
+            quantity: PAYMENT_LINK_QUANTITY,
+            price_data: {
+              currency: this.currency,
+              unit_amount: params.unitAmount,
+              product_data: { name: params.productName },
+            },
+          },
+        ],
+        // The buyer of a link has no account and no saved address, so this
+        // is the only place an address can be collected. `getGuestOrder`
+        // never publishes it; the order needs one to be shippable at all.
+        billing_address_collection: BILLING_ADDRESS_REQUIRED,
+        metadata: { skuId: params.skuId },
+      },
+      { idempotencyKey: params.requestId },
+    );
+  }
+
+  /**
+   * Turns a link off at Stripe, reporting rather than raising.
+   *
+   * Both callers are cleaning up after a decision that has already been
+   * made — a link that lost the race for its SKU's one active slot, and
+   * later the price edit that supersedes a link — so a failure here must not
+   * become the answer to a request that otherwise succeeded. What it costs
+   * when it returns false is a link that still charges at Stripe while our
+   * row says inactive, which is worth a loud log and a manual visit to the
+   * dashboard.
+   */
+  async deactivatePaymentLink(paymentLinkId: string): Promise<boolean> {
+    try {
+      await this.client.paymentLinks.update(paymentLinkId, { active: false });
+      return true;
+    } catch (error) {
+      this.logger.error(
+        `Could not deactivate payment link ${paymentLinkId}: ${
           error instanceof Error ? error.message : 'unknown error'
         }`,
       );

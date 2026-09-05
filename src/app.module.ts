@@ -7,8 +7,10 @@ import { CategoriesModule } from './categories/categories.module';
 import { ImagesModule } from './images/images.module';
 import { LikesModule } from './likes/likes.module';
 import { MailModule } from './mail/mail.module';
+import { GuestOrdersModule } from './orders/guest-orders/guest-orders.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { OrdersModule } from './orders/orders.module';
+import { PaymentLinksModule } from './payments/payment-links/payment-links.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { ProductsModule } from './products/products.module';
 import { QueueModule } from './queue/queue.module';
@@ -50,6 +52,8 @@ import { validateEnv } from './config/env.validation';
     LikesModule,
     CartModule,
     OrdersModule,
+    GuestOrdersModule,
+    PaymentLinksModule,
   ],
 })
 export class AppModule {}
