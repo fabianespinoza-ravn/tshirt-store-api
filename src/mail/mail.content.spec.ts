@@ -286,4 +286,40 @@ describe('renderMail', () => {
       expect(message.text).toContain('Only a few are left.');
     });
   });
+
+  describe('a confirmation with no order to confirm', () => {
+    /**
+     * A queue payload comes back out of Redis untyped, so the one field this
+     * message is about is checked rather than assumed. Failing here is what
+     * stops `MailProcessor` handing a body reading `Order number: ` to the
+     * transport — a message the customer cannot act on and cannot diagnose.
+     */
+    it('refuses to render a confirmation carrying no order id', () => {
+      expect(() =>
+        renderMail({
+          kind: MailKind.OrderConfirmation,
+          to: 'buyer@example.test',
+        }),
+      ).toThrow('nothing to confirm');
+    });
+
+    it('refuses one whose order id is blank, not merely absent', () => {
+      expect(() =>
+        renderMail({
+          kind: MailKind.OrderConfirmation,
+          to: 'buyer@example.test',
+          orderId: '   ',
+        }),
+      ).toThrow('nothing to confirm');
+    });
+
+    it('still renders the low-stock nudge with its details missing, which is the opposite call', () => {
+      // The two branches differ on purpose: a nudge without the product's
+      // name still says something useful, and throwing would turn a missing
+      // field into three failed attempts and a discarded recipient.
+      expect(() =>
+        renderMail({ kind: MailKind.LowStock, to: 'liker@example.test' }),
+      ).not.toThrow();
+    });
+  });
 });

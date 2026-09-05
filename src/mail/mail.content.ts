@@ -112,18 +112,38 @@ export function renderMail(data: MailJobData): MailMessage {
      * Nothing from Stripe appears either: a customer has no use for an
      * intent id, and this body is not where the payment audit trail lives.
      */
-    case MailKind.OrderConfirmation:
+    case MailKind.OrderConfirmation: {
+      // A payload comes back out of Redis as whatever was put in, with no
+      // type left on it, so the one field this message is *about* is checked
+      // here rather than assumed. Without it the body read `Order number: `
+      // and went out looking broken, which is worse than not arriving: the
+      // customer cannot act on it and has no way to know what went wrong.
+      //
+      // It throws where the low-stock branch below deliberately does not, and
+      // the difference is what is left when the detail is gone. A nudge still
+      // says something useful without the product's name; a confirmation
+      // without its order number says nothing at all. Failing the job puts it
+      // in front of whoever reads the processor's log instead.
+      const orderId = data.orderId?.trim();
+
+      if (!orderId) {
+        throw new Error(
+          'An order confirmation carries no order id, so there is nothing to confirm.',
+        );
+      }
+
       return {
         ...base,
         subject: 'Your T-Shirt Store order is confirmed',
         text: [
           'Thank you. Your payment went through and your order is confirmed.',
           '',
-          `${ORDER_LINE_PREFIX}${data.orderId ?? ''}`,
+          `${ORDER_LINE_PREFIX}${orderId}`,
           '',
           'Sign in to see what you ordered and where it is going.',
         ].join('\n'),
       };
+    }
 
     /**
      * The stock notification the brief marks (MUST). It goes to somebody who
