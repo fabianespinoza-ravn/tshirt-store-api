@@ -19,6 +19,17 @@ permissions:
 jobs:
   review:
     runs-on: ubuntu-latest
+
+    # Without this the check can be satisfied by a comment it did not cause.
+    # Two runs on the same pull request read the same count before either
+    # posts; the one that reviews raises it, and the one that stayed silent
+    # then sees a number that grew and passes — the exact hole this job was
+    # added to close, surviving inside the fix. Queued rather than cancelled:
+    # a cancelled run's comments would land inside another run's window and
+    # bring the race back in a narrower form.
+    concurrency:
+      group: claude-review-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
     steps:
       # This workflow is the only one that handles a credential, so its
       # actions are pinned to the commit and not to a moving tag: whoever
@@ -52,7 +63,7 @@ jobs:
         id: before
         env:
           GH_TOKEN: ${{ github.token }}
-        run: echo "count=$(./.github/scripts/count-review-comments.sh)" >> "$GITHUB_OUTPUT"
+        run: echo "count=$(node ./.github/scripts/count-review-comments.mjs)" >> "$GITHUB_OUTPUT"
 
       - uses: anthropics/claude-code-action@8251c103ac8c1d761882c86aba1412c7f583c844 # v1
         with:
@@ -119,12 +130,15 @@ jobs:
       # The prompt already requires one line when nothing blocks the merge,
       # precisely so the two cases can be told apart. This step is what makes
       # that requirement enforced rather than requested.
+      # No `if:` on purpose. The default is `success()`, which is exactly
+      # right: when the guard or the action itself fails the job is already
+      # red for a reason of its own, and running this would relabel it as
+      # "the review said nothing" — a different diagnosis and a wrong one.
       - name: Fail when the review said nothing
-        if: always() && steps.before.outcome == 'success'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          after="$(./.github/scripts/count-review-comments.sh)"
+          after="$(node ./.github/scripts/count-review-comments.mjs)"
           if [ "$after" -le "${{ steps.before.outputs.count }}" ]; then
             echo "::error::The review finished without posting a comment, so nothing distinguishes it from a review that never ran. Re-run the job; if it passes silently again, the action is refusing to review and the pull request has not been reviewed."
             exit 1
