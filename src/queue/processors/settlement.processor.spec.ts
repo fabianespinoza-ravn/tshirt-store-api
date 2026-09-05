@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import type { Job } from 'bullmq';
 import { SettlementEventType } from '../../payments/webhooks/settlement.jobs';
 import type { SettlementJobData } from '../../payments/webhooks/settlement.jobs';
@@ -59,21 +60,120 @@ export const aJob = (
  */
 describe('SettlementProcessor', () => {
   describe('the job it answers to', () => {
-    it.todo(`settles a ${JobName.SettlePayment} job`);
-    it.todo('passes the job data through to the service unchanged');
-    it.todo('returns the outcome the service reported, unchanged');
-    it.todo(
-      'throws on a job name it does not recognise, rather than ignoring it',
-    );
-    it.todo(
-      'names the unrecognised job in the error, so the failed entry says what it was',
-    );
-    it.todo('settles nothing when the name did not match');
+    it(`settles a ${JobName.SettlePayment} job`, async () => {
+      const { processor, settlement } = buildProcessor();
+
+      await expect(
+        processor.process(aJob(JobName.SettlePayment)),
+      ).resolves.toBe(SettlementOutcome.Paid);
+      expect(settlement.settle).toHaveBeenCalledTimes(1);
+    });
+
+    it('passes the job data through to the service unchanged', async () => {
+      const { processor, settlement } = buildProcessor();
+      const job = aJob(JobName.SettlePayment, {
+        stripeEventId: 'evt_carried_through',
+        orderId: '018f3b6f-0000-7000-8000-0000000000aa',
+      });
+
+      await processor.process(job);
+
+      // Exact equality rather than `objectContaining`: the payload is five
+      // identifiers, and a processor that dropped one or invented one is the
+      // failure worth catching.
+      expect(settlement.settle).toHaveBeenCalledWith(job.data);
+    });
+
+    it('returns the outcome the service reported, unchanged', async () => {
+      const { processor, settlement } = buildProcessor();
+      // Deliberately not the builder's default: an assertion against `Paid`
+      // would hold for a processor that answered with a constant.
+      settlement.settle.mockResolvedValue(SettlementOutcome.Refunded);
+
+      await expect(
+        processor.process(aJob(JobName.SettlePayment)),
+      ).resolves.toBe(SettlementOutcome.Refunded);
+    });
+
+    it('throws on a job name it does not recognise, rather than ignoring it', async () => {
+      const { processor } = buildProcessor();
+
+      await expect(processor.process(aJob('renamed-job'))).rejects.toThrow(
+        Error,
+      );
+    });
+
+    it('names the unrecognised job in the error, so the failed entry says what it was', async () => {
+      const { processor } = buildProcessor();
+
+      await expect(processor.process(aJob('renamed-job'))).rejects.toThrow(
+        'Unknown settlement job: renamed-job',
+      );
+    });
+
+    it('settles nothing when the name did not match', async () => {
+      const { processor, settlement } = buildProcessor();
+
+      await expect(processor.process(aJob('renamed-job'))).rejects.toThrow();
+
+      expect(settlement.settle).not.toHaveBeenCalled();
+    });
   });
 
   describe('the failure log', () => {
-    it.todo('names the stripe event, the order and the attempt count');
-    it.todo('keeps the stack, because a settlement failure is investigated');
-    it.todo('still logs when the job was removed before the event arrived');
+    it('names the stripe event, the order and the attempt count', () => {
+      const { processor } = buildProcessor();
+      const log = jest.spyOn(Logger.prototype, 'error').mockImplementation();
+      const job = aJob(
+        JobName.SettlePayment,
+        {
+          stripeEventId: 'evt_that_would_not_settle',
+          orderId: '018f3b6f-0000-7000-8000-0000000000bb',
+        },
+        7,
+      );
+      const error = new Error('the database was unreachable');
+
+      processor.onFailed(job, error);
+
+      expect(log).toHaveBeenCalledWith(
+        'Settlement of Stripe event evt_that_would_not_settle for order 018f3b6f-0000-7000-8000-0000000000bb failed after 7 attempt(s): the database was unreachable',
+        error.stack,
+      );
+      log.mockRestore();
+    });
+
+    it('keeps the stack, because a settlement failure is investigated', () => {
+      const { processor } = buildProcessor();
+      const log = jest.spyOn(Logger.prototype, 'error').mockImplementation();
+      const error = new Error('the database was unreachable');
+
+      processor.onFailed(aJob(JobName.SettlePayment), error);
+
+      const stack: unknown = log.mock.calls[0]?.[1];
+      expect(typeof stack).toBe('string');
+      expect(stack).toBe(error.stack);
+      log.mockRestore();
+    });
+
+    /**
+     * BullMQ types the listener's job as optional, for an event delivered
+     * after its job was removed. A processor that dereferenced it anyway
+     * would throw inside the listener and leave the failure with no record
+     * at all — the silence this log exists to prevent.
+     */
+    it('still logs when the job was removed before the event arrived', () => {
+      const { processor } = buildProcessor();
+      const log = jest.spyOn(Logger.prototype, 'error').mockImplementation();
+      const error = new Error('stalled');
+
+      expect(() => processor.onFailed(undefined, error)).not.toThrow();
+
+      expect(log).toHaveBeenCalledWith(
+        'A settlement job failed and was already removed, so the payment it carried is unknown: stalled',
+        error.stack,
+      );
+      log.mockRestore();
+    });
   });
 });

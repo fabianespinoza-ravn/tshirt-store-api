@@ -1,8 +1,18 @@
-import type { RawBodyRequest } from '@nestjs/common';
+import { HttpStatus, type RawBodyRequest } from '@nestjs/common';
+import { HTTP_CODE_METADATA } from '@nestjs/common/constants';
 import type { Request } from 'express';
+import { CHECK_POLICIES_KEY } from '../../auth/casl/check-policies.decorator';
 import { IS_PUBLIC_KEY } from '../../common/decorators/public.decorator';
+import { Problems } from '../../common/problem/problem.catalog';
+import { ProblemException } from '../../common/problem/problem.exception';
 import { StripeWebhookController } from './stripe-webhook.controller';
 import { StripeWebhookService, WebhookOutcome } from './stripe-webhook.service';
+
+/** Shaped like the real header; the controller never looks inside it. */
+const aSignatureHeader = 't=1757030400,v1=deadbeef';
+
+/** The handler itself, which is where every route decorator hangs its metadata. */
+const theHandler: object = StripeWebhookController.prototype.receiveStripeEvent;
 
 /**
  * A request as Nest hands it to the route: the raw bytes present, the parsed
@@ -53,24 +63,121 @@ export const buildController = () => {
  */
 describe('StripeWebhookController', () => {
   describe('what it passes on', () => {
-    it.todo('hands the raw body to the service, not the parsed body');
-    it.todo('hands the stripe-signature header through as it arrived');
-    it.todo(
-      'passes undefined for a request with no raw body, rather than inventing one',
-    );
-    it.todo('passes undefined when the signature header is absent');
+    it('hands the raw body to the service, not the parsed body', async () => {
+      const { controller, webhooks } = buildController();
+      const rawBody = Buffer.from('{"id":"evt_as_stripe_sent_it"}');
+      const request = aRequest(rawBody);
+      // A parsed body that does not re-serialise to the same bytes, so a
+      // controller reaching for `request.body` fails here rather than
+      // passing on a payload the signature was never computed over.
+      (request as unknown as { body: unknown }).body = { id: 'evt_reparsed' };
+
+      await controller.receiveStripeEvent(request, aSignatureHeader);
+
+      expect(webhooks.receive).toHaveBeenCalledWith(rawBody, aSignatureHeader);
+    });
+
+    it('hands the stripe-signature header through as it arrived', async () => {
+      const { controller, webhooks } = buildController();
+
+      await controller.receiveStripeEvent(
+        aRequest(Buffer.from('{}')),
+        aSignatureHeader,
+      );
+
+      expect(webhooks.receive).toHaveBeenCalledWith(
+        expect.any(Buffer),
+        aSignatureHeader,
+      );
+    });
+
+    it('passes undefined for a request with no raw body, rather than inventing one', async () => {
+      const { controller, webhooks } = buildController();
+
+      await controller.receiveStripeEvent(aRequest(), aSignatureHeader);
+
+      expect(webhooks.receive).toHaveBeenCalledWith(
+        undefined,
+        aSignatureHeader,
+      );
+    });
+
+    it('passes undefined when the signature header is absent', async () => {
+      const { controller, webhooks } = buildController();
+
+      await controller.receiveStripeEvent(aRequest(Buffer.from('{}')));
+
+      expect(webhooks.receive).toHaveBeenCalledWith(
+        expect.any(Buffer),
+        undefined,
+      );
+    });
   });
 
   describe('what it answers', () => {
-    it.todo('acknowledges with 200 rather than the 201 a POST defaults to');
-    it.todo('answers the same body whatever the outcome of the delivery was');
-    it.todo(
-      'lets the problem thrown by the service through, so the filter shapes it',
-    );
+    it('acknowledges with 200 rather than the 201 a POST defaults to', () => {
+      expect(Reflect.getMetadata(HTTP_CODE_METADATA, theHandler)).toBe(
+        HttpStatus.OK,
+      );
+    });
+
+    it('answers the same body whatever the outcome of the delivery was', async () => {
+      const { controller, webhooks } = buildController();
+
+      for (const outcome of Object.values(WebhookOutcome)) {
+        webhooks.receive.mockResolvedValueOnce(outcome);
+
+        // `toEqual` and not `objectContaining`: Stripe reads the status and
+        // nothing else, so a body that grew a field is a contract change.
+        await expect(
+          controller.receiveStripeEvent(
+            aRequest(Buffer.from('{}')),
+            aSignatureHeader,
+          ),
+        ).resolves.toEqual({ received: true });
+      }
+
+      expect(webhooks.receive).toHaveBeenCalledTimes(
+        Object.values(WebhookOutcome).length,
+      );
+    });
+
+    it('lets the problem thrown by the service through, so the filter shapes it', async () => {
+      const { controller, webhooks } = buildController();
+      const problem = new ProblemException(
+        Problems.validation,
+        'The Stripe signature could not be verified.',
+      );
+      webhooks.receive.mockRejectedValueOnce(problem);
+
+      const rejection = await controller
+        .receiveStripeEvent(aRequest(Buffer.from('{}')), aSignatureHeader)
+        .then(
+          () => null,
+          (error: ProblemException) => error,
+        );
+
+      // The same exception, and named by its problem kind rather than by its
+      // class: `toBeInstanceOf(ProblemException)` would hold for every one
+      // of the twenty in the catalog.
+      expect(rejection).toBe(problem);
+      expect(rejection?.kind).toEqual({
+        type: Problems.validation.type,
+        title: Problems.validation.title,
+        status: Problems.validation.status,
+      });
+    });
   });
 
   describe('how it is reachable', () => {
-    it.todo(`declares ${IS_PUBLIC_KEY}, because Stripe holds no bearer token`);
-    it.todo('declares no policy, because there is no subject to scope');
+    it(`declares ${IS_PUBLIC_KEY}, because Stripe holds no bearer token`, () => {
+      expect(Reflect.getMetadata(IS_PUBLIC_KEY, theHandler)).toBe(true);
+    });
+
+    it('declares no policy, because there is no subject to scope', () => {
+      expect(
+        Reflect.getMetadata(CHECK_POLICIES_KEY, theHandler),
+      ).toBeUndefined();
+    });
   });
 });

@@ -1,9 +1,10 @@
+import { Logger } from '@nestjs/common';
 import { OrderStatus } from '@prisma/client';
 import { buildService, type ServiceHarness } from '../../testing/build-service';
 import { anOrder, anOrderItem, aSku, aUser } from '../../testing/factories';
 import { resetPrismaMock } from '../../testing/prisma.mock';
 import { SettlementEventType, type SettlementJobData } from './settlement.jobs';
-import { SettlementService } from './settlement.service';
+import { SettlementOutcome, SettlementService } from './settlement.service';
 
 const buyer = aUser();
 const sku = aSku('018f3b6f-0000-7000-8000-0000000000ff', {
@@ -133,10 +134,41 @@ describe('SettlementService', () => {
   });
 
   describe('what it refuses', () => {
-    it.todo(
-      'throws when the order named by the intent does not exist, rather than swallowing it',
-    );
-    it.todo('ignores an event type it has no branch for, without failing');
+    it('throws when the order named by the intent does not exist, rather than swallowing it', async () => {
+      const data = aSettlementJob();
+      h.prisma.order.findUnique.mockResolvedValue(null);
+
+      // The exact sentence, because the failed set is where a person reads
+      // it: "a job failed" is not actionable, "this event settles an order
+      // that does not exist" is.
+      await expect(h.service.settle(data)).rejects.toThrow(
+        `Stripe event ${data.stripeEventId} settles order ${data.orderId}, which does not exist.`,
+      );
+    });
+
+    it('ignores an event type it has no branch for, without failing', async () => {
+      const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation();
+      const data = aSettlementJob({
+        // Not a member of the enum today. The producer's filter would never
+        // build this job, so reaching the branch means the enum grew and
+        // this method did not — which is a gap to log, not a job to fail.
+        eventType:
+          'checkout.session.completed' as unknown as SettlementEventType,
+      });
+
+      await expect(h.service.settle(data)).resolves.toBe(
+        SettlementOutcome.Ignored,
+      );
+
+      // It stops before it reads anything: an unknown type is not an order
+      // this worker has an opinion about.
+      expect(h.prisma.order.findUnique).not.toHaveBeenCalled();
+      expect(warn).toHaveBeenCalledWith(
+        `Nothing settles checkout.session.completed; Stripe event ${data.stripeEventId} was left recorded and unhandled.`,
+      );
+      warn.mockRestore();
+    });
+
     it.todo(
       'does not overwrite the processed stamp of a delivery already settled',
     );
