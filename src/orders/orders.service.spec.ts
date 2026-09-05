@@ -158,6 +158,12 @@ describe('OrdersService', () => {
       const oldSku = aSku(aProduct().id);
       const pending = {
         ...anOrder(client.id, {
+          // Placed half an hour before it lapsed, which is what
+          // PENDING_ORDER_TTL_MS makes of a real one. The factory's default
+          // is a fixed date days earlier, and an order that old is past
+          // Stripe's idempotency retention — a state checkout now refuses to
+          // reclaim, and not the one this case is about.
+          createdAt: new Date(Date.now() - 30 * 60 * 1_000),
           expiresAt: new Date(Date.now() - 1),
           status: OrderStatus.PENDING,
         }),
@@ -1015,6 +1021,29 @@ describe('OrdersService', () => {
       await expect(h.service.checkout(client, address)).rejects.toBeInstanceOf(
         ProblemException,
       );
+      expect(h.prisma.sku.update).not.toHaveBeenCalled();
+    });
+
+    it('refuses to reclaim a lapsed order past Stripe idempotency retention', async () => {
+      // The same bound the sweep applies, reached from the other direction:
+      // a customer coming back to a lapsed order whose intent can no longer
+      // be found by key. Recovering would create a second intent and cancel
+      // that one while the first stayed live.
+      const ancient = anOrder(client.id, {
+        id: 'order-ancient',
+        status: OrderStatus.PENDING,
+        createdAt: new Date(Date.now() - 25 * 60 * 60 * 1_000),
+        expiresAt: new Date(Date.now() - 24 * 60 * 60 * 1_000),
+      });
+      arrangePaymentCheckout(undefined, {
+        pending: { ...ancient, items: [] },
+      });
+      h.prisma.payment.findFirst.mockResolvedValueOnce(null);
+
+      await expect(h.service.checkout(client, address)).rejects.toBeInstanceOf(
+        ProblemException,
+      );
+      expect(h.stripe.createPaymentIntent).not.toHaveBeenCalled();
       expect(h.prisma.sku.update).not.toHaveBeenCalled();
     });
 

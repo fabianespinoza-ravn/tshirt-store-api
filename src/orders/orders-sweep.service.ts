@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { OrderStatus, Prisma } from '@prisma/client';
 import { StripeService } from '../payments/stripe.service';
+import { intentToCancel } from './payment-recovery';
 import { PrismaService } from '../prisma/prisma.service';
 import { recordStatus, releaseReservations } from './order-writes';
 
@@ -40,13 +41,6 @@ export interface SweepOutcome {
  * caller would either need a fake caller or a rule granting one user every
  * order — both of which would be a lie in the authorization model.
  */
-/**
- * How long Stripe keeps an idempotency key, and therefore how long asking
- * for an order's intent again returns the same one rather than making a new
- * one. Documented by Stripe as 24 hours.
- */
-const IDEMPOTENCY_KEY_TTL_MS = 24 * 60 * 60 * 1_000;
-
 @Injectable()
 export class OrdersSweepService {
   private readonly logger = new Logger(OrdersSweepService.name);
@@ -91,35 +85,17 @@ export class OrdersSweepService {
     order: { id: string; total: number; createdAt: Date },
     now: Date,
   ): Promise<boolean> {
-    const payment = await this.prisma.payment.findFirst({
-      where: { orderId: order.id, stripePaymentIntentId: { not: null } },
-      select: { stripePaymentIntentId: true },
-      orderBy: { createdAt: 'desc' },
-    });
+    const intentId = await intentToCancel(this.prisma, this.stripe, order, now);
 
-    if (payment?.stripePaymentIntentId) {
-      return this.stripe.cancelPaymentIntent(payment.stripePaymentIntentId);
-    }
-
-    // Recovery only works while the idempotency key is live. Past that,
-    // asking again does not return the original intent — it creates a
-    // second one, which this would then cancel while the first stayed
-    // active, releasing the stock with a live charge still pointed at it.
-    // That is worse than doing nothing, so past the window the order is
-    // left alone and said out loud. It normally cannot happen:
-    // `PENDING_ORDER_TTL_MS` is thirty minutes against a key that lives a
-    // day, so only a worker down for most of that day gets here.
-    if (now.getTime() - order.createdAt.getTime() > IDEMPOTENCY_KEY_TTL_MS) {
+    if (intentId === null) {
       this.logger.error(
-        `Expired order ${order.id} is older than Stripe's idempotency window, so its original intent can no longer be reached by key. Left PENDING with its stock reserved; cancel the intent by hand.`,
+        `Expired order ${order.id} has no intent this sweep can reach — its idempotency key is past Stripe's retention. Left PENDING with its stock reserved; cancel the intent by hand.`,
       );
 
       return false;
     }
 
-    const recovered = await this.stripe.createPaymentIntent(order);
-
-    return this.stripe.cancelPaymentIntent(recovered.id);
+    return this.stripe.cancelPaymentIntent(intentId);
   }
 
   /**

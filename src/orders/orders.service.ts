@@ -19,6 +19,7 @@ import { paginate, type Paginated } from '../common/pagination';
 import { Problems } from '../common/problem/problem.catalog';
 import { ProblemException } from '../common/problem/problem.exception';
 import { StripeService } from '../payments/stripe.service';
+import { intentToCancel } from './payment-recovery';
 import { PrismaService } from '../prisma/prisma.service';
 import { recordStatus, releaseReservations } from './order-writes';
 import type { CheckoutDto, ListOrdersQueryDto } from './dto/orders.dto';
@@ -364,18 +365,16 @@ export class OrdersService {
 
     if (!pending || !lapsed) return null;
 
-    const payment = await this.prisma.payment.findFirst({
-      where: { orderId: pending.id, stripePaymentIntentId: { not: null } },
-      select: { stripePaymentIntentId: true },
-      orderBy: { createdAt: 'desc' },
-    });
+    const intentId = await intentToCancel(
+      this.prisma,
+      this.stripe,
+      pending,
+      new Date(),
+    );
 
-    // No recorded intent means the window between the commit and the row,
-    // and the recovery is the same one the sweep uses: the order's id is
-    // the idempotency key, so asking again returns whatever was created.
-    const intentId =
-      payment?.stripePaymentIntentId ??
-      (await this.stripe.createPaymentIntent(pending)).id;
+    // Unreachable means unreleasable. The order stays PENDING holding its
+    // stock, and the caller answers 409 rather than reclaiming it.
+    if (intentId === null) return null;
 
     return (await this.stripe.cancelPaymentIntent(intentId))
       ? pending.id
