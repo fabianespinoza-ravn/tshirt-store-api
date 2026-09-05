@@ -496,22 +496,102 @@ describe('SettlementService', () => {
    * agree with whatever it produced.
    */
   describe('the confirmation the customer gets', () => {
-    it.todo(
-      "sends it to the buyer's address, carrying the order's id and nothing else",
-    );
-    it.todo(
-      'enqueues it only after the transaction resolved, never from inside it',
-    );
-    it.todo(
-      `still answers ${SettlementOutcome.Paid} when the mail queue rejects, so a refused enqueue cannot undo a payment`,
-    );
-    it.todo(
-      'logs the refusal against the order id and never the recipient or the payload',
-    );
-    it.todo('sends nothing when the order was already CANCELLED and refunded');
-    it.todo(
-      'sends nothing when the delivery was a duplicate of one already settled',
-    );
-    it.todo('sends nothing for an event type it has no branch for');
+    it("sends it to the buyer's address, carrying the order's id and nothing else", async () => {
+      const data = aSettlementJob();
+
+      await h.service.settle(data);
+
+      expect(h.mail.sendOrderConfirmation).toHaveBeenCalledWith(
+        buyer.email,
+        data.orderId,
+      );
+      expect(h.mail.sendOrderConfirmation).toHaveBeenCalledTimes(1);
+    });
+    it('enqueues it only after the transaction resolved, never from inside it', async () => {
+      let releaseTransaction!: () => void;
+      const transactionResolved = new Promise<void>((resolve) => {
+        releaseTransaction = resolve;
+      });
+
+      h.prisma.$transaction.mockImplementation((operation: unknown) => {
+        if (typeof operation !== 'function') {
+          return Promise.all(operation as Promise<unknown>[]);
+        }
+
+        return (async () => {
+          const result = await (
+            operation as (tx: typeof h.prisma) => Promise<unknown>
+          )(h.prisma);
+          await transactionResolved;
+          return result;
+        })();
+      });
+
+      const settling = h.service.settle(aSettlementJob());
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(h.mail.sendOrderConfirmation).not.toHaveBeenCalled();
+
+      releaseTransaction();
+      await expect(settling).resolves.toBe(SettlementOutcome.Paid);
+      expect(h.mail.sendOrderConfirmation).toHaveBeenCalledTimes(1);
+    });
+    it(`still answers ${SettlementOutcome.Paid} when the mail queue rejects, so a refused enqueue cannot undo a payment`, async () => {
+      h.mail.sendOrderConfirmation.mockRejectedValue(
+        new Error('mail queue unavailable'),
+      );
+
+      await expect(h.service.settle(aSettlementJob())).resolves.toBe(
+        SettlementOutcome.Paid,
+      );
+    });
+    it('logs the refusal against the order id and never the recipient or the payload', async () => {
+      const data = aSettlementJob();
+      const error = jest.spyOn(Logger.prototype, 'error').mockImplementation();
+      h.mail.sendOrderConfirmation.mockRejectedValue(
+        new Error('mail queue unavailable'),
+      );
+
+      await h.service.settle(data);
+
+      const log = error.mock.calls.flat().map(String).join(' ');
+      expect(log).toContain(data.orderId);
+      expect(log).not.toContain(buyer.email);
+      expect(log).not.toContain('OrderConfirmation');
+      error.mockRestore();
+    });
+    it('sends nothing when the order was already CANCELLED and refunded', async () => {
+      h.prisma.order.findUnique.mockResolvedValue(
+        aSettleableOrder({ status: OrderStatus.CANCELLED }),
+      );
+      h.stripe.refundPaymentIntent.mockResolvedValue('re_refunded');
+
+      await h.service.settle(aSettlementJob());
+
+      expect(h.mail.sendOrderConfirmation).not.toHaveBeenCalled();
+    });
+    it('sends nothing when the delivery was a duplicate of one already settled', async () => {
+      h.prisma.order.findUnique.mockResolvedValue(
+        aSettleableOrder({
+          id: aSettlementJob().orderId,
+          status: OrderStatus.PAID,
+        }),
+      );
+
+      await h.service.settle(aSettlementJob());
+
+      expect(h.mail.sendOrderConfirmation).not.toHaveBeenCalled();
+    });
+    it('sends nothing for an event type it has no branch for', async () => {
+      const data = aSettlementJob({
+        eventType:
+          'checkout.session.completed' as unknown as SettlementEventType,
+      });
+
+      await expect(h.service.settle(data)).resolves.toBe(
+        SettlementOutcome.Ignored,
+      );
+      expect(h.mail.sendOrderConfirmation).not.toHaveBeenCalled();
+    });
   });
 });

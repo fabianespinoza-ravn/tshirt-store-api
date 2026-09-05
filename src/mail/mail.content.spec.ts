@@ -1,5 +1,9 @@
 import { Color, Size } from '@prisma/client';
-import { renderMail, TOKEN_LINE_PREFIX } from './mail.content';
+import {
+  ORDER_LINE_PREFIX,
+  renderMail,
+  TOKEN_LINE_PREFIX,
+} from './mail.content';
 import { MailKind, type MailJobData } from './mail.jobs';
 
 /**
@@ -113,14 +117,55 @@ describe('renderMail', () => {
    * assistant.
    */
   describe('the order confirmation', () => {
-    it.todo(
-      'puts the order number on the line ORDER_LINE_PREFIX names, so a reader can find it',
-    );
-    it.todo('renders no token line even when the job carries a stray token');
-    it.todo(
-      'gives it a subject distinct from the four account messages, extending the subject check to five kinds',
-    );
-    it.todo('addresses it to the recipient in the job');
+    it('puts the order number on the line ORDER_LINE_PREFIX names, so a reader can find it', () => {
+      const orderId = 'order-confirmation-123';
+
+      const line = renderMail(
+        data({ kind: MailKind.OrderConfirmation, orderId }),
+      )
+        .text.split('\n')
+        .find((candidate) => candidate.startsWith(ORDER_LINE_PREFIX));
+
+      expect(line).toBe(`${ORDER_LINE_PREFIX}${orderId}`);
+    });
+    it('renders no token line even when the job carries a stray token', () => {
+      const message = renderMail(
+        data({
+          kind: MailKind.OrderConfirmation,
+          orderId: 'order-confirmation-123',
+          token: 'must-not-leak',
+        }),
+      );
+
+      expect(message.text).not.toContain(TOKEN_LINE_PREFIX);
+      expect(message.text).not.toContain('must-not-leak');
+    });
+    it('gives it a subject distinct from the four account messages, extending the subject check to five kinds', () => {
+      const subjects = [
+        MailKind.Verification,
+        MailKind.PasswordReset,
+        MailKind.SignInReminder,
+        MailKind.PasswordChanged,
+        MailKind.OrderConfirmation,
+      ].map(
+        (kind) =>
+          renderMail(data({ kind, token: 'token', orderId: 'order-1' }))
+            .subject,
+      );
+
+      expect(new Set(subjects).size).toBe(5);
+    });
+    it('addresses it to the recipient in the job', () => {
+      expect(
+        renderMail(
+          data({
+            kind: MailKind.OrderConfirmation,
+            to: 'buyer@example.test',
+            orderId: 'order-1',
+          }),
+        ).to,
+      ).toBe('buyer@example.test');
+    });
   });
 
   describe('attachments', () => {
