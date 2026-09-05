@@ -1,4 +1,10 @@
-import { CartStatus, OrderStatus, PaymentMethod } from '@prisma/client';
+import {
+  CartStatus,
+  OrderStatus,
+  PaymentMethod,
+  PaymentStatus,
+  UserRole,
+} from '@prisma/client';
 import {
   Problems,
   type ProblemKind,
@@ -17,11 +23,14 @@ import {
   CHECKOUT_ROUTE,
   orderRowOf,
   ordersOf,
+  paymentsOf,
   seedEmptyCart,
   seedLapsedPendingOrder,
   seedLivePendingOrder,
   setSkuCounts,
   signInClient,
+  signInWithRole,
+  skuCountsOf,
   STALE_PLACED_AGO_MS,
   withdrawProduct,
 } from './support/checkout-fixtures';
@@ -31,6 +40,7 @@ import {
   type Session,
 } from './support/fixtures';
 import { repriceAndRename } from './support/order-fixtures';
+import { intentIdFor } from './support/stripe-stub';
 
 function bearer(token: string): string {
   return `Bearer ${token}`;
@@ -374,9 +384,21 @@ describe('Checkout (e2e)', () => {
       });
     });
 
-    it.todo(
-      "leaves the stranger's cart ACTIVE with its single 1 x tee line, because checkout reads only the caller's own cart",
-    );
+    it("leaves the stranger's cart ACTIVE with its single 1 x tee line, because checkout reads only the caller's own cart", async () => {
+      const scene = await arrangeCheckout(e2e);
+      const response = await postCheckout(e2e, scene.shopper);
+
+      expect(response.status).toBe(201);
+      const cart = await cartRowOf(e2e, scene.strangerCart.id);
+      expect(cart).not.toBeNull();
+      expect(cart?.status).toBe(CartStatus.ACTIVE);
+      expect(cart?.activeUserId).toBe(scene.stranger.user.id);
+      expect(cart?.items).toHaveLength(1);
+      expect(cart?.items[0]).toMatchObject({
+        skuId: scene.skus.tee.id,
+        quantity: 1,
+      });
+    });
 
     it('answers the same order from GET /orders/{orderId} afterwards, minus the clientSecret', async () => {
       const scene = await arrangeCheckout(e2e);
@@ -404,19 +426,65 @@ describe('Checkout (e2e)', () => {
   });
 
   describe('POST /orders: the reservation is not a sale', () => {
-    it.todo('raises tee reserved from 0 to 2 and cap reserved from 0 to 3');
-    it.todo(
-      'leaves tee stock at 10 and cap stock at 10, because nothing has shipped',
-    );
-    it.todo(
-      'lowers available from 10 to 8 on the tee and from 10 to 7 on the cap, which is stock minus reserved',
-    );
-    it.todo(
-      "does not reserve the stranger's cart line: tee reserved is 2 and not 3, because a cart holds no units",
-    );
-    it.todo(
-      'reserves nothing when the checkout is refused, even for the tee it had already priced before reaching the cap it could not fill',
-    );
+    it('raises tee reserved from 0 to 2 and cap reserved from 0 to 3', async () => {
+      const scene = await arrangeCheckout(e2e);
+      const response = await postCheckout(e2e, scene.shopper);
+
+      expect(response.status).toBe(201);
+      expect((await skuCountsOf(e2e, scene.skus.tee.id)).reserved).toBe(2);
+      expect((await skuCountsOf(e2e, scene.skus.cap.id)).reserved).toBe(3);
+    });
+    it('leaves tee stock at 10 and cap stock at 10, because nothing has shipped', async () => {
+      const scene = await arrangeCheckout(e2e);
+      const response = await postCheckout(e2e, scene.shopper);
+
+      expect(response.status).toBe(201);
+      expect((await skuCountsOf(e2e, scene.skus.tee.id)).stock).toBe(10);
+      expect((await skuCountsOf(e2e, scene.skus.cap.id)).stock).toBe(10);
+    });
+    it('lowers available from 10 to 8 on the tee and from 10 to 7 on the cap, which is stock minus reserved', async () => {
+      const scene = await arrangeCheckout(e2e);
+      const response = await postCheckout(e2e, scene.shopper);
+
+      expect(response.status).toBe(201);
+      expect((await skuCountsOf(e2e, scene.skus.tee.id)).available).toBe(8);
+      expect((await skuCountsOf(e2e, scene.skus.cap.id)).available).toBe(7);
+    });
+    it("does not reserve the stranger's cart line: tee reserved is 2 and not 3, because a cart holds no units", async () => {
+      const scene = await arrangeCheckout(e2e);
+      const response = await postCheckout(e2e, scene.shopper);
+
+      expect(response.status).toBe(201);
+      expect((await skuCountsOf(e2e, scene.skus.tee.id)).reserved).toBe(2);
+      const stranger = await cartRowOf(e2e, scene.strangerCart.id);
+      expect(stranger?.status).toBe(CartStatus.ACTIVE);
+      expect(stranger?.items).toEqual([
+        expect.objectContaining({ skuId: scene.skus.tee.id, quantity: 1 }),
+      ]);
+    });
+    it('reserves nothing when the checkout is refused, even for the tee it had already priced before reaching the cap it could not fill', async () => {
+      const scene = await arrangeCheckout(e2e);
+      await setSkuCounts(e2e, scene.skus.cap, { stock: 4, reserved: 2 });
+
+      const response = await postCheckout(e2e, scene.shopper);
+
+      expectProblem(
+        response,
+        Problems.stockUnavailable,
+        `Only 2 unit(s) of ${CAP_NAME} are available.`,
+      );
+      expect(await skuCountsOf(e2e, scene.skus.tee.id)).toEqual({
+        stock: 10,
+        reserved: 0,
+        available: 10,
+      });
+      expect(await skuCountsOf(e2e, scene.skus.cap.id)).toEqual({
+        stock: 4,
+        reserved: 2,
+        available: 2,
+      });
+      expect(await ordersOf(e2e, scene.shopper.user.id)).toEqual([]);
+    });
   });
 
   describe('POST /orders: the lines are frozen at the moment of purchase', () => {
@@ -530,15 +598,39 @@ describe('Checkout (e2e)', () => {
   });
 
   describe('POST /orders: the payment attempt is recorded', () => {
-    it.todo(
-      'writes exactly one Payment row for the order, in the PENDING status and never SUCCEEDED',
-    );
-    it.todo(
-      'writes that row with the PAYMENT_INTENT method and an amount of 12 500 cents, equal to the order total',
-    );
-    it.todo(
-      "writes the intent's id onto stripePaymentIntentId, which is intentIdFor(order.id)",
-    );
+    it('writes exactly one Payment row for the order, in the PENDING status and never SUCCEEDED', async () => {
+      const scene = await arrangeCheckout(e2e);
+      const response = await postCheckout(e2e, scene.shopper);
+      const order = checkoutOf(response);
+
+      expect(response.status).toBe(201);
+      const payments = await paymentsOf(e2e, order.id);
+      expect(payments).toHaveLength(1);
+      expect(payments[0].status).toBe(PaymentStatus.PENDING);
+      expect(payments[0].status).not.toBe(PaymentStatus.SUCCEEDED);
+    });
+    it('writes that row with the PAYMENT_INTENT method and an amount of 12 500 cents, equal to the order total', async () => {
+      const scene = await arrangeCheckout(e2e);
+      const response = await postCheckout(e2e, scene.shopper);
+      const payments = await paymentsOf(e2e, checkoutOf(response).id);
+
+      expect(response.status).toBe(201);
+      expect(payments).toHaveLength(1);
+      expect(payments[0]).toMatchObject({
+        method: PaymentMethod.PAYMENT_INTENT,
+        amount: 12500,
+      });
+    });
+    it("writes the intent's id onto stripePaymentIntentId, which is intentIdFor(order.id)", async () => {
+      const scene = await arrangeCheckout(e2e);
+      const response = await postCheckout(e2e, scene.shopper);
+      const order = checkoutOf(response);
+      const payments = await paymentsOf(e2e, order.id);
+
+      expect(response.status).toBe(201);
+      expect(payments).toHaveLength(1);
+      expect(payments[0].stripePaymentIntentId).toBe(intentIdFor(order.id));
+    });
 
     it('answers paymentMethod PAYMENT_INTENT on the checkout response itself, and not only on a later GET /orders/{orderId}', async () => {
       const scene = await arrangeCheckout(e2e);
@@ -561,27 +653,72 @@ describe('Checkout (e2e)', () => {
       expect(orderOf(detail).paymentMethod).toBe(PaymentMethod.PAYMENT_INTENT);
     });
 
-    it.todo(
-      'hands Stripe the order total as an integer number of cents: e2e.stripe.created carries { orderId, amount: 12500 }',
-    );
+    it('hands Stripe the order total as an integer number of cents: e2e.stripe.created carries { orderId, amount: 12500 }', async () => {
+      const scene = await arrangeCheckout(e2e);
+      const response = await postCheckout(e2e, scene.shopper);
+      const order = checkoutOf(response);
+
+      expect(response.status).toBe(201);
+      expect(e2e.stripe.created).toEqual(
+        expect.arrayContaining([{ orderId: order.id, amount: 12500 }]),
+      );
+    });
   });
 
   describe('POST /orders: one intent per order however often a client retries', () => {
-    it.todo(
-      'creates exactly one intent for the placed order: stripe.createdFor(orderId) is 1',
-    );
-    it.todo(
-      'creates no second intent when a retry is refused by a live pending order: stripe.createdFor stays 1 for the first order and 0 for anything else',
-    );
-    it.todo(
-      'creates no intent at all for a checkout it refuses, so e2e.stripe.created stays empty after an empty-cart refusal',
-    );
-    it.todo(
-      'reuses a lapsed order recorded intent rather than asking for a second one: stripe.createdFor(lapsedOrderId) is 0 when seedLapsedPendingOrder wrote its Payment row',
-    );
-    it.todo(
-      'asks for the lapsed order intent exactly once when no Payment row recorded it: with withRecordedIntent false, stripe.createdFor(lapsedOrderId) is 1',
-    );
+    it('creates exactly one intent for the placed order: stripe.createdFor(orderId) is 1', async () => {
+      const scene = await arrangeCheckout(e2e);
+      const response = await postCheckout(e2e, scene.shopper);
+      const order = checkoutOf(response);
+
+      expect(response.status).toBe(201);
+      expect(e2e.stripe.createdFor(order.id)).toBe(1);
+    });
+    it('creates no second intent when a retry is refused by a live pending order: stripe.createdFor stays 1 for the first order and 0 for anything else', async () => {
+      const scene = await arrangeCheckout(e2e);
+      const first = await postCheckout(e2e, scene.shopper);
+      const firstOrder = checkoutOf(first);
+      const retry = await postCheckout(e2e, scene.shopper);
+
+      expect(first.status).toBe(201);
+      expectProblem(retry, Problems.orderAlreadyPending, PENDING_ORDER_DETAIL);
+      expect(e2e.stripe.createdFor(firstOrder.id)).toBe(1);
+      expect(e2e.stripe.created).toHaveLength(1);
+    });
+    it('creates no intent at all for a checkout it refuses, so e2e.stripe.created stays empty after an empty-cart refusal', async () => {
+      const shopper = await signInClient(e2e);
+      const response = await postCheckout(e2e, shopper);
+
+      expectProblem(
+        response,
+        Problems.cartNotCheckoutable,
+        'The cart is empty.',
+      );
+      expect(e2e.stripe.created).toEqual([]);
+    });
+    it('reuses a lapsed order recorded intent rather than asking for a second one: stripe.createdFor(lapsedOrderId) is 0 when seedLapsedPendingOrder wrote its Payment row', async () => {
+      const scene = await arrangeCheckout(e2e);
+      const lapsed = await seedLapsedPendingOrder(e2e, {
+        userId: scene.shopper.user.id,
+        lines: [{ sku: scene.skus.cap, quantity: 4 }],
+      });
+      const response = await postCheckout(e2e, scene.shopper);
+
+      expect(response.status).toBe(201);
+      expect(e2e.stripe.createdFor(lapsed.order.id)).toBe(0);
+    });
+    it('asks for the lapsed order intent exactly once when no Payment row recorded it: with withRecordedIntent false, stripe.createdFor(lapsedOrderId) is 1', async () => {
+      const scene = await arrangeCheckout(e2e);
+      const lapsed = await seedLapsedPendingOrder(e2e, {
+        userId: scene.shopper.user.id,
+        lines: [{ sku: scene.skus.cap, quantity: 4 }],
+        withRecordedIntent: false,
+      });
+      const response = await postCheckout(e2e, scene.shopper);
+
+      expect(response.status).toBe(201);
+      expect(e2e.stripe.createdFor(lapsed.order.id)).toBe(1);
+    });
   });
 
   describe('POST /orders: the refusals', () => {
@@ -610,9 +747,23 @@ describe('Checkout (e2e)', () => {
       );
     });
 
-    it.todo(
-      "does not reach another client's cart: a caller with no cart of their own is refused while the stranger's full cart is still ACTIVE and untouched",
-    );
+    it("does not reach another client's cart: a caller with no cart of their own is refused while the stranger's full cart is still ACTIVE and untouched", async () => {
+      const scene = await arrangeCheckout(e2e);
+      const caller = await signInClient(e2e);
+      const response = await postCheckout(e2e, caller);
+
+      expectProblem(
+        response,
+        Problems.cartNotCheckoutable,
+        'The cart is empty.',
+      );
+      const cart = await cartRowOf(e2e, scene.strangerCart.id);
+      expect(cart?.status).toBe(CartStatus.ACTIVE);
+      expect(cart?.activeUserId).toBe(scene.stranger.user.id);
+      expect(cart?.items).toEqual([
+        expect.objectContaining({ skuId: scene.skus.tee.id, quantity: 1 }),
+      ]);
+    });
 
     it('answers 409 order-already-pending while a live pending order stands, and names that order expiresAt in the problem document', async () => {
       const scene = await arrangeCheckout(e2e);
@@ -792,15 +943,54 @@ describe('Checkout (e2e)', () => {
       });
     });
 
-    it.todo(
-      'gives the lapsed order 4 cap units back and takes the new order 3, leaving cap reserved at 3 and stock at 10',
-    );
-    it.todo(
-      'cancels the lapsed order intent: e2e.stripe.cancelled contains intentIdFor(lapsedOrderId) exactly once',
-    );
-    it.todo(
-      'cancels that intent before anything is released: an e2e.stripe.onCancel hook reading skuCountsOf mid-flight still sees the 4 cap units reserved',
-    );
+    it('gives the lapsed order 4 cap units back and takes the new order 3, leaving cap reserved at 3 and stock at 10', async () => {
+      const scene = await arrangeCheckout(e2e);
+      const lapsed = await seedLapsedPendingOrder(e2e, {
+        userId: scene.shopper.user.id,
+        lines: [{ sku: scene.skus.cap, quantity: 4 }],
+      });
+      const response = await postCheckout(e2e, scene.shopper);
+
+      expect(response.status).toBe(201);
+      expect(checkoutOf(response).id).not.toBe(lapsed.order.id);
+      expect(await skuCountsOf(e2e, scene.skus.cap.id)).toEqual({
+        stock: 10,
+        reserved: 3,
+        available: 7,
+      });
+    });
+    it('cancels the lapsed order intent: e2e.stripe.cancelled contains intentIdFor(lapsedOrderId) exactly once', async () => {
+      const scene = await arrangeCheckout(e2e);
+      const lapsed = await seedLapsedPendingOrder(e2e, {
+        userId: scene.shopper.user.id,
+        lines: [{ sku: scene.skus.cap, quantity: 4 }],
+      });
+      const response = await postCheckout(e2e, scene.shopper);
+
+      expect(response.status).toBe(201);
+      expect(e2e.stripe.cancelled).toEqual([intentIdFor(lapsed.order.id)]);
+    });
+    it('cancels that intent before anything is released: an e2e.stripe.onCancel hook reading skuCountsOf mid-flight still sees the 4 cap units reserved', async () => {
+      const scene = await arrangeCheckout(e2e);
+      const lapsed = await seedLapsedPendingOrder(e2e, {
+        userId: scene.shopper.user.id,
+        lines: [{ sku: scene.skus.cap, quantity: 4 }],
+      });
+      let duringCancel: Awaited<ReturnType<typeof skuCountsOf>> | undefined;
+      e2e.stripe.onCancel = async () => {
+        duringCancel = await skuCountsOf(e2e, scene.skus.cap.id);
+      };
+
+      const response = await postCheckout(e2e, scene.shopper);
+
+      expect(response.status).toBe(201);
+      expect(e2e.stripe.cancelled).toEqual([intentIdFor(lapsed.order.id)]);
+      expect(duringCancel).toEqual({
+        stock: 10,
+        reserved: 4,
+        available: 6,
+      });
+    });
 
     it('answers 409 order-already-pending when e2e.stripe.cancelSucceeds is false, leaving the lapsed order PENDING and the cart ACTIVE', async () => {
       const scene = await arrangeCheckout(e2e);
@@ -828,9 +1018,27 @@ describe('Checkout (e2e)', () => {
       expect(cart?.activeUserId).toBe(scene.shopper.user.id);
     });
 
-    it.todo(
-      'releases nothing when e2e.stripe.cancelSucceeds is false: cap reserved is still 4 and cap stock is still 10',
-    );
+    it('releases nothing when e2e.stripe.cancelSucceeds is false: cap reserved is still 4 and cap stock is still 10', async () => {
+      const scene = await arrangeCheckout(e2e);
+      await seedLapsedPendingOrder(e2e, {
+        userId: scene.shopper.user.id,
+        lines: [{ sku: scene.skus.cap, quantity: 4 }],
+      });
+      e2e.stripe.cancelSucceeds = false;
+
+      const response = await postCheckout(e2e, scene.shopper);
+
+      expectProblem(
+        response,
+        Problems.orderAlreadyPending,
+        PENDING_ORDER_DETAIL,
+      );
+      expect(await skuCountsOf(e2e, scene.skus.cap.id)).toEqual({
+        stock: 10,
+        reserved: 4,
+        available: 6,
+      });
+    });
 
     it('writes no new order at all after that refused cancellation, so ordersOf the shopper still holds only the lapsed one', async () => {
       const scene = await arrangeCheckout(e2e);
@@ -870,9 +1078,29 @@ describe('Checkout (e2e)', () => {
       expect(row?.statusHistory).toHaveLength(1);
     });
 
-    it.todo(
-      'creates no intent for an order placed past IDEMPOTENCY_KEY_TTL_MS with no Payment row, because an unreachable intent is an unreleasable reservation',
-    );
+    it('creates no intent for an order placed past IDEMPOTENCY_KEY_TTL_MS with no Payment row, because an unreachable intent is an unreleasable reservation', async () => {
+      const scene = await arrangeCheckout(e2e);
+      const stale = await seedLapsedPendingOrder(e2e, {
+        userId: scene.shopper.user.id,
+        lines: [{ sku: scene.skus.cap, quantity: 4 }],
+        withRecordedIntent: false,
+        placedAgoMs: STALE_PLACED_AGO_MS,
+      });
+
+      const response = await postCheckout(e2e, scene.shopper);
+
+      expectProblem(
+        response,
+        Problems.orderAlreadyPending,
+        PENDING_ORDER_DETAIL,
+      );
+      expect(e2e.stripe.createdFor(stale.order.id)).toBe(0);
+      expect(await skuCountsOf(e2e, scene.skus.cap.id)).toEqual({
+        stock: 10,
+        reserved: 4,
+        available: 6,
+      });
+    });
 
     it('reclaims only the lapsed order and never a live one: a pending order seeded by seedLivePendingOrder is left PENDING', async () => {
       const scene = await arrangeCheckout(e2e);
@@ -896,19 +1124,70 @@ describe('Checkout (e2e)', () => {
       expect(row?.statusHistory).toHaveLength(1);
     });
 
-    it.todo(
-      'leaves a live pending order holding its reservations: cap reserved is still 4 and cap stock is still 10',
-    );
+    it('leaves a live pending order holding its reservations: cap reserved is still 4 and cap stock is still 10', async () => {
+      const scene = await arrangeCheckout(e2e);
+      await seedLivePendingOrder(e2e, {
+        userId: scene.shopper.user.id,
+        lines: [{ sku: scene.skus.cap, quantity: 4 }],
+      });
+
+      const response = await postCheckout(e2e, scene.shopper);
+
+      expectProblem(
+        response,
+        Problems.orderAlreadyPending,
+        PENDING_ORDER_DETAIL,
+      );
+      expect(await skuCountsOf(e2e, scene.skus.cap.id)).toEqual({
+        stock: 10,
+        reserved: 4,
+        available: 6,
+      });
+    });
   });
 
   describe('POST /orders: who may check out', () => {
-    it.todo(
-      'answers 403 forbidden to a MANAGER, who has no create rule for an order in docs/AUTHORIZATION-MATRIX.md',
-    );
-    it.todo('answers 403 forbidden to a DELIVERY courier');
-    it.todo(
-      'refuses a MANAGER before touching the database: no order and no intent exist afterwards',
-    );
+    it('answers 403 forbidden to a MANAGER, who has no create rule for an order in docs/AUTHORIZATION-MATRIX.md', async () => {
+      await arrangeCheckout(e2e);
+      const manager = await signInWithRole(e2e, UserRole.MANAGER);
+
+      const response = await postCheckout(e2e, manager);
+
+      expectProblem(
+        response,
+        Problems.forbidden,
+        'The authenticated user is not allowed to perform this operation.',
+      );
+      expect(await ordersOf(e2e, manager.user.id)).toEqual([]);
+    });
+    it('answers 403 forbidden to a DELIVERY courier', async () => {
+      await arrangeCheckout(e2e);
+      const delivery = await signInWithRole(e2e, UserRole.DELIVERY);
+
+      const response = await postCheckout(e2e, delivery);
+
+      expectProblem(
+        response,
+        Problems.forbidden,
+        'The authenticated user is not allowed to perform this operation.',
+      );
+      expect(await ordersOf(e2e, delivery.user.id)).toEqual([]);
+    });
+    it('refuses a MANAGER before touching the database: no order and no intent exist afterwards', async () => {
+      const scene = await arrangeCheckout(e2e);
+      const manager = await signInWithRole(e2e, UserRole.MANAGER);
+
+      const response = await postCheckout(e2e, manager);
+
+      expectProblem(
+        response,
+        Problems.forbidden,
+        'The authenticated user is not allowed to perform this operation.',
+      );
+      expect(await ordersOf(e2e, manager.user.id)).toEqual([]);
+      expect(e2e.stripe.created).toEqual([]);
+      expect(await ordersOf(e2e, scene.shopper.user.id)).toEqual([]);
+    });
   });
 
   describe('POST /orders: unauthenticated access', () => {
@@ -958,8 +1237,26 @@ describe('Checkout (e2e)', () => {
       expect(await ordersOf(e2e, scene.shopper.user.id)).toEqual([]);
     });
 
-    it.todo(
-      'reserves nothing and creates no intent for an unauthenticated request, even one carrying a valid body',
-    );
+    it('reserves nothing and creates no intent for an unauthenticated request, even one carrying a valid body', async () => {
+      const scene = await arrangeCheckout(e2e);
+
+      const response = await e2e
+        .request()
+        .post(CHECKOUT_ROUTE)
+        .send(CHECKOUT_ADDRESS);
+
+      expect(response.status).toBe(401);
+      expect(e2e.stripe.created).toEqual([]);
+      expect(await skuCountsOf(e2e, scene.skus.tee.id)).toEqual({
+        stock: 10,
+        reserved: 0,
+        available: 10,
+      });
+      expect(await skuCountsOf(e2e, scene.skus.cap.id)).toEqual({
+        stock: 10,
+        reserved: 0,
+        available: 10,
+      });
+    });
   });
 });
