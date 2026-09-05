@@ -115,9 +115,13 @@ export class AppAbilityFactory {
     //
     // The two lines below are the whole authorization model for the courier,
     // and they are the student's to own rather than the assistant's. They
-    // arrived with the orders block; nothing in this repository asserts them
-    // yet, and `app-ability.spec.ts` carries the `it.todo` stubs that name
-    // every case they have to answer.
+    // arrived with the orders block and went unasserted until the delivery
+    // branch; `app-ability.spec.ts` now covers them, and the case that earns
+    // its place is the one reading the shape of `accessibleBy`. A rule that
+    // lost its condition still grants the action, so the guard keeps letting
+    // the courier through — and the scope becomes `{}`, which as a Prisma
+    // `where` matches every row. Nothing else in the request path would
+    // notice.
     //
     // What the matrix asks for, spelled out as rules:
     //

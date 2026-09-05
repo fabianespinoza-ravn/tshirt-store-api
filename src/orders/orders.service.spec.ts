@@ -617,9 +617,8 @@ describe('OrdersService', () => {
    * DELIVERY's row scope. The service does not decide any of it — it folds
    * `accessibleBy` into the `where` and that is all — so these cases test the
    * rules in `app-ability.factory.ts` through the only surface that can
-   * actually leak: the Prisma call. They are stubs for the reason the rules
-   * are marked as an extension point there. An assertion written beside a
-   * generated rule agrees with it; the student's disagrees when it is wrong.
+   * actually leak: the Prisma call. An assertion written beside a generated
+   * rule agrees with it; a regression disagrees when the scope is wrong.
    *
    * The shape to assert is the same one the CLIENT cases already use:
    * `expect(h.prisma.order.findMany|findFirst).toHaveBeenCalledWith(...)`
@@ -628,54 +627,265 @@ describe('OrdersService', () => {
    * missing row while handing back somebody else's order, and only the `where`
    * shows the difference.
    *
-   * `arrangeStatusChange` in the block above already builds an order owned by
-   * `client`; pass it `OrderStatus.SHIPPED` for the reachable cases and
-   * `OrderStatus.PAID` for the ones that must answer 404.
+   * The cases below build an order owned by `client`; SHIPPED is reachable,
+   * while PAID is outside the courier's scope or transition table.
    */
   describe('DELIVERY scope', () => {
-    it.todo(
-      'list folds { OR: [{ status: SHIPPED }, { deliveredById: delivery.id }] } into the where, so a courier sees every shipped order plus their own deliveries',
-    );
+    function shippedOrder(
+      overrides: Parameters<typeof anOrder>[1] & {
+        items?: ReturnType<typeof anOrderItem>[];
+      } = {},
+    ) {
+      const { items = [], ...orderOverrides } = overrides;
+      return {
+        ...anOrder(client.id, {
+          id: 'delivery-order',
+          status: OrderStatus.SHIPPED,
+          ...orderOverrides,
+        }),
+        items,
+        payments: [],
+      };
+    }
 
-    it.todo(
-      'list keeps the query filters ANDed with that scope, so ?status=PENDING narrows the page and never widens it',
-    );
+    it('folds the shipped-plus-own-deliveries scope into list', async () => {
+      h.prisma.order.findMany.mockResolvedValue([]);
+      h.prisma.order.count.mockResolvedValue(0);
 
-    it.todo(
-      'getOne resolves with that same scope inside the where and never by id alone',
-    );
+      await h.service.list(delivery, { limit: 20, offset: 0 });
 
-    it.todo(
-      "getOne answers 404 and not 403 for a PAID order outside the courier's scope, so the route is not an identifier oracle",
-    );
+      expect(h.prisma.order.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            AND: [
+              {
+                OR: expect.arrayContaining([
+                  { status: OrderStatus.SHIPPED },
+                  { deliveredById: delivery.id },
+                ]),
+              },
+              {},
+            ],
+          },
+        }),
+      );
+    });
 
-    it.todo(
-      'updateStatus resolves the order with the update scope, so a courier cannot deliver an order it could not have read',
-    );
+    it('keeps query filters ANDed with the delivery scope', async () => {
+      h.prisma.order.findMany.mockResolvedValue([]);
+      h.prisma.order.count.mockResolvedValue(0);
 
-    it.todo(
-      'updateStatus answers 403 when a courier asks for CANCELLED, a destination no DELIVERY move reaches',
-    );
+      await h.service.list(delivery, {
+        limit: 20,
+        offset: 0,
+        status: OrderStatus.PENDING,
+      });
 
-    it.todo(
-      'updateStatus answers 409 when a courier asks for DELIVERED on a PAID order, because the move exists but not from there',
-    );
+      expect(h.prisma.order.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            AND: [
+              {
+                OR: expect.arrayContaining([
+                  { status: OrderStatus.SHIPPED },
+                  { deliveredById: delivery.id },
+                ]),
+              },
+              { status: OrderStatus.PENDING },
+            ],
+          },
+        }),
+      );
+    });
 
-    it.todo(
-      'updateStatus appends the DELIVERED history row after the status write, numbered after the rows already there',
-    );
+    it('gets one order with the delivery scope inside the where', async () => {
+      const order = shippedOrder();
+      h.prisma.order.findFirst.mockResolvedValue(order);
 
-    it.todo(
-      'updateStatus releases no reservations on DELIVERED: only CANCELLED gives units back',
-    );
+      await h.service.getOne(delivery, order.id);
 
-    it.todo(
-      'a courier still reads the order after delivering it, because deliveredById was written in the same statement that left SHIPPED behind',
-    );
+      expect(h.prisma.order.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            AND: [
+              {
+                OR: expect.arrayContaining([
+                  { status: OrderStatus.SHIPPED },
+                  { deliveredById: delivery.id },
+                ]),
+              },
+              { id: order.id },
+            ],
+          },
+        }),
+      );
+    });
 
-    it.todo(
-      "a second courier does not reach the first one's delivered order, because deliveredById names one caller",
-    );
+    it('answers 404 for a PAID order outside the courier scope', async () => {
+      h.prisma.order.findFirst.mockResolvedValue(null);
+
+      await expect(
+        h.service.getOne(delivery, 'paid-order'),
+      ).rejects.toMatchObject({
+        kind: Problems.notFound,
+      });
+      expect(h.prisma.order.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            AND: [
+              {
+                OR: expect.arrayContaining([
+                  { status: OrderStatus.SHIPPED },
+                  { deliveredById: delivery.id },
+                ]),
+              },
+              { id: 'paid-order' },
+            ],
+          }),
+        }),
+      );
+    });
+
+    it('resolves updateStatus with the update scope', async () => {
+      const order = shippedOrder();
+      h.prisma.order.findFirst.mockResolvedValue(order);
+      h.prisma.order.updateMany.mockResolvedValue({ count: 1 });
+      h.prisma.orderStatusHistory.count.mockResolvedValue(0);
+
+      await h.service.updateStatus(delivery, order.id, OrderStatus.DELIVERED);
+
+      expect(h.prisma.order.findFirst.mock.calls[0][0]).toEqual(
+        expect.objectContaining({
+          where: {
+            AND: [
+              {
+                OR: expect.arrayContaining([
+                  { status: OrderStatus.SHIPPED },
+                  { deliveredById: delivery.id },
+                ]),
+              },
+              { id: order.id },
+            ],
+          },
+        }),
+      );
+    });
+
+    it('answers 403 when a courier asks for CANCELLED', async () => {
+      const order = shippedOrder();
+      h.prisma.order.findFirst.mockResolvedValue(order);
+
+      await expect(
+        h.service.updateStatus(delivery, order.id, OrderStatus.CANCELLED),
+      ).rejects.toMatchObject({
+        kind: Problems.forbidden,
+      });
+    });
+
+    it('answers 409 when DELIVERED is requested from PAID', async () => {
+      const order = shippedOrder({ status: OrderStatus.PAID });
+      h.prisma.order.findFirst.mockResolvedValue(order);
+
+      await expect(
+        h.service.updateStatus(delivery, order.id, OrderStatus.DELIVERED),
+      ).rejects.toMatchObject({
+        kind: Problems.conflict,
+      });
+    });
+
+    it('appends delivered history after the status write', async () => {
+      const order = shippedOrder();
+      h.prisma.order.findFirst.mockResolvedValue(order);
+      h.prisma.order.updateMany.mockResolvedValue({ count: 1 });
+      h.prisma.orderStatusHistory.count.mockResolvedValue(3);
+
+      await h.service.updateStatus(delivery, order.id, OrderStatus.DELIVERED);
+
+      expect(
+        h.prisma.order.updateMany.mock.invocationCallOrder[0],
+      ).toBeLessThan(
+        h.prisma.orderStatusHistory.create.mock.invocationCallOrder[0],
+      );
+      expect(h.prisma.orderStatusHistory.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            status: OrderStatus.DELIVERED,
+            sequence: 3,
+          }),
+        }),
+      );
+    });
+
+    it('releases no reservations on DELIVERED', async () => {
+      const order = shippedOrder({
+        items: [anOrderItem('delivery-order', 'sku-1', { quantity: 2 })],
+      });
+      h.prisma.order.findFirst.mockResolvedValue(order);
+      h.prisma.order.updateMany.mockResolvedValue({ count: 1 });
+      h.prisma.orderStatusHistory.count.mockResolvedValue(0);
+
+      await h.service.updateStatus(delivery, order.id, OrderStatus.DELIVERED);
+
+      expect(h.prisma.sku.update).not.toHaveBeenCalled();
+    });
+
+    it('keeps a delivered order readable by the courier who delivered it', async () => {
+      const before = shippedOrder();
+      const after = shippedOrder({
+        status: OrderStatus.DELIVERED,
+        deliveredById: delivery.id,
+        deliveredAt: new Date(),
+      });
+      h.prisma.order.findFirst
+        .mockResolvedValueOnce(before)
+        .mockResolvedValue(after);
+      h.prisma.order.updateMany.mockResolvedValue({ count: 1 });
+      h.prisma.orderStatusHistory.count.mockResolvedValue(0);
+
+      await h.service.updateStatus(delivery, before.id, OrderStatus.DELIVERED);
+
+      expect(h.prisma.order.findFirst.mock.calls[1][0]).toEqual(
+        expect.objectContaining({
+          where: {
+            AND: [
+              {
+                OR: expect.arrayContaining([
+                  { status: OrderStatus.SHIPPED },
+                  { deliveredById: delivery.id },
+                ]),
+              },
+              { id: before.id },
+            ],
+          },
+        }),
+      );
+    });
+
+    it("does not let a second courier reach the first courier's delivery", async () => {
+      const other = { ...delivery, id: 'delivery-2' };
+      h.prisma.order.findFirst.mockResolvedValue(null);
+
+      await expect(
+        h.service.getOne(other, 'delivery-order'),
+      ).rejects.toMatchObject({
+        kind: Problems.notFound,
+      });
+      expect(h.prisma.order.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            AND: [
+              {
+                OR: expect.arrayContaining([
+                  { status: OrderStatus.SHIPPED },
+                  { deliveredById: other.id },
+                ]),
+              },
+              { id: 'delivery-order' },
+            ],
+          }),
+        }),
+      );
+    });
   });
 
   describe('without the Order rules in the ability', () => {

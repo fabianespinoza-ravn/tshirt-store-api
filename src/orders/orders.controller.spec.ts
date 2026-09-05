@@ -15,6 +15,12 @@ const manager: AuthenticatedUser = {
   role: UserRole.MANAGER,
 };
 
+const delivery: AuthenticatedUser = {
+  id: 'delivery-1',
+  email: 'delivery@example.test',
+  role: UserRole.DELIVERY,
+};
+
 /**
  * The controller has no logic of its own and that is the point: every
  * decision — the row scope, the transition verdict, the transaction — lives
@@ -115,20 +121,33 @@ describe('OrdersController', () => {
   });
 
   /**
-   * The courier changes nothing about this layer, and a stub that proves it
-   * is worth having anyway: the temptation with a third role is to branch
+   * The courier changes nothing about this layer, and a passthrough test that
+   * proves it is worth having anyway: the temptation with a third role is to branch
    * here — read the destination, decide the scope, shortcut the state
    * machine — and every one of those moves puts an authorization decision
    * somewhere the service cannot see it. Assert the passthrough and the
    * branch has nowhere to hide.
    */
   describe('the DELIVERY passthrough', () => {
-    it.todo(
-      'hands a courier to list unchanged, so the SHIPPED-plus-own-deliveries scope stays a service decision',
-    );
+    it('hands a courier to list unchanged', async () => {
+      const query = { limit: 10, offset: 2 };
+      service.list.mockResolvedValue(page);
 
-    it.todo(
-      'sends DELIVERED from the body with the order id from the path, and the courier from the token',
-    );
+      await expect(controller.list(delivery, query)).resolves.toBe(page);
+      expect(service.list).toHaveBeenCalledWith(delivery, query);
+    });
+
+    it('sends DELIVERED from the body with the path id and token courier', async () => {
+      const dto = { status: OrderStatus.DELIVERED };
+      service.updateStatus.mockResolvedValue(order);
+
+      await controller.updateStatus(delivery, 'shipped-order', dto);
+
+      expect(service.updateStatus).toHaveBeenCalledWith(
+        delivery,
+        'shipped-order',
+        OrderStatus.DELIVERED,
+      );
+    });
   });
 });

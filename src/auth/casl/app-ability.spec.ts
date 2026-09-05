@@ -1,5 +1,7 @@
-import { UserRole } from '@prisma/client';
-import { AppAbilityFactory } from './app-ability.factory';
+import { accessibleBy } from '@casl/prisma';
+import { OrderStatus, Prisma, UserRole } from '@prisma/client';
+import type { AuthenticatedUser } from '../../common/decorators/current-user.decorator';
+import { AppAbilityFactory, type AppAction } from './app-ability.factory';
 
 describe('AppAbilityFactory', () => {
   const factory = new AppAbilityFactory();
@@ -33,11 +35,9 @@ describe('AppAbilityFactory', () => {
   });
 
   /**
-   * The DELIVERY block in `app-ability.factory.ts` is the student's
-   * deliverable, and so are these assertions: an `expect` written next to a
-   * generated rule ratifies the rule instead of testing it, condition bugs
-   * included. Each stub below names one case exactly, and the PR that carries
-   * them is not finished until they are `it(...)` with a body.
+   * The DELIVERY block in `app-ability.factory.ts` is covered here directly:
+   * an `expect` written next to a generated rule ratifies the rule instead of
+   * testing it, condition bugs included. Each case names one contract exactly.
    *
    * Two of them are worth more than the rest, because they are the ones that
    * fail open rather than closed. A missing condition on `read Order` yields
@@ -49,36 +49,99 @@ describe('AppAbilityFactory', () => {
    * stubs assert `accessibleBy(...).ofType('Order')` and not just the verdict.
    */
   describe('the DELIVERY rules', () => {
-    it.todo(
-      'grants read and update on Order, so PoliciesGuard lets a courier reach listOrders, getOrder and updateOrderStatus',
-    );
+    /**
+     * The row scope as a Prisma `where`, resolved exactly the way
+     * `OrdersService.scope` resolves it. The return type is declared here for
+     * the same reason it is declared there: `ofType` is typed loosely, and a
+     * bare assignment would leave these cases comparing an `any`.
+     */
+    const scopeFor = (
+      caller: AuthenticatedUser,
+      action: AppAction,
+    ): Prisma.OrderWhereInput =>
+      accessibleBy(factory.createForUser(caller), action).ofType('Order');
 
-    it.todo(
-      'does not grant create on Order, so a courier gets 403 on checkout rather than an empty cart',
-    );
+    const delivery = {
+      id: 'delivery-1',
+      email: 'delivery@example.test',
+      role: UserRole.DELIVERY,
+    };
 
-    it.todo(
-      'does not grant the client-only subjects Cart, CartItem and ProductLike',
-    );
+    it('grants read and update on Order', () => {
+      const ability = factory.createForUser(delivery);
 
-    it.todo(
-      'does not grant catalog maintenance on Category, Product, Sku or ProductImage',
-    );
+      expect(ability.can('read', 'Order')).toBe(true);
+      expect(ability.can('update', 'Order')).toBe(true);
+    });
 
-    it.todo(
-      "accessibleBy(ability, 'read').ofType('Order') yields { OR: [{ status: SHIPPED }, { deliveredById: the caller }] } and never {}",
-    );
+    it('does not grant create on Order', () => {
+      expect(factory.createForUser(delivery).can('create', 'Order')).toBe(
+        false,
+      );
+    });
 
-    it.todo(
-      "accessibleBy(ability, 'update').ofType('Order') yields the same scope as read, so a courier cannot move an order it cannot see",
-    );
+    it('does not grant the client-only subjects', () => {
+      const ability = factory.createForUser(delivery);
 
-    it.todo(
-      'names the calling courier in deliveredById and never a second courier, so one delivery does not become another one',
-    );
+      expect(ability.can('read', 'Cart')).toBe(false);
+      expect(ability.can('read', 'CartItem')).toBe(false);
+      expect(ability.can('read', 'ProductLike')).toBe(false);
+    });
 
-    it.todo(
-      'grants nothing at all to an undefined caller, so the scope collapses to { OR: [] } and matches no row',
-    );
+    it('does not grant catalog maintenance', () => {
+      const ability = factory.createForUser(delivery);
+
+      expect(ability.can('create', 'Category')).toBe(false);
+      expect(ability.can('update', 'Product')).toBe(false);
+      expect(ability.can('create', 'Sku')).toBe(false);
+      expect(ability.can('delete', 'ProductImage')).toBe(false);
+    });
+
+    it('builds the conditional read scope for shipped and own delivered orders', () => {
+      const scope = scopeFor(delivery, 'read');
+
+      expect(scope).toEqual({
+        OR: expect.arrayContaining([
+          { status: OrderStatus.SHIPPED },
+          { deliveredById: delivery.id },
+        ]) as Prisma.OrderWhereInput[],
+      });
+    });
+
+    it('uses the same conditional scope for update', () => {
+      const scope = scopeFor(delivery, 'update');
+
+      expect(scope).toEqual({
+        OR: expect.arrayContaining([
+          { status: OrderStatus.SHIPPED },
+          { deliveredById: delivery.id },
+        ]) as Prisma.OrderWhereInput[],
+      });
+    });
+
+    it('names the calling courier in the delivered-by condition', () => {
+      const first = scopeFor(delivery, 'read');
+      const second = scopeFor({ ...delivery, id: 'delivery-2' }, 'read');
+
+      expect(first).toEqual({
+        OR: expect.arrayContaining([
+          { status: OrderStatus.SHIPPED },
+          { deliveredById: 'delivery-1' },
+        ]) as Prisma.OrderWhereInput[],
+      });
+      expect(second).toEqual({
+        OR: expect.arrayContaining([
+          { status: OrderStatus.SHIPPED },
+          { deliveredById: 'delivery-2' },
+        ]) as Prisma.OrderWhereInput[],
+      });
+    });
+
+    it('grants nothing to an undefined caller', () => {
+      const ability = factory.createForUser(undefined);
+
+      expect(ability.can('read', 'Order')).toBe(false);
+      expect(accessibleBy(ability, 'read').ofType('Order')).toEqual({ OR: [] });
+    });
   });
 });
