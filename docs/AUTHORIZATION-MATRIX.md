@@ -6,9 +6,20 @@ material the ability is built from. You write the model.
 
 **One status code is not in that extract.** The implementation also answers **503** on every
 operation: every route reads or writes Postgres, and `src/common/problem/translators/` turns an
-unreachable database or a busy S3 into `service-unavailable` instead of a 500 that tells a client
-to give up. The per-operation lists below are left exactly as extracted, because falsifying an
-extract is worse than an omission — `W2-API/openapi.yaml` is where the code has to be added.
+unreachable database, a busy S3 or a busy Stripe into `service-unavailable` instead of a 500 that
+tells a client to give up. The per-operation lists below are left exactly as extracted, because
+falsifying an extract is worse than an omission — `W2-API/openapi.yaml` is where the code has to
+be added.
+
+**Two rows are ahead of that, and they are not falsified: the contract now declares the codes.**
+`createPaymentLink` and `getGuestOrder` answered responses their extract did not list, so the
+codes went into `W2-API/openapi.yaml` — along with the `ServiceUnavailable` response it had no
+component for — and the rows were re-extracted from it. `createPaymentLink` gains 503 twice over:
+it calls Stripe as well as Postgres. `getGuestOrder` gains 503 and also **400**, from the
+`ParseUUIDPipe` on its path parameter — `Order.id` is a `uuid` column, so a malformed segment
+would otherwise reach Postgres as a cast error and come back a 500, and refusing it in the pipe
+discloses nothing, because a syntactically invalid id cannot exist whoever is asking. The other 36
+rows still owe their 503 to the document rather than to this file.
 
 ---
 
@@ -81,7 +92,7 @@ All four are **CLIENT only**, and all four declare 403.
 | `checkout` | `POST /orders` | **CLIENT** | 201 400 401 403 409 500 |
 | `getOrder` | `GET /orders/{orderId}` | CLIENT their own · MANAGER all · DELIVERY within scope | 200 401 **404** 500 |
 | `updateOrderStatus` | `PATCH /orders/{orderId}/status` | MANAGER · CLIENT · DELIVERY, each with different destinations | 200 400 401 **403** **404** 409 500 |
-| `getGuestOrder` | `GET /guest-orders/{orderId}` | public, the URL is the credential | 200 404 500 |
+| `getGuestOrder` | `GET /guest-orders/{orderId}` | public, the URL is the credential | 200 400 404 500 503 |
 
 DELIVERY's scope: any **SHIPPED** order, plus the **DELIVERED** ones they delivered.
 
@@ -104,7 +115,7 @@ where it is undone.
 
 | Operation | Route | Who | Codes |
 |---|---|---|---|
-| `createPaymentLink` | `POST /payment-links` | MANAGER | 200 201 400 401 403 404 500 |
+| `createPaymentLink` | `POST /payment-links` | MANAGER | 200 201 400 401 403 404 500 503 |
 | `receiveStripeEvent` | `POST /webhooks/stripe` | Stripe, by signature | 200 400 500 |
 | `listPromoCodes` | `GET /promo-codes` | MANAGER | 200 400 401 403 500 |
 | `createPromoCode` | `POST /promo-codes` | MANAGER | 201 400 401 403 409 500 |
