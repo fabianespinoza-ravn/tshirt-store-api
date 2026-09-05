@@ -172,6 +172,15 @@ dead-letter queue; orders still `PENDING` past `expires_at`, which means the swe
 is not running; and `SUCCEEDED` payments belonging to `CANCELLED` orders with no
 `stripe_refund_id`, which is money taken and not returned.
 
+Mail is the one queue with nothing to measure, and that is a consequence of
+its own retention rather than an oversight. It discards a job on both outcomes,
+so its depth sits near zero whether every message is arriving or none is, and
+there is no failed entry left to inspect afterwards. The signal is the
+processor's error line — the kind, the recipient and the error, never the body —
+and what is alerted on is the rate of it. A queue-depth alert here would be
+worse than no alert at all, because it would read healthy while every send
+failed.
+
 Underneath sits the generic base: error rate and p95 per route, pool saturation
 seen as Prisma's pool-timeout errors, queue depth and job age, and structured JSON
 logs carrying a correlation id, with customer data redacted from webhook payloads.
