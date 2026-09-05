@@ -25,6 +25,7 @@ import {
 import { resetPrismaMock } from '../testing/prisma.mock';
 import { OrdersService } from './orders.service';
 import { exactlyTheseInAnyOrder } from '../testing/matchers';
+import { deferred, flushMicrotasks } from '../testing/deferred';
 
 /**
  * The cases that decide whether this module is safe are the ones about the
@@ -947,36 +948,69 @@ describe('OrdersService', () => {
       return { order, cart, sku };
     }
 
+    /**
+     * The id the transaction actually generated, read from the insert.
+     *
+     * The order's id is not the fixture's: `placeOrder` mints it with
+     * `newId()` inside the transaction, and the intent is now created from
+     * what the transaction handed back rather than from a re-read. Reading
+     * it here keeps these cases asserting the real value instead of one the
+     * mock happened to return.
+     */
+    const placedOrderId = (): string =>
+      (h.prisma.order.create.mock.calls[0]?.[0] as { data: { id: string } })
+        .data.id;
+
     it('creates the intent only after the reservation transaction has committed', async () => {
       arrangePaymentCheckout();
 
-      await h.service.checkout(client, address);
-
-      expect(h.prisma.$transaction.mock.invocationCallOrder[0]).toBeLessThan(
-        h.stripe.createPaymentIntent.mock.invocationCallOrder[0],
+      // The transaction is held open, and the question is whether Stripe is
+      // reached while it is. Comparing invocation order would not answer it:
+      // `$transaction` is invoked before anything inside its own callback,
+      // so that comparison holds whether the call is inside or outside, and
+      // the case would pass while the code did exactly what it forbids.
+      const commit = deferred();
+      h.prisma.$transaction.mockImplementationOnce(
+        async (run: (tx: typeof h.prisma) => Promise<unknown>) => {
+          const result = await run(h.prisma);
+          await commit.promise;
+          return result;
+        },
       );
+
+      const checkout = h.service.checkout(client, address);
+      await flushMicrotasks();
+
+      expect(h.stripe.createPaymentIntent).not.toHaveBeenCalled();
+
+      commit.resolve();
+      await checkout;
+
+      expect(h.stripe.createPaymentIntent).toHaveBeenCalledTimes(1);
     });
 
     it('asks Stripe for the order total, in cents, with nothing rounded', async () => {
-      const { order } = arrangePaymentCheckout(4_599);
+      arrangePaymentCheckout(4_599);
 
       await h.service.checkout(client, address);
 
       expect(h.stripe.createPaymentIntent).toHaveBeenCalledWith(
-        expect.objectContaining({ id: order.id, total: 4_599 }),
+        expect.objectContaining({ id: placedOrderId(), total: 4_599 }),
       );
     });
 
     it('records the attempt as a PENDING payment carrying the intent id', async () => {
-      const { order } = arrangePaymentCheckout();
+      arrangePaymentCheckout();
 
       await h.service.checkout(client, address);
 
+      const placed = placedOrderId();
+
       expect(h.prisma.payment.create).toHaveBeenCalledWith({
         data: expect.objectContaining({
-          orderId: order.id,
+          orderId: placed,
           status: PaymentStatus.PENDING,
-          stripePaymentIntentId: `pi_for_${order.id}`,
+          stripePaymentIntentId: `pi_for_${placed}`,
         }),
       });
     });
@@ -998,10 +1032,17 @@ describe('OrdersService', () => {
     it('returns the client secret alongside the order', async () => {
       const { order } = arrangePaymentCheckout();
 
-      await expect(h.service.checkout(client, address)).resolves.toEqual(
+      const view = await h.service.checkout(client, address);
+
+      // The view comes from the re-read, so its id is the fixture's; the
+      // secret comes from the intent, keyed on the id the transaction
+      // generated. Both are asserted because a checkout that returned one
+      // order's view with another order's secret would still pass either
+      // half alone.
+      expect(view).toEqual(
         expect.objectContaining({
           id: order.id,
-          clientSecret: `pi_for_${order.id}_secret`,
+          clientSecret: `pi_for_${placedOrderId()}_secret`,
         }),
       );
     });

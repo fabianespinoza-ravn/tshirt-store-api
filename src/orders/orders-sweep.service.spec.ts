@@ -8,6 +8,7 @@ import { buildService, type ServiceHarness } from '../testing/build-service';
 import { anOrder, anOrderItem } from '../testing/factories';
 import { resetPrismaMock } from '../testing/prisma.mock';
 import { OrdersSweepService, SWEEP_BATCH_SIZE } from './orders-sweep.service';
+import { deferred, flushMicrotasks } from '../testing/deferred';
 
 /**
  * Two cases here decide whether the sweep is safe, and both are about what
@@ -403,11 +404,24 @@ describe('OrdersSweepService', () => {
     it('cancels the intent before it releases a single reservation', async () => {
       arrangePaymentSweep();
 
-      await h.service.sweep(now);
+      // The cancellation is held unresolved, and the question is whether a
+      // single unit goes back on the shelf while it hangs. Comparing
+      // invocation order would not answer it: that records when each call
+      // *started*, so a release fired without waiting for the cancellation
+      // to come back would still look correctly ordered — which is the
+      // arrangement that lets a late payment land on units already resold.
+      const cancellation = deferred<boolean>();
+      h.stripe.cancelPaymentIntent.mockReturnValueOnce(cancellation.promise);
 
-      expect(
-        h.stripe.cancelPaymentIntent.mock.invocationCallOrder[0],
-      ).toBeLessThan(h.prisma.sku.update.mock.invocationCallOrder[0]);
+      const sweeping = h.service.sweep(now);
+      await flushMicrotasks();
+
+      expect(h.prisma.sku.update).not.toHaveBeenCalled();
+
+      cancellation.resolve(true);
+      await sweeping;
+
+      expect(h.prisma.sku.update).toHaveBeenCalled();
     });
 
     it('leaves the order PENDING and its stock reserved when the intent will not cancel', async () => {

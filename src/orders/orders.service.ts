@@ -50,6 +50,17 @@ import {
  */
 export const PENDING_ORDER_TTL_MS = parseDuration('30m');
 
+/**
+ * What the checkout transaction hands back: enough to create the intent
+ * without reading the order again, and no more. The amount is carried
+ * rather than re-read because it was decided inside the transaction that
+ * reserved the stock, and a second read could see a different one.
+ */
+interface PlacedOrder {
+  id: string;
+  total: number;
+}
+
 /** The client inside `$transaction`, which is not the same type as PrismaService. */
 type Tx = Prisma.TransactionClient;
 
@@ -99,7 +110,7 @@ export class OrdersService {
     user: AuthenticatedUser,
     dto: CheckoutDto,
   ): Promise<CheckoutOrderView> {
-    const orderId = await this.prisma.$transaction(
+    const placed = await this.prisma.$transaction(
       async (tx) => {
         await this.settlePendingOrder(tx, user);
         const cart = await this.loadCheckoutableCart(tx, user);
@@ -108,9 +119,15 @@ export class OrdersService {
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
 
-    const order = await this.getOne(user, orderId);
+    const clientSecret = await this.startPayment(placed);
 
-    return { ...order, clientSecret: await this.startPayment(order) };
+    // Read after the payment row exists, not before. Reading first cost
+    // nothing visible except the one field this branch added: the view
+    // derives `paymentMethod` from the `Payment` relation, so a checkout
+    // that had just written a PAYMENT_INTENT row still answered null with
+    // it sitting in the database. The transaction hands back the total so
+    // the intent can be created without a read of its own.
+    return { ...(await this.getOne(user, placed.id)), clientSecret };
   }
 
   /**
@@ -131,7 +148,7 @@ export class OrdersService {
    * the intent exists and nothing has been charged. Only the webhook's
    * settlement moves it, which is why this method never writes `SUCCEEDED`.
    */
-  private async startPayment(order: OrderView): Promise<string> {
+  private async startPayment(order: PlacedOrder): Promise<string> {
     const intent = await this.stripe.createPaymentIntent(order);
 
     await this.prisma.payment.create({
@@ -380,7 +397,7 @@ export class OrdersService {
     user: AuthenticatedUser,
     cart: CartWithLines,
     dto: CheckoutDto,
-  ): Promise<string> {
+  ): Promise<PlacedOrder> {
     const orderId = newId();
     const lines: Prisma.OrderItemCreateWithoutOrderInput[] = [];
     let subtotal = 0;
@@ -476,7 +493,7 @@ export class OrdersService {
       );
     }
 
-    return orderId;
+    return { id: orderId, total: subtotal };
   }
 }
 
