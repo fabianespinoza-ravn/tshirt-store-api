@@ -45,13 +45,27 @@ jobs:
       # merged that way without a review. Fail here first, with the reason
       # on the check, so a change to this file is read by a person before it
       # lands — and keep such changes in their own pull request.
-      - name: Refuse to pass silently when this workflow changes
+      #
+      # The scripts are covered for a second and sharper reason: everything
+      # under `.github/scripts/` is executed later in this job **with
+      # `GH_TOKEN` set**, from the pull request's own checkout.
+      # `count-review-comments` is run by name, so a pull request free to
+      # edit it could make the counter report whatever it liked — passing the
+      # very gate that exists to demand a review — or use the job's token for
+      # something else entirely. Guarding only the workflow file left the
+      # script it calls wide open, which is a hole this job created rather
+      # than closed.
+      - name: Refuse to pass silently when this workflow or its scripts change
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" \
-               --paginate --jq '.[].filename' | grep -qx '.github/workflows/claude-review.yml'; then
-            echo "::error::This pull request changes the review workflow, so the action would skip the review and still pass. Review the change by hand before merging."
+          protected="$(
+            gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" \
+              --paginate --jq '.[].filename' \
+            | grep -E '^\.github/(workflows/claude-review\.yml|scripts/)' || true
+          )"
+          if [ -n "${protected}" ]; then
+            echo "::error::This pull request changes the review workflow or a script this job runs with a token, so the action would skip the review and still pass. Review the change by hand before merging: ${protected}"
             exit 1
           fi
 
