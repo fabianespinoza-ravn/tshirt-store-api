@@ -1,5 +1,8 @@
 node_modules/
 dist/
+# `npm run build:deploy` output: the pre-deploy scripts compiled for the
+# production image, which builds them itself.
+dist-deploy/
 coverage/
 
 # Never commit secrets. .env.example is the template.

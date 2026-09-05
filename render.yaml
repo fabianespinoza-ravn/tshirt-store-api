@@ -3,9 +3,11 @@
 # schema sync (prisma/sync-schema.ts) as a pre-deploy step that runs once,
 # never on boot.
 #
-# The image itself (./Dockerfile) ships with the worker's bootstrap file
-# (dist/worker) once that entrypoint lands in src/ — this blueprint declares
-# the target topology ahead of it, the same way docs/ARQUITECTURA.md does.
+# The image is ./Dockerfile. It ships both bootstrap files — dist/main for
+# this file's web service and dist/worker for its worker — and the Dockerfile
+# asserts both paths exist before the image is finished, because a build that
+# emits an entrypoint somewhere else produces a deploy that builds cleanly and
+# never starts.
 
 databases:
   - name: tshirt-store-db
@@ -83,12 +85,16 @@ services:
     # transaction with `prisma db execute` — see prisma/sync-schema.ts. It
     # never prompts, so it never needs `--accept-data-loss`. The backfill
     # after it fills the live_email/live_user_id columns on rows that predate
-    # them — see prisma/backfill-live-columns.ts. Both need `ts-node` (a
-    # devDependency) present at deploy time; the Dockerfile that runs this
-    # doesn't exist yet, and that's a constraint on how it's written.
+    # them — see prisma/backfill-live-columns.ts.
+    # `prisma:sync:prod` and not `prisma:sync`: the latter runs both scripts
+    # through `ts-node`, which is a devDependency and so is absent from the
+    # image this command runs inside. The Dockerfile compiles the two scripts
+    # to dist-deploy/ instead, and this runs them with plain `node`. The
+    # Prisma CLI they drive is present because @prisma/client declares it as
+    # a peer dependency, which puts it in the production tree.
     # Schema and the code that reads it shipped together this once: nothing
     # was deployed yet to expand around — see the Deployment section.
-    preDeployCommand: npm run prisma:sync
+    preDeployCommand: npm run prisma:sync:prod
     envVars:
       - fromGroup: tshirt-store-config
 
