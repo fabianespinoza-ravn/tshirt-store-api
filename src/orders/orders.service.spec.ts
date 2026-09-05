@@ -1,4 +1,10 @@
-import { CartStatus, OrderStatus, UserRole } from '@prisma/client';
+import {
+  CartStatus,
+  OrderStatus,
+  PaymentMethod,
+  PaymentStatus,
+  UserRole,
+} from '@prisma/client';
 
 /* Jest's asymmetric matchers are typed as `any`; the assertions below are
  * deliberately partial Prisma-call checks, not values passed to production. */
@@ -623,26 +629,124 @@ describe('OrdersService', () => {
      * intent is asked for, so the order can outlive a failed call — and the
      * intent can outlive a failed row. Both directions are named below.
      */
-    it.todo(
-      'creates the intent only after the reservation transaction has committed',
-    );
+    const address = {
+      recipientName: 'Ada Lovelace',
+      line1: '1 Analytical Street',
+      city: 'London',
+      postalCode: 'E1 6AN',
+    };
 
-    it.todo('asks Stripe for the order total, in cents, with nothing rounded');
+    function arrangePaymentCheckout(total = 4_599) {
+      const product = aProduct({ name: 'Payment tee' });
+      const sku = {
+        ...aSku(product.id, { price: total }),
+        product,
+      };
+      const cart = {
+        ...aCart(client.id),
+        items: [{ ...aCartItem('cart-payment', sku.id), sku }],
+      };
+      const order = {
+        ...anOrder(client.id, { id: 'order-payment', total }),
+        items: [],
+        payments: [],
+      };
 
-    it.todo('records the attempt as a PENDING payment carrying the intent id');
+      h.prisma.order.findFirst.mockResolvedValueOnce(null);
+      h.prisma.order.findFirst.mockResolvedValue(order);
+      h.prisma.cart.findFirst.mockResolvedValue(cart);
+      h.prisma.sku.findUnique.mockResolvedValue(sku);
+      h.prisma.sku.update.mockResolvedValue(sku);
+      h.prisma.order.updateMany.mockResolvedValue({ count: 1 });
+      h.prisma.cart.updateMany.mockResolvedValue({ count: 1 });
+      h.prisma.orderStatusHistory.count.mockResolvedValue(0);
+      return { order, cart, sku };
+    }
 
-    it.todo(
-      'records the method as PAYMENT_INTENT, so the order view stops reading null',
-    );
+    it('creates the intent only after the reservation transaction has committed', async () => {
+      arrangePaymentCheckout();
 
-    it.todo('returns the client secret alongside the order');
+      await h.service.checkout(client, address);
 
-    it.todo(
-      'leaves the order PENDING when Stripe refuses, so the sweep can reclaim it',
-    );
+      expect(h.prisma.$transaction.mock.invocationCallOrder[0]).toBeLessThan(
+        h.stripe.createPaymentIntent.mock.invocationCallOrder[0],
+      );
+    });
 
-    it.todo(
-      'writes no payment row when Stripe refuses, because there is no intent to record',
-    );
+    it('asks Stripe for the order total, in cents, with nothing rounded', async () => {
+      const { order } = arrangePaymentCheckout(4_599);
+
+      await h.service.checkout(client, address);
+
+      expect(h.stripe.createPaymentIntent).toHaveBeenCalledWith(
+        expect.objectContaining({ id: order.id, total: 4_599 }),
+      );
+    });
+
+    it('records the attempt as a PENDING payment carrying the intent id', async () => {
+      const { order } = arrangePaymentCheckout();
+
+      await h.service.checkout(client, address);
+
+      expect(h.prisma.payment.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          orderId: order.id,
+          status: PaymentStatus.PENDING,
+          stripePaymentIntentId: `pi_for_${order.id}`,
+        }),
+      });
+    });
+
+    it('records the method as PAYMENT_INTENT, so the order view stops reading null', async () => {
+      arrangePaymentCheckout();
+
+      await h.service.checkout(client, address);
+
+      expect(h.prisma.payment.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            method: PaymentMethod.PAYMENT_INTENT,
+          }),
+        }),
+      );
+    });
+
+    it('returns the client secret alongside the order', async () => {
+      const { order } = arrangePaymentCheckout();
+
+      await expect(h.service.checkout(client, address)).resolves.toEqual(
+        expect.objectContaining({
+          id: order.id,
+          clientSecret: `pi_for_${order.id}_secret`,
+        }),
+      );
+    });
+
+    it('leaves the order PENDING when Stripe refuses, so the sweep can reclaim it', async () => {
+      arrangePaymentCheckout();
+      h.stripe.createPaymentIntent.mockRejectedValueOnce(
+        new Error('Stripe unavailable'),
+      );
+
+      await expect(h.service.checkout(client, address)).rejects.toThrow(
+        'Stripe unavailable',
+      );
+      expect(h.prisma.order.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ status: OrderStatus.PENDING }),
+        }),
+      );
+    });
+
+    it('writes no payment row when Stripe refuses, because there is no intent to record', async () => {
+      arrangePaymentCheckout();
+      h.stripe.createPaymentIntent.mockRejectedValueOnce(
+        new Error('Stripe unavailable'),
+      );
+
+      await expect(h.service.checkout(client, address)).rejects.toThrow();
+
+      expect(h.prisma.payment.create).not.toHaveBeenCalled();
+    });
   });
 });

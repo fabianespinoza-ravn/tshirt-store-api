@@ -60,35 +60,94 @@ describe('StripeService', () => {
 
   const anIntent = (id = 'pi_1') => ({ id, client_secret: `${id}_secret` });
 
-  /** Silences the logger for the cancel path, which logs its refusals. */
-  const withQuietLogger = (): jest.SpyInstance =>
+  /**
+   * Silences the logger for the cancel path, which logs its refusals.
+   *
+   * The return type is inferred rather than declared: annotating it
+   * `jest.SpyInstance` widens `mock.calls` to `any`, and the lint rule
+   * against unsafe member access then fires on reading the logged message.
+   */
+  const withQuietLogger = () =>
     jest.spyOn(Logger.prototype, 'error').mockImplementation();
 
-  it.todo(
-    'keys the intent on the order id, so asking twice cannot make two charges',
-  );
+  it('keys the intent on the order id, so asking twice cannot make two charges', async () => {
+    const service = makeService();
+    const order = anOrder({ id: 'order-idempotent' });
+    paymentIntents.create.mockResolvedValue(anIntent());
 
-  it.todo('sends the order total in cents, with nothing rounded or converted');
+    await service.createPaymentIntent(order);
 
-  it.todo(
-    'sends the configured currency rather than one written into the code',
-  );
+    expect(paymentIntents.create).toHaveBeenCalledWith(expect.any(Object), {
+      idempotencyKey: order.id,
+    });
+  });
 
-  it.todo(
-    'puts the order id in the metadata, so an intent can be traced back without our row',
-  );
+  it('sends the order total in cents, with nothing rounded or converted', async () => {
+    const service = makeService();
+    const order = anOrder({ total: 4_599 });
+    paymentIntents.create.mockResolvedValue(anIntent());
 
-  it.todo('reports success when Stripe accepts the cancellation');
+    await service.createPaymentIntent(order);
 
-  it.todo(
-    'reports failure instead of raising when Stripe refuses to cancel, because the caller is a batch',
-  );
+    expect(paymentIntents.create).toHaveBeenCalledWith(
+      expect.objectContaining({ amount: 4_599 }),
+      expect.any(Object),
+    );
+  });
 
-  it.todo(
-    'names the intent in the log when a cancellation fails, since the sweep leaves the order alone on that answer',
-  );
+  it('sends the configured currency rather than one written into the code', async () => {
+    const service = makeService({ STRIPE_CURRENCY: 'eur' });
+    paymentIntents.create.mockResolvedValue(anIntent());
 
-  // Referenced so the scaffolding is not reported as unused while the cases
-  // are still stubs. Delete this line with the last `it.todo`.
-  void [makeService, anOrder, anIntent, withQuietLogger, paymentIntents];
+    await service.createPaymentIntent(anOrder());
+
+    expect(paymentIntents.create).toHaveBeenCalledWith(
+      expect.objectContaining({ currency: 'eur' }),
+      expect.any(Object),
+    );
+  });
+
+  it('puts the order id in the metadata, so an intent can be traced back without our row', async () => {
+    const service = makeService();
+    const order = anOrder({ id: 'order-metadata' });
+    paymentIntents.create.mockResolvedValue(anIntent());
+
+    await service.createPaymentIntent(order);
+
+    expect(paymentIntents.create).toHaveBeenCalledWith(
+      expect.objectContaining({ metadata: { orderId: order.id } }),
+      expect.any(Object),
+    );
+  });
+
+  it('reports success when Stripe accepts the cancellation', async () => {
+    const service = makeService();
+    paymentIntents.cancel.mockResolvedValue(anIntent());
+
+    await expect(service.cancelPaymentIntent('pi_cancel')).resolves.toBe(true);
+    expect(paymentIntents.cancel).toHaveBeenCalledWith('pi_cancel');
+  });
+
+  it('reports failure instead of raising when Stripe refuses to cancel, because the caller is a batch', async () => {
+    const service = makeService();
+    const logger = withQuietLogger();
+    paymentIntents.cancel.mockRejectedValue(new Error('already succeeded'));
+
+    await expect(service.cancelPaymentIntent('pi_refused')).resolves.toBe(
+      false,
+    );
+    expect(logger).toHaveBeenCalled();
+    logger.mockRestore();
+  });
+
+  it('names the intent in the log when a cancellation fails, since the sweep leaves the order alone on that answer', async () => {
+    const service = makeService();
+    const logger = withQuietLogger();
+    paymentIntents.cancel.mockRejectedValue(new Error('already succeeded'));
+
+    await service.cancelPaymentIntent('pi_named');
+
+    expect(String(logger.mock.calls[0]?.[0])).toContain('pi_named');
+    logger.mockRestore();
+  });
 });

@@ -1,4 +1,4 @@
-import { OrderStatus } from '@prisma/client';
+import { OrderStatus, Payment } from '@prisma/client';
 
 /* Jest's asymmetric matchers are typed as `any`; these are partial checks of
  * Prisma calls and are never values passed to production code. */
@@ -381,22 +381,86 @@ describe('OrdersSweepService', () => {
      * place. Released first, a payment confirming inside the window leaves a
      * charged order whose units have already been sold to someone else.
      */
-    it.todo('cancels the intent before it releases a single reservation');
+    const now = new Date('2026-09-04T12:00:00.000Z');
 
-    it.todo(
-      'leaves the order PENDING and its stock reserved when the intent will not cancel',
-    );
+    function arrangePaymentSweep() {
+      const order = {
+        ...anOrder('user-1', {
+          id: 'order-payment',
+          total: 4_599,
+          status: OrderStatus.PENDING,
+          expiresAt: new Date('2026-09-04T11:00:00.000Z'),
+        }),
+        items: [anOrderItem('order-payment', 'sku-payment', { quantity: 2 })],
+      };
+      h.prisma.order.findMany.mockResolvedValue([order] as never);
+      h.prisma.order.updateMany.mockResolvedValue({ count: 1 });
+      h.prisma.orderStatusHistory.count.mockResolvedValue(0);
+      h.prisma.payment.findFirst.mockResolvedValue(null);
+      return order;
+    }
 
-    it.todo(
-      'counts an order it could not stop as failed rather than as cancelled',
-    );
+    it('cancels the intent before it releases a single reservation', async () => {
+      arrangePaymentSweep();
 
-    it.todo(
-      'reaches for the intent by the order id when no payment row recorded one',
-    );
+      await h.service.sweep(now);
 
-    it.todo(
-      'cancels the intent recorded on the newest payment row when there is one',
-    );
+      expect(
+        h.stripe.cancelPaymentIntent.mock.invocationCallOrder[0],
+      ).toBeLessThan(h.prisma.sku.update.mock.invocationCallOrder[0]);
+    });
+
+    it('leaves the order PENDING and its stock reserved when the intent will not cancel', async () => {
+      arrangePaymentSweep();
+      h.stripe.cancelPaymentIntent.mockResolvedValueOnce(false);
+
+      await h.service.sweep(now);
+
+      expect(h.prisma.order.updateMany).not.toHaveBeenCalled();
+      expect(h.prisma.sku.update).not.toHaveBeenCalled();
+    });
+
+    it('counts an order it could not stop as failed rather than as cancelled', async () => {
+      arrangePaymentSweep();
+      h.stripe.cancelPaymentIntent.mockResolvedValueOnce(false);
+
+      await expect(h.service.sweep(now)).resolves.toEqual({
+        examined: 1,
+        cancelled: 0,
+        failed: 1,
+      });
+    });
+
+    it('reaches for the intent by the order id when no payment row recorded one', async () => {
+      const order = arrangePaymentSweep();
+
+      await h.service.sweep(now);
+
+      expect(h.prisma.payment.findFirst).toHaveBeenCalledWith({
+        where: { orderId: order.id, stripePaymentIntentId: { not: null } },
+        select: { stripePaymentIntentId: true },
+        orderBy: { createdAt: 'desc' },
+      });
+      expect(h.stripe.createPaymentIntent).toHaveBeenCalledWith(
+        expect.objectContaining({ id: order.id, total: order.total }),
+      );
+      expect(h.stripe.cancelPaymentIntent).toHaveBeenCalledWith(
+        `pi_for_${order.id}`,
+      );
+    });
+
+    it('cancels the intent recorded on the newest payment row when there is one', async () => {
+      arrangePaymentSweep();
+      // The service selects one column, so only that column is stood up;
+      // the cast says the partial row is deliberate rather than forgotten.
+      h.prisma.payment.findFirst.mockResolvedValueOnce({
+        stripePaymentIntentId: 'pi_recorded',
+      } as Payment);
+
+      await h.service.sweep(now);
+
+      expect(h.stripe.createPaymentIntent).not.toHaveBeenCalled();
+      expect(h.stripe.cancelPaymentIntent).toHaveBeenCalledWith('pi_recorded');
+    });
   });
 });
