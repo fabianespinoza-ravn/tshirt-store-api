@@ -1,3 +1,4 @@
+import type Stripe from 'stripe';
 import type { StripeService } from '../../src/payments/stripe.service';
 
 /**
@@ -23,6 +24,16 @@ export const intentIdFor = (orderId: string): string => `pi_${orderId}`;
 export class StripeStub {
   readonly created: { orderId: string; amount: number }[] = [];
   readonly cancelled: string[] = [];
+  readonly paymentLinks: {
+    requestId: string;
+    skuId: string;
+    productName: string;
+    unitAmount: number;
+    id: string;
+    url: string;
+  }[] = [];
+  readonly deactivatedPaymentLinks: string[] = [];
+  private readonly events = new Map<string, Stripe.Event>();
 
   /** Set false to make cancelling fail, which is the sweep's refusal path. */
   cancelSucceeds = true;
@@ -55,6 +66,54 @@ export class StripeStub {
     return this.cancelSucceeds;
   }
 
+  createPaymentLink(
+    params: Parameters<StripeService['createPaymentLink']>[0],
+  ): Promise<Stripe.PaymentLink> {
+    const id = `plink_${params.requestId}`;
+    const url = `https://stripe.example.test/pay/${params.requestId}`;
+    this.paymentLinks.push({ ...params, id, url });
+
+    return Promise.resolve({ id, url, active: true } as Stripe.PaymentLink);
+  }
+
+  deactivatePaymentLink(paymentLinkId: string): Promise<boolean> {
+    this.deactivatedPaymentLinks.push(paymentLinkId);
+    return Promise.resolve(true);
+  }
+
+  constructWebhookEvent(payload: Buffer, signature: string): Stripe.Event {
+    void signature;
+    const parsed: unknown = JSON.parse(payload.toString('utf8'));
+    if (
+      typeof parsed !== 'object' ||
+      parsed === null ||
+      !('id' in parsed) ||
+      typeof parsed.id !== 'string'
+    ) {
+      throw new Error('The Stripe test event has no id.');
+    }
+
+    const event = this.events.get(parsed.id);
+    if (!event) throw new Error(`Stripe test event ${parsed.id} is unknown.`);
+
+    return event;
+  }
+
+  retrieveEvent(stripeEventId: string): Promise<Stripe.Event> {
+    const event = this.events.get(stripeEventId);
+    if (!event) {
+      return Promise.reject(
+        new Error(`Stripe test event ${stripeEventId} is unknown.`),
+      );
+    }
+
+    return Promise.resolve(event);
+  }
+
+  setWebhookEvent(event: Stripe.Event): void {
+    this.events.set(event.id, event);
+  }
+
   /** How many intents were created for one order, which is the double-charge question. */
   createdFor(orderId: string): number {
     return this.created.filter((intent) => intent.orderId === orderId).length;
@@ -63,6 +122,9 @@ export class StripeStub {
   reset(): void {
     this.created.length = 0;
     this.cancelled.length = 0;
+    this.paymentLinks.length = 0;
+    this.deactivatedPaymentLinks.length = 0;
+    this.events.clear();
     this.cancelSucceeds = true;
     this.onCancel = undefined;
   }
