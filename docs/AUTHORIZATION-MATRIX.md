@@ -91,8 +91,9 @@ is `getOrder`'s, copied word for word, and that is the whole design: the transit
 are readable exactly when the order is, so the route sends the same Prisma `where` and answers
 **404 and never 403** for the same reason, which is that a 403 would confirm that an identifier
 belongs to somebody. The answer is ordered by the per-order `sequence` the API assigns as it
-records each transition. `W2-API/openapi.yaml` is where the operation has to be added for the
-served document and the deliverable to agree.
+records each transition. The served Swagger document declares each entry's `status`, non-negative
+`sequence`, and ISO 8601 `occurredAt`; it intentionally omits the history-row identifier and the
+delivery courier's identity.
 
 DELIVERY's scope: any **SHIPPED** order, plus the **DELIVERED** ones they delivered.
 

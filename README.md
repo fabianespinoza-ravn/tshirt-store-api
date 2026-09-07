@@ -46,9 +46,9 @@ sequence diagrams for every flow live in [`docs/flows/`](docs/flows/).
 | Authorization | CASL abilities, policy guard, roles for client, manager and delivery |
 | Catalog | Categories, products, SKUs and images, with S3-backed storage |
 | Cart and likes | One active cart per client, lines added, updated and removed, and the product like |
-| Orders, payments | Designed in the contract, not yet implemented |
+| Orders, payments | Checkout, order status history and Stripe webhook settlement |
 
-Unit tests: **20 suites, 172 tests**.
+Unit tests: **52 suites, 696 tests**, plus one documented `todo`.
 
 ## Requirements
 
@@ -65,7 +65,9 @@ npm run prisma:sync           # plan, guard and apply the schema, then the backf
 npm run start:dev
 ```
 
-Swagger UI is served at `/docs` once the application is running.
+Swagger UI is served at `/api/v1/docs` once the application is running. The
+order status-history endpoint returns an ordered array of `status`, `sequence`
+and ISO 8601 `occurredAt` entries; its schema is published in that document.
 
 ## Testing
 

@@ -133,6 +133,10 @@ describe('OrdersController', () => {
    * `expect` calls belong to the student.
    */
   describe('the status history passthrough', () => {
+    it.todo(
+      'declares the status history response schema with status, sequence and occurredAt',
+    );
+
     it('asks the service for the history of the path id, for the token caller', async () => {
       service.statusHistory.mockResolvedValue([]);
 
