@@ -14,6 +14,55 @@ import { settlementJobFor, type SettlementJobData } from './settlement.jobs';
 /** Prisma's unique-constraint violation, which is the whole of the idempotency. */
 const UNIQUE_VIOLATION = 'P2002';
 
+/**
+ * What this deployment keeps of a verified Stripe event, and nothing else.
+ *
+ * The whole event was recorded here until this allowlist replaced it. A
+ * `payment_intent.succeeded` carries `receipt_email`, `shipping` and
+ * `charges[].billing_details` alongside the fact this API actually acts on,
+ * so a column meant to answer "what did Stripe say happened" was quietly
+ * warehousing a customer's address and email a second time, indefinitely,
+ * with no reader that ever asked for either. Nothing in this codebase reads
+ * `webhook_events.payload` back — `SettlementJobData` carries its own
+ * identifiers precisely so the worker never has to — and Stripe itself keeps
+ * the full event, retrievable by `eventId` for as long as this account's
+ * retention allows. What this row is for is proving *that* a delivery
+ * happened and *which* order it named, not standing in for Stripe's own copy
+ * of it.
+ *
+ * `objectId` is named for what it is rather than for `PaymentIntent`
+ * specifically: this endpoint records every event Stripe forwards to it, not
+ * only the ones this API settles (see `settlementJobFor`), and `event.data
+ * .object` is a Charge, a Customer or anything else Stripe sends for a type
+ * nothing here branches on. Every Stripe object carries an `id`; only the
+ * settled types carry a `metadata.orderId` worth keeping.
+ */
+interface RecordedEventPayload {
+  eventId: string;
+  eventType: string;
+  objectId: string;
+  orderId: string | null;
+}
+
+/** The allowlist itself — see `RecordedEventPayload` for what it excludes. */
+function allowlistedPayload(event: Stripe.Event): RecordedEventPayload {
+  const object = event.data.object as { id: string; metadata?: unknown };
+  const metadata = object.metadata;
+  const orderId =
+    typeof metadata === 'object' &&
+    metadata !== null &&
+    typeof (metadata as Record<string, unknown>).orderId === 'string'
+      ? ((metadata as Record<string, unknown>).orderId as string)
+      : null;
+
+  return {
+    eventId: event.id,
+    eventType: event.type,
+    objectId: object.id,
+    orderId,
+  };
+}
+
 /** What a delivery did, for the log line and for the tests that pin it. */
 export enum WebhookOutcome {
   /** Recorded and queued for settlement. */
@@ -192,11 +241,11 @@ export class StripeWebhookService {
           id,
           stripeEventId: event.id,
           eventType: event.type,
-          // The verified event, whole. It is the only copy of what Stripe
-          // actually said, and the worker reads its own facts from the job
-          // rather than from here — but an argument about a settlement six
-          // months from now is answered by this column and by nothing else.
-          payload: event as unknown as Prisma.InputJsonValue,
+          // The allowlist, never the event itself — see
+          // `RecordedEventPayload` for what that excludes and why.
+          payload: allowlistedPayload(
+            event,
+          ) as unknown as Prisma.InputJsonValue,
         },
       });
 

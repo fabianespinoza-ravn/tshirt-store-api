@@ -8,9 +8,12 @@ import type Stripe from 'stripe';
  * `SETTLEMENT_JOB_OPTIONS` keeps failed jobs forever, so whatever is in here
  * lives in Redis until somebody removes it by hand; the architecture
  * write-up allows that precisely because the payload is a handful of Stripe
- * ids and nothing about the customer. The verified event itself is already
- * in `webhook_events.payload`, which is where the worker would go if it ever
- * needed more than these.
+ * ids and nothing about the customer. `webhook_events.payload` keeps the
+ * same allowlist and no more — see `RecordedEventPayload` in
+ * `stripe-webhook.service.ts` — so a worker that needs more than these ids
+ * has nowhere in this database to go for it; only Stripe itself still has
+ * the full event, retrievable by the `stripeEventId` this job already
+ * carries.
  *
  * Amounts are deliberately absent. The order's own `total` is what settles,
  * read inside the transaction that moves it; copying a number out of the
