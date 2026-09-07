@@ -42,6 +42,7 @@ describe('OrdersController', () => {
     checkout: jest.fn(),
     list: jest.fn(),
     getOne: jest.fn(),
+    statusHistory: jest.fn(),
     updateStatus: jest.fn(),
   };
   const controller = new OrdersController(service as unknown as OrdersService);
@@ -118,6 +119,57 @@ describe('OrdersController', () => {
       manager.id,
       OrderStatus.CANCELLED,
     );
+  });
+
+  /**
+   * The status-history route, which adds no logic to this layer either and
+   * therefore has exactly one thing worth pinning: that the caller reaching
+   * the service is the authenticated one from the token and the id is the one
+   * from the path. A controller that read an owner from anywhere else would
+   * hand over another buyer's transitions with the service none the wiser,
+   * because the service scopes by the user it is given.
+   *
+   * Stubs, not assertions: the route is the assistant's work, so the
+   * `expect` calls belong to the student.
+   */
+  describe('the status history passthrough', () => {
+    it('asks the service for the history of the path id, for the token caller', async () => {
+      service.statusHistory.mockResolvedValue([]);
+
+      await controller.statusHistory(client, 'path-order-id');
+
+      expect(service.statusHistory).toHaveBeenCalledWith(
+        client,
+        'path-order-id',
+      );
+    });
+
+    it('returns the entries the service produced, untouched', async () => {
+      const history = [
+        {
+          status: OrderStatus.PENDING,
+          sequence: 0,
+          occurredAt: '2026-01-10T09:00:00.000Z',
+        },
+      ];
+      service.statusHistory.mockResolvedValue(history);
+
+      await expect(
+        controller.statusHistory(client, 'path-order-id'),
+      ).resolves.toBe(history);
+    });
+
+    it('never derives the caller from the path, so a client id in the url reads nothing', async () => {
+      service.statusHistory.mockResolvedValue([]);
+
+      await controller.statusHistory(client, manager.id);
+
+      expect(service.statusHistory).toHaveBeenCalledWith(client, manager.id);
+      expect(service.statusHistory).not.toHaveBeenCalledWith(
+        manager,
+        manager.id,
+      );
+    });
   });
 
   /**
