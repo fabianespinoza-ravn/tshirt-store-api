@@ -1,3 +1,4 @@
+import { ApiProperty } from '@nestjs/swagger';
 import { OrderStatus } from '@prisma/client';
 import { Type } from 'class-transformer';
 import {
@@ -98,4 +99,20 @@ export class ListOrdersQueryDto extends PaginationQueryDto {
 export class UpdateOrderStatusDto {
   @IsEnum(OrderStatus)
   status!: OrderStatus;
+}
+
+/**
+ * One immutable transition returned by an order's status-history endpoint.
+ * This is a response DTO rather than the service's view interface because
+ * Swagger needs runtime metadata to publish the array item schema.
+ */
+export class OrderStatusEventResponseDto {
+  @ApiProperty({ enum: OrderStatus })
+  status!: OrderStatus;
+
+  @ApiProperty({ minimum: 0 })
+  sequence!: number;
+
+  @ApiProperty({ format: 'date-time' })
+  occurredAt!: string;
 }

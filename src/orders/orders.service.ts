@@ -31,8 +31,11 @@ import {
 } from './order-state-machine';
 import {
   ORDER_INCLUDE,
+  ORDER_STATUS_EVENT_SELECT,
   toOrder,
+  toOrderStatusEvent,
   type CheckoutOrderView,
+  type OrderStatusEventView,
   type OrderView,
 } from './orders.views';
 
@@ -205,6 +208,55 @@ export class OrdersService {
   }
 
   /**
+   * Every status the order has taken, oldest first.
+   *
+   * **The scope is on the query, not on the guard.** `PoliciesGuard` gates
+   * `read Order` by role, so a CLIENT reaches this handler for any order id
+   * it cares to type; what keeps it away from another client's transitions is
+   * `reachableOrder`, the same `where` `loadOrder` sends for
+   * `GET /orders/{orderId}`. Reading somebody else's history is the same
+   * defect as reading their order, arriving through a different door, so it
+   * has to be closed by the same lock rather than by a second one that can
+   * drift.
+   *
+   * That is also why this is one query rooted at `Order` instead of a
+   * findMany on `OrderStatusHistory` filtered by `orderId`. Rooting it
+   * here makes the 404 mean what it means everywhere else — the order is
+   * outside the caller's scope, or it does not exist, and the response cannot
+   * tell them apart — whereas a history query would have to read an empty
+   * array as "no such order", which is wrong: an order seeded or migrated
+   * without history rows is reachable and simply has none.
+   *
+   * **Ordered by `sequence`, ascending, and that is the contract.**
+   * `recordStatus` numbers each row inside the transaction that moves the
+   * order, so the sequence is the only total order over the transitions that
+   * survives two of them landing in the same millisecond. The column travels
+   * in the payload for the same reason: a client that re-sorts, merges pages
+   * or stores the entries can reconstruct the order without trusting the
+   * array it happened to receive.
+   */
+  async statusHistory(
+    user: AuthenticatedUser,
+    orderId: string,
+  ): Promise<OrderStatusEventView[]> {
+    const order = await loadOrThrow(
+      () =>
+        this.prisma.order.findFirst({
+          where: this.reachableOrder(user, orderId, 'read'),
+          select: {
+            statusHistory: {
+              select: ORDER_STATUS_EVENT_SELECT,
+              orderBy: { sequence: 'asc' },
+            },
+          },
+        }),
+      'Order does not exist.',
+    );
+
+    return order.statusHistory.map(toOrderStatusEvent);
+  }
+
+  /**
    * The status change, with the two refusals kept apart: a role that can
    * never reach the destination is a 403, a role that can but not from here
    * is a 409. `order-state-machine.ts` decides both.
@@ -315,11 +367,26 @@ export class OrdersService {
     return loadOrThrow(
       () =>
         this.prisma.order.findFirst({
-          where: { AND: [this.scope(user, action), { id: orderId }] },
+          where: this.reachableOrder(user, orderId, action),
           include: ORDER_INCLUDE,
         }),
       'Order does not exist.',
     );
+  }
+
+  /**
+   * "This order, if the caller may reach it", as one expression rather than
+   * as a coincidence repeated at each call site. Anything hanging off an
+   * order — its history today, whatever a later block adds — is reachable
+   * exactly when the order is, and that is only true for as long as the two
+   * queries send the same `where`.
+   */
+  private reachableOrder(
+    user: AuthenticatedUser,
+    orderId: string,
+    action: AppAction,
+  ): Prisma.OrderWhereInput {
+    return { AND: [this.scope(user, action), { id: orderId }] };
   }
 
   private assertTransition(

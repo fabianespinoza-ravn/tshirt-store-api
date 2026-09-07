@@ -31,6 +31,12 @@ export const aStorage = (): DeepMockProxy<StorageService> => {
 export const bytesOf = (size: number): Buffer => Buffer.alloc(size, 0x2a);
 
 /**
+ * The chunk size `aBodyStream` and `anObservableBody` hand the body over in,
+ * named because the cases about where the read stops are stated in chunks.
+ */
+const CHUNK_BYTES = 64 * 1024;
+
+/**
  * A body delivered the way `fetch` delivers one — a stream, in chunks —
  * because a stream is what the function now reads. Handing it one finished
  * buffer would let a case pass a cap it could not pass in production, where
@@ -38,7 +44,7 @@ export const bytesOf = (size: number): Buffer => Buffer.alloc(size, 0x2a);
  */
 export const aBodyStream = (
   bytes: Buffer,
-  chunkSize = 64 * 1024,
+  chunkSize = CHUNK_BYTES,
 ): ReadableStream<Uint8Array<ArrayBuffer>> =>
   new ReadableStream<Uint8Array<ArrayBuffer>>({
     start(controller) {
@@ -48,6 +54,70 @@ export const aBodyStream = (
       controller.close();
     },
   });
+
+/**
+ * The same body, plus the two things the cap's branches are actually about:
+ * how much of it the code pulled, and whether it cancelled the rest.
+ *
+ * The queuing strategy holds nothing back, so the source is pulled exactly
+ * once per `read()` and `bytesPulled` is what the code asked the stream for
+ * rather than what the stream volunteered. That is what lets a case say
+ * "it stopped here" instead of only "it failed".
+ */
+export const anObservableBody = (bytes: Buffer, chunkSize = CHUNK_BYTES) => {
+  const chunks: Uint8Array<ArrayBuffer>[] = [];
+
+  for (let at = 0; at < bytes.byteLength; at += chunkSize) {
+    chunks.push(new Uint8Array(bytes.subarray(at, at + chunkSize)));
+  }
+
+  let pulled = 0;
+  let bytesPulled = 0;
+  let cancelled = false;
+
+  const stream = new ReadableStream<Uint8Array<ArrayBuffer>>(
+    {
+      pull(controller) {
+        const chunk = chunks[pulled];
+
+        if (chunk === undefined) {
+          controller.close();
+          return;
+        }
+
+        pulled += 1;
+        bytesPulled += chunk.byteLength;
+        controller.enqueue(chunk);
+      },
+      cancel() {
+        cancelled = true;
+      },
+    },
+    { highWaterMark: 0 },
+  );
+
+  return {
+    stream,
+    chunksPulled: () => pulled,
+    bytesPulled: () => bytesPulled,
+    wasCancelled: () => cancelled,
+  };
+};
+
+/**
+ * An accepted answer whose body is handed over rather than built from bytes,
+ * so a case can question the stream afterwards — or state that there is no
+ * body at all, which is a thing a 200 can do and the code has a branch for.
+ */
+export const anOkResponseWithBody = (
+  body: ReadableStream<Uint8Array<ArrayBuffer>> | null,
+  headers: Record<string, string> = {},
+): Partial<Response> => ({
+  ok: true,
+  status: 200,
+  headers: new Headers({ 'content-type': 'image/png', ...headers }),
+  body,
+});
 
 /**
  * Replaces `fetch` for one case. The object it returns is only as much of
@@ -263,29 +333,126 @@ describe('the product image attachment', () => {
    * only restate it, bugs included.
    */
   describe('the cap, which bounds the read and not only the payload', () => {
-    it.todo(
-      'refuses on a Content-Length over the cap, without reading the body',
-    );
+    /** Where the running count crosses the cap, counted in whole chunks. */
+    const chunksToCross = Math.floor(MAX_ATTACHMENT_BYTES / CHUNK_BYTES) + 1;
+    const bytesAtCrossing = chunksToCross * CHUNK_BYTES;
 
-    it.todo(
-      'cancels the body it refused on the declared length, rather than draining it',
-    );
+    /** What `readCapped` names when it refuses `size` bytes. */
+    const refusal = (size: number, key = aKey()): string =>
+      `${key} is ${size} bytes, over the ${MAX_ATTACHMENT_BYTES} an attachment may be.`;
 
-    it.todo('reads the object normally when the Content-Length fits');
+    it('refuses on a Content-Length over the cap, without reading the body', async () => {
+      const declared = MAX_ATTACHMENT_BYTES + 1;
+      // Eight bytes would have fitted with room to spare, so a refusal that
+      // names `declared` can only have come from the header.
+      const body = anObservableBody(bytesOf(8));
+      stubFetch(
+        anOkResponseWithBody(body.stream, {
+          'content-length': String(declared),
+        }),
+      );
 
-    it.todo(
-      'ignores a Content-Length that is not a number and counts the bytes instead',
-    );
+      await expect(loadImageAttachment(aStorage(), aKey())).rejects.toThrow(
+        refusal(declared),
+      );
+      expect(body.chunksPulled()).toBe(0);
+      expect(body.bytesPulled()).toBe(0);
+    });
 
-    it.todo(
-      'refuses an object whose Content-Length understates it, because the count decides',
-    );
+    it('cancels the body it refused on the declared length, rather than draining it', async () => {
+      const declared = MAX_ATTACHMENT_BYTES * 2;
+      const body = anObservableBody(bytesOf(declared));
+      stubFetch(
+        anOkResponseWithBody(body.stream, {
+          'content-length': String(declared),
+        }),
+      );
 
-    it.todo(
-      'stops on the chunk that crosses the cap rather than buffering what follows',
-    );
+      await expect(loadImageAttachment(aStorage(), aKey())).rejects.toThrow(
+        refusal(declared),
+      );
+      // Cancelled, not drained: the source was told to stop and not one byte
+      // of it was pulled. Returning early without cancelling would leave the
+      // rest of the object still coming down the connection.
+      expect(body.wasCancelled()).toBe(true);
+      expect(body.bytesPulled()).toBe(0);
+    });
 
-    it.todo('throws when a successful response carries no body');
+    it('reads the object normally when the Content-Length fits', async () => {
+      const bytes = bytesOf(MAX_ATTACHMENT_BYTES - 1);
+      const body = anObservableBody(bytes);
+      stubFetch(
+        anOkResponseWithBody(body.stream, {
+          'content-length': String(bytes.byteLength),
+        }),
+      );
+
+      const attachment = await loadImageAttachment(aStorage(), aKey());
+
+      expect(attachment.content).toBe(bytes.toString('base64'));
+      // A declared length under the cap refuses nothing and truncates
+      // nothing: every byte was pulled and the stream ran to its end.
+      expect(body.bytesPulled()).toBe(bytes.byteLength);
+      expect(body.wasCancelled()).toBe(false);
+    });
+
+    it('ignores a Content-Length that is not a number and counts the bytes instead', async () => {
+      const bytes = bytesOf(CHUNK_BYTES);
+      const body = anObservableBody(bytes);
+      // A header that is a size only to something that parses a prefix:
+      // `Number` says NaN and the hint is dropped, while `parseInt` would
+      // read a number over the cap and refuse an object that fits.
+      stubFetch(
+        anOkResponseWithBody(body.stream, {
+          'content-length': `${MAX_ATTACHMENT_BYTES + 1}kB`,
+        }),
+      );
+
+      const attachment = await loadImageAttachment(aStorage(), aKey());
+
+      expect(attachment.content).toBe(bytes.toString('base64'));
+      expect(body.bytesPulled()).toBe(bytes.byteLength);
+    });
+
+    it('refuses an object whose Content-Length understates it, because the count decides', async () => {
+      const oversized = MAX_ATTACHMENT_BYTES + 1;
+      const body = anObservableBody(bytesOf(oversized));
+      stubFetch(anOkResponseWithBody(body.stream, { 'content-length': '8' }));
+
+      // The declared eight bytes would admit it; the running count refuses
+      // it, and the size it names is the one it counted, not the one it was
+      // told.
+      await expect(loadImageAttachment(aStorage(), aKey())).rejects.toThrow(
+        refusal(oversized),
+      );
+      expect(body.bytesPulled()).toBe(oversized);
+    });
+
+    it('stops on the chunk that crosses the cap rather than buffering what follows', async () => {
+      const oversized = MAX_ATTACHMENT_BYTES * 4;
+      const body = anObservableBody(bytesOf(oversized));
+      stubFetch(anOkResponseWithBody(body.stream));
+
+      await expect(loadImageAttachment(aStorage(), aKey())).rejects.toThrow(
+        refusal(bytesAtCrossing),
+      );
+      // The property the cap has only because it is applied to the read: it
+      // stopped one chunk past the cap and cancelled the rest, so the heap
+      // never held the object. Measuring a finished buffer would have
+      // pulled all of it first.
+      expect(bytesAtCrossing).toBeLessThan(oversized);
+      expect(body.chunksPulled()).toBe(chunksToCross);
+      expect(body.bytesPulled()).toBe(bytesAtCrossing);
+      expect(body.wasCancelled()).toBe(true);
+    });
+
+    it('throws when a successful response carries no body', async () => {
+      stubFetch(anOkResponseWithBody(null));
+
+      await expect(loadImageAttachment(aStorage(), aKey())).rejects.toThrow(
+        `Storage answered ${aKey()} without a body.`,
+      );
+    });
   });
 
   describe('the two numbers, which are decisions', () => {

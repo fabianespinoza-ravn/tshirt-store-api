@@ -1,5 +1,9 @@
 import { Color, Size } from '@prisma/client';
-import { renderMail, TOKEN_LINE_PREFIX } from './mail.content';
+import {
+  ORDER_LINE_PREFIX,
+  renderMail,
+  TOKEN_LINE_PREFIX,
+} from './mail.content';
 import { MailKind, type MailJobData } from './mail.jobs';
 
 /**
@@ -87,6 +91,80 @@ describe('renderMail', () => {
       expect(renderMail(data({ kind: MailKind.PasswordChanged })).text).toMatch(
         /not you/i,
       );
+    });
+  });
+
+  /**
+   * The order confirmation. Three properties, and the third is the one that
+   * would go unnoticed.
+   *
+   * **The order number has to be on the line `ORDER_LINE_PREFIX` names**,
+   * for the reason the token is on its own: it is the part a reader goes
+   * looking for, and asserting against the constant rather than repeating
+   * the string keeps the wording defined in one place.
+   *
+   * **No token, ever.** This message is not a credential and nothing mints
+   * one for it, so `TOKEN_LINE_PREFIX` must not appear even when a job
+   * carrying a stray `token` is rendered — the same check the sign-in
+   * reminder and the password-changed notice already carry.
+   *
+   * **And its subject has to differ from the other four.** The subject test
+   * above enumerates the kinds it covers, so a fifth kind is not covered by
+   * it until somebody adds it; two messages that arrive under the same
+   * subject line are two messages a customer reads as one.
+   *
+   * Stubs, not assertions: the branch they describe was written by the
+   * assistant.
+   */
+  describe('the order confirmation', () => {
+    it('puts the order number on the line ORDER_LINE_PREFIX names, so a reader can find it', () => {
+      const orderId = 'order-confirmation-123';
+
+      const line = renderMail(
+        data({ kind: MailKind.OrderConfirmation, orderId }),
+      )
+        .text.split('\n')
+        .find((candidate) => candidate.startsWith(ORDER_LINE_PREFIX));
+
+      expect(line).toBe(`${ORDER_LINE_PREFIX}${orderId}`);
+    });
+    it('renders no token line even when the job carries a stray token', () => {
+      const message = renderMail(
+        data({
+          kind: MailKind.OrderConfirmation,
+          orderId: 'order-confirmation-123',
+          token: 'must-not-leak',
+        }),
+      );
+
+      expect(message.text).not.toContain(TOKEN_LINE_PREFIX);
+      expect(message.text).not.toContain('must-not-leak');
+    });
+    it('gives it a subject distinct from the four account messages, extending the subject check to five kinds', () => {
+      const subjects = [
+        MailKind.Verification,
+        MailKind.PasswordReset,
+        MailKind.SignInReminder,
+        MailKind.PasswordChanged,
+        MailKind.OrderConfirmation,
+      ].map(
+        (kind) =>
+          renderMail(data({ kind, token: 'token', orderId: 'order-1' }))
+            .subject,
+      );
+
+      expect(new Set(subjects).size).toBe(5);
+    });
+    it('addresses it to the recipient in the job', () => {
+      expect(
+        renderMail(
+          data({
+            kind: MailKind.OrderConfirmation,
+            to: 'buyer@example.test',
+            orderId: 'order-1',
+          }),
+        ).to,
+      ).toBe('buyer@example.test');
     });
   });
 
@@ -206,6 +284,42 @@ describe('renderMail', () => {
       expect(message.subject).toBe('Running low: Something you liked');
       expect(message.text).toContain('Something you liked is nearly out');
       expect(message.text).toContain('Only a few are left.');
+    });
+  });
+
+  describe('a confirmation with no order to confirm', () => {
+    /**
+     * A queue payload comes back out of Redis untyped, so the one field this
+     * message is about is checked rather than assumed. Failing here is what
+     * stops `MailProcessor` handing a body reading `Order number: ` to the
+     * transport — a message the customer cannot act on and cannot diagnose.
+     */
+    it('refuses to render a confirmation carrying no order id', () => {
+      expect(() =>
+        renderMail({
+          kind: MailKind.OrderConfirmation,
+          to: 'buyer@example.test',
+        }),
+      ).toThrow('nothing to confirm');
+    });
+
+    it('refuses one whose order id is blank, not merely absent', () => {
+      expect(() =>
+        renderMail({
+          kind: MailKind.OrderConfirmation,
+          to: 'buyer@example.test',
+          orderId: '   ',
+        }),
+      ).toThrow('nothing to confirm');
+    });
+
+    it('still renders the low-stock nudge with its details missing, which is the opposite call', () => {
+      // The two branches differ on purpose: a nudge without the product's
+      // name still says something useful, and throwing would turn a missing
+      // field into three failed attempts and a discarded recipient.
+      expect(() =>
+        renderMail({ kind: MailKind.LowStock, to: 'liker@example.test' }),
+      ).not.toThrow();
     });
   });
 });
