@@ -22,6 +22,6 @@ import { PaymentLinksService } from './payment-links.service';
     AppAbilityFactory,
     PoliciesGuard,
   ],
-  exports: [PaymentLinkCheckoutService],
+  exports: [PaymentLinkCheckoutService, PaymentLinksService],
 })
 export class PaymentLinksModule {}

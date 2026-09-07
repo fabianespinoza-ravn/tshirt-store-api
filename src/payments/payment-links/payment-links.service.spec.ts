@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import {
   Prisma,
   type PaymentLink,
@@ -490,6 +491,119 @@ describe('PaymentLinksService', () => {
       expect(harness.stripe.deactivatePaymentLink).toHaveBeenCalledWith(
         'plink-new',
       );
+    });
+  });
+
+  describe('deactivating stale links', () => {
+    it('deactivates every active link for a SKU and marks each local row inactive', async () => {
+      const first = aPaymentLinkRow('sku-1', {
+        id: 'link-1',
+        stripePaymentLinkId: 'plink-1',
+      });
+      const second = aPaymentLinkRow('sku-1', {
+        id: 'link-2',
+        stripePaymentLinkId: 'plink-2',
+      });
+      harness.prisma.paymentLink.findMany.mockResolvedValue([first, second]);
+
+      await harness.service.deactivateForSku('sku-1');
+
+      expect(harness.prisma.paymentLink.findMany).toHaveBeenCalledWith({
+        where: { skuId: 'sku-1', isActive: true },
+        select: { id: true, stripePaymentLinkId: true },
+      });
+      expect(harness.stripe.deactivatePaymentLink).toHaveBeenNthCalledWith(
+        1,
+        'plink-1',
+      );
+      expect(harness.stripe.deactivatePaymentLink).toHaveBeenNthCalledWith(
+        2,
+        'plink-2',
+      );
+      expect(harness.prisma.paymentLink.updateMany).toHaveBeenNthCalledWith(1, {
+        where: { id: 'link-1', isActive: true },
+        data: { isActive: false },
+      });
+      expect(harness.prisma.paymentLink.updateMany).toHaveBeenNthCalledWith(2, {
+        where: { id: 'link-2', isActive: true },
+        data: { isActive: false },
+      });
+    });
+
+    it('deactivates active links for every SKU belonging to a product', async () => {
+      const link = aPaymentLinkRow('sku-1', {
+        id: 'link-1',
+        stripePaymentLinkId: 'plink-1',
+      });
+      harness.prisma.paymentLink.findMany.mockResolvedValue([link]);
+
+      await harness.service.deactivateForProduct('product-1');
+
+      expect(harness.prisma.paymentLink.findMany).toHaveBeenCalledWith({
+        where: { sku: { productId: 'product-1' }, isActive: true },
+        select: { id: true, stripePaymentLinkId: true },
+      });
+      expect(harness.stripe.deactivatePaymentLink).toHaveBeenCalledWith(
+        'plink-1',
+      );
+      expect(harness.prisma.paymentLink.updateMany).toHaveBeenCalledWith({
+        where: { id: 'link-1', isActive: true },
+        data: { isActive: false },
+      });
+    });
+
+    it('resolves without Stripe or local writes when there are no active links', async () => {
+      harness.prisma.paymentLink.findMany.mockResolvedValue([]);
+
+      await expect(harness.service.deactivateForSku('sku-1')).resolves.toBe(
+        undefined,
+      );
+
+      expect(harness.stripe.deactivatePaymentLink).not.toHaveBeenCalled();
+      expect(harness.prisma.paymentLink.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('marks the local row inactive and logs when Stripe returns false', async () => {
+      const link = aPaymentLinkRow('sku-1', {
+        id: 'link-1',
+        stripePaymentLinkId: 'plink-1',
+      });
+      harness.prisma.paymentLink.findMany.mockResolvedValue([link]);
+      harness.stripe.deactivatePaymentLink.mockResolvedValue(false);
+      const logger = jest.spyOn(Logger.prototype, 'error').mockImplementation();
+
+      await expect(harness.service.deactivateForSku('sku-1')).resolves.toBe(
+        undefined,
+      );
+
+      expect(logger).toHaveBeenCalledWith(expect.stringContaining('link-1'));
+      expect(harness.prisma.paymentLink.updateMany).toHaveBeenCalledWith({
+        where: { id: 'link-1', isActive: true },
+        data: { isActive: false },
+      });
+      logger.mockRestore();
+    });
+
+    it('marks the local row inactive and logs when Stripe throws', async () => {
+      const link = aPaymentLinkRow('sku-1', {
+        id: 'link-1',
+        stripePaymentLinkId: 'plink-1',
+      });
+      const failure = new Error('Stripe unavailable');
+      harness.prisma.paymentLink.findMany.mockResolvedValue([link]);
+      harness.stripe.deactivatePaymentLink.mockRejectedValue(failure);
+      const logger = jest.spyOn(Logger.prototype, 'error').mockImplementation();
+
+      await expect(harness.service.deactivateForSku('sku-1')).resolves.toBe(
+        undefined,
+      );
+
+      expect(logger).toHaveBeenCalledWith(expect.stringContaining('link-1'));
+      expect(harness.prisma.paymentLink.updateMany).toHaveBeenCalledWith({
+        where: { id: 'link-1', isActive: true },
+        data: { isActive: false },
+      });
+      logger.mockRestore();
     });
   });
 });

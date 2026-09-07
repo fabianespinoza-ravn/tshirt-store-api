@@ -6,6 +6,7 @@ import { JwtService } from '@nestjs/jwt';
 import { mockDeep, type DeepMockProxy } from 'jest-mock-extended';
 import { PasswordService } from '../auth/password.service';
 import { TokenService } from '../auth/token.service';
+import { PaymentLinksService } from '../payments/payment-links/payment-links.service';
 import { ProductsService } from '../products/products.service';
 import { MailService } from '../mail/mail.service';
 import { StockNotificationsService } from '../notifications/stock-notifications.service';
@@ -18,6 +19,7 @@ export type StorageMock = DeepMockProxy<StorageService>;
 export type MailMock = DeepMockProxy<MailService>;
 export type StripeMock = DeepMockProxy<StripeService>;
 export type StockNotificationsMock = DeepMockProxy<StockNotificationsService>;
+export type PaymentLinksMock = DeepMockProxy<PaymentLinksService>;
 export type TokenMock = DeepMockProxy<TokenService>;
 export type JwtMock = DeepMockProxy<JwtService>;
 
@@ -28,6 +30,7 @@ export interface ServiceHarness<T> {
   mail: MailMock;
   stripe: StripeMock;
   stockNotifications: StockNotificationsMock;
+  paymentLinks: PaymentLinksMock;
   tokens: TokenMock;
   jwt: JwtMock;
   // Values the fake ConfigService returns; a test can write to it directly.
@@ -67,6 +70,7 @@ export async function buildService<T>(
   const mail = mockDeep<MailService>();
   const stripe = mockDeep<StripeService>();
   const stockNotifications = mockDeep<StockNotificationsService>();
+  const paymentLinks = mockDeep<PaymentLinksService>();
   const tokens = mockDeep<TokenService>();
   const jwt = mockDeep<JwtService>();
   const config = { ...CONFIG_DEFAULTS };
@@ -122,6 +126,7 @@ export async function buildService<T>(
       { provide: TokenService, useValue: tokens },
       PasswordService,
       ProductsService,
+      { provide: PaymentLinksService, useValue: paymentLinks },
       // The target goes last: if it collides with any of the above, the
       // real one wins.
       target,
@@ -136,6 +141,7 @@ export async function buildService<T>(
     mail,
     stripe,
     stockNotifications,
+    paymentLinks,
     tokens,
     jwt,
     config,

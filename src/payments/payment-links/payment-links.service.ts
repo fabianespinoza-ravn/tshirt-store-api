@@ -41,6 +41,53 @@ export class PaymentLinksService {
     private readonly stripe: StripeService,
   ) {}
 
+  async deactivateForSku(skuId: string): Promise<void> {
+    const links = await this.prisma.paymentLink.findMany({
+      where: { skuId, isActive: true },
+      select: { id: true, stripePaymentLinkId: true },
+    });
+
+    await this.deactivateLinks(links);
+  }
+
+  async deactivateForProduct(productId: string): Promise<void> {
+    const links = await this.prisma.paymentLink.findMany({
+      where: { sku: { productId }, isActive: true },
+      select: { id: true, stripePaymentLinkId: true },
+    });
+
+    await this.deactivateLinks(links);
+  }
+
+  private async deactivateLinks(
+    links: Pick<PaymentLink, 'id' | 'stripePaymentLinkId'>[],
+  ): Promise<void> {
+    for (const link of links) {
+      try {
+        const deactivated = await this.stripe.deactivatePaymentLink(
+          link.stripePaymentLinkId,
+        );
+
+        if (!deactivated) {
+          this.logger.error(
+            `Stripe did not deactivate payment link ${link.id} (${link.stripePaymentLinkId}).`,
+          );
+        }
+      } catch (error) {
+        this.logger.error(
+          `Could not deactivate payment link ${link.id} (${link.stripePaymentLinkId}): ${
+            error instanceof Error ? error.message : 'unknown error'
+          }`,
+        );
+      }
+
+      await this.prisma.paymentLink.updateMany({
+        where: { id: link.id, isActive: true },
+        data: { isActive: false },
+      });
+    }
+  }
+
   /**
    * Publishes a Payment Link for one SKU, or hands back the one it has.
    *
@@ -236,33 +283,3 @@ export class PaymentLinksService {
     }
   }
 }
-
-// ─── Extension point: deactivating a link when its SKU's price changes ─────
-//
-// `SkusService.update` already carries the note this pairs with — "a price
-// change deactivates this SKU's active Payment Link", finding 9 of
-// docs/DESIGN-ATTACK.md — and it is still a note there because the decision
-// it needs is not this branch's to take: deactivating is an outbound call to
-// Stripe inside a manager's request, and what that request answers when
-// Stripe does not respond is undecided.
-//
-// What is decided here is that nothing silently rewrites history in the
-// meantime. `unitPriceAtCreation` records what the published link charges,
-// the view publishes that column rather than the SKU's live price, and the
-// settlement handler writes the order from it. So a price edit today leaves
-// a link that keeps charging the old amount — visibly, in the row and in the
-// response — instead of a link whose price nobody can reconstruct.
-//
-// `StripeService.deactivatePaymentLink` is the seam that method will call,
-// and it already reports rather than raises for exactly that reason.
-//
-// **The same seam has a second caller waiting, and it is the more urgent
-// one.** Nothing deactivates a link when its SKU sells out or its product is
-// soft-deleted or switched inactive, so the URL keeps taking money for goods
-// that cannot be sent. `PaymentLinkCheckoutService` refuses those sales — the
-// order is written FAILED and owes a refund — but refusing after the charge
-// is damage control, and every buyer who reaches a stale link is another
-// refund to make. The three places that would call it are
-// `SkusService.update` when stock reaches zero, `ProductsService.update` when
-// `isActive` goes false, and `ProductsService.remove`.
-// ──────────────────────────────────────────────────────────────────────────
