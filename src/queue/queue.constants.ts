@@ -10,6 +10,7 @@ export enum QueueName {
   Maintenance = 'maintenance',
   Settlement = 'settlement',
   StockNotification = 'stock-notification',
+  ConfirmationOutbox = 'confirmation-outbox',
 }
 
 export enum JobName {
@@ -17,6 +18,7 @@ export enum JobName {
   SweepExpiredOrders = 'sweep-expired-orders',
   SettlePayment = 'settle-payment',
   NotifyLowStock = 'notify-low-stock',
+  DrainConfirmationOutbox = 'drain-confirmation-outbox',
 }
 
 /**
@@ -129,3 +131,25 @@ export const STOCK_NOTIFICATION_JOB_OPTIONS: JobsOptions = {
   removeOnComplete: true,
   removeOnFail: true,
 };
+
+/**
+ * The confirmation outbox drain. One attempt, for the same reason the sweep
+ * gets one: it runs again in a minute regardless, so retrying inside BullMQ
+ * would only duplicate the next scheduled run rather than recover anything
+ * sooner. What it retries is not itself but the *rows* — every run rereads
+ * whatever is still PENDING in `order_confirmation_outbox`, so one run
+ * failing outright costs a minute, not a lost confirmation.
+ *
+ * Completed runs are trimmed hard, like the sweep's, because none is
+ * interesting on its own; failures are kept, because a drain that fails
+ * every minute is the signal that something about the mail queue or the
+ * database is wrong, not the individual sends it could not make.
+ */
+export const CONFIRMATION_OUTBOX_JOB_OPTIONS: JobsOptions = {
+  attempts: 1,
+  removeOnComplete: 20,
+  removeOnFail: 100,
+};
+
+/** How often the confirmation outbox is drained. */
+export const CONFIRMATION_OUTBOX_DRAIN_EVERY_MS = 60_000;

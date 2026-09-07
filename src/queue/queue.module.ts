@@ -2,6 +2,7 @@ import { Global, Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import { ConfigService } from '@nestjs/config';
 import {
+  CONFIRMATION_OUTBOX_JOB_OPTIONS,
   MAIL_JOB_OPTIONS,
   QueueName,
   SETTLEMENT_JOB_OPTIONS,
@@ -52,6 +53,10 @@ import {
       {
         name: QueueName.StockNotification,
         defaultJobOptions: STOCK_NOTIFICATION_JOB_OPTIONS,
+      },
+      {
+        name: QueueName.ConfirmationOutbox,
+        defaultJobOptions: CONFIRMATION_OUTBOX_JOB_OPTIONS,
       },
     ),
   ],
