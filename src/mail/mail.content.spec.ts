@@ -113,8 +113,8 @@ describe('renderMail', () => {
    * it until somebody adds it; two messages that arrive under the same
    * subject line are two messages a customer reads as one.
    *
-   * Stubs, not assertions: the branch they describe was written by the
-   * assistant.
+   * Stubs, not assertions: they describe the branch under test, while the
+   * assertions below pin its customer-visible behavior.
    */
   describe('the order confirmation', () => {
     it('puts the order number on the line ORDER_LINE_PREFIX names, so a reader can find it', () => {

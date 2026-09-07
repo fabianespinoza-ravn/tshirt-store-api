@@ -19,17 +19,34 @@ import type Stripe from 'stripe';
  * read inside the transaction that moves it; copying a number out of the
  * event would introduce a second opinion about how much was owed.
  */
-export interface SettlementJobData {
+interface SettlementJobBase {
   /** The `webhook_events` row this job came from, so it can be marked processed. */
   webhookEventId: string;
   /** Stripe's id for the delivery, for logs and for the job's own id. */
   stripeEventId: string;
   /** The event type, so the worker branches on what actually arrived. */
   eventType: SettlementEventType;
+}
+
+export interface PaymentIntentSettlementJobData extends SettlementJobBase {
+  eventType: SettlementEventType.PaymentIntentSucceeded;
   paymentIntentId: string;
   /** From the intent's metadata, which checkout set. */
   orderId: string;
+  checkoutSessionId?: never;
 }
+
+export interface CheckoutSessionSettlementJobData extends SettlementJobBase {
+  eventType:
+    | SettlementEventType.CheckoutSessionCompleted
+    | SettlementEventType.CheckoutSessionAsyncPaymentSucceeded;
+  checkoutSessionId: string;
+  paymentIntentId?: never;
+  orderId?: never;
+}
+
+export type SettlementJobData =
+  PaymentIntentSettlementJobData | CheckoutSessionSettlementJobData;
 
 /**
  * The Stripe event types this API settles.
@@ -39,25 +56,19 @@ export interface SettlementJobData {
  * and three copies of `'payment_intent.succeeded'` is three chances for one
  * of them to be misspelled into a silence nobody notices.
  *
- * Only one member today, and the two obvious absences are deliberate.
- *
  * `payment_intent.payment_failed` is not here because nothing in the current
  * flow acts on it: the order simply stays PENDING until the sweep reclaims
  * it, and an event type listed here is a promise that a job will be created
  * for it.
  *
- * **`checkout.session.completed` is the payment-link seam.** A link purchase
- * arrives as that event and settles differently — there is no cart, possibly
- * no account, and the order is created by the handler rather than moved by
- * it. Adding the member here is the whole of the producer's side of that
- * wiring; the worker then needs a branch in `SettlementService.settle` that
- * calls the payment-link handler instead of `pay`, and the payload above
- * needs the session id, which the intent id cannot stand in for. Until both
- * exist, such an event is recorded in `webhook_events` and enqueued for
- * nothing, which is the honest state rather than a job with no consumer.
+ * Checkout completion and asynchronous payment success are the Payment Link
+ * path. Their jobs carry the Checkout Session id, and the worker retrieves
+ * the full event from Stripe before delegating to the link handler.
  */
 export enum SettlementEventType {
   PaymentIntentSucceeded = 'payment_intent.succeeded',
+  CheckoutSessionCompleted = 'checkout.session.completed',
+  CheckoutSessionAsyncPaymentSucceeded = 'checkout.session.async_payment_succeeded',
 }
 
 const SETTLED_TYPES = new Set<string>(Object.values(SettlementEventType));
@@ -88,6 +99,21 @@ export function settlementJobFor(
 ): SettlementJobData | undefined {
   if (!SETTLED_TYPES.has(event.type)) return undefined;
 
+  const eventType = event.type as SettlementEventType;
+  if (
+    eventType === SettlementEventType.CheckoutSessionCompleted ||
+    eventType === SettlementEventType.CheckoutSessionAsyncPaymentSucceeded
+  ) {
+    const session = event.data.object as Stripe.Checkout.Session;
+
+    return {
+      webhookEventId,
+      stripeEventId: event.id,
+      eventType,
+      checkoutSessionId: session.id,
+    };
+  }
+
   const intent = event.data.object as Stripe.PaymentIntent;
   const orderId = intent.metadata?.orderId;
 
@@ -96,7 +122,7 @@ export function settlementJobFor(
   return {
     webhookEventId,
     stripeEventId: event.id,
-    eventType: event.type as SettlementEventType,
+    eventType: SettlementEventType.PaymentIntentSucceeded,
     paymentIntentId: intent.id,
     orderId,
   };

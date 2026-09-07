@@ -134,6 +134,10 @@ describe('AuthService', () => {
         pendingPasswordHash: '$argon2id$parked',
       });
       h.prisma.emailVerificationToken.findUnique.mockResolvedValue(token);
+      // The row is read back now: verification claims any guest orders held
+      // under the address it just proved, and needs the address to find them.
+      h.prisma.user.update.mockResolvedValue(user);
+      h.prisma.user.findMany.mockResolvedValue([]);
 
       await h.service.confirmEmailVerification('plain-token');
 

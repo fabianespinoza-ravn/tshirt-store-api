@@ -6,10 +6,16 @@ import {
   PaymentStatus,
   Prisma,
 } from '@prisma/client';
+import type Stripe from 'stripe';
+import { PaymentLinkCheckoutService } from '../payment-links/payment-link-checkout.service';
 import { buildService, type ServiceHarness } from '../../testing/build-service';
 import { anOrder, anOrderItem, aSku, aUser } from '../../testing/factories';
 import { resetPrismaMock } from '../../testing/prisma.mock';
-import { SettlementEventType, type SettlementJobData } from './settlement.jobs';
+import {
+  SettlementEventType,
+  type PaymentIntentSettlementJobData,
+  type SettlementJobData,
+} from './settlement.jobs';
 import { SettlementOutcome, SettlementService } from './settlement.service';
 
 /* Jest's asymmetric matchers are typed as `any`; these are partial checks of
@@ -50,8 +56,8 @@ export const aSettleableOrder = (
  * be.
  */
 export const aSettlementJob = (
-  overrides: Partial<SettlementJobData> = {},
-): SettlementJobData => ({
+  overrides: Partial<PaymentIntentSettlementJobData> = {},
+): PaymentIntentSettlementJobData => ({
   webhookEventId: '018f3b6f-0000-7000-8000-000000000010',
   stripeEventId: 'evt_delivered_once',
   eventType: SettlementEventType.PaymentIntentSucceeded,
@@ -59,6 +65,20 @@ export const aSettlementJob = (
   orderId: '018f3b6f-0000-7000-8000-000000000001',
   ...overrides,
 });
+
+const aCheckoutJob = (): SettlementJobData => ({
+  webhookEventId: '018f3b6f-0000-7000-8000-000000000011',
+  stripeEventId: 'evt_checkout',
+  eventType: SettlementEventType.CheckoutSessionCompleted,
+  checkoutSessionId: 'cs_checkout',
+});
+
+const aCheckoutEvent = (): Stripe.Event =>
+  ({
+    id: 'evt_checkout',
+    type: SettlementEventType.CheckoutSessionCompleted,
+    data: { object: { id: 'cs_checkout' } },
+  }) as Stripe.Event;
 
 /**
  * The row `pay` writes inside its own transaction, for the confirmation
@@ -107,9 +127,13 @@ export const outboxRow = (overrides: { id?: string } = {}) => ({
  */
 describe('SettlementService', () => {
   let h: ServiceHarness<SettlementService>;
+  const checkout = { settleCheckoutSession: jest.fn() };
 
   beforeEach(async () => {
-    h = await buildService(SettlementService);
+    checkout.settleCheckoutSession.mockReset();
+    h = await buildService(SettlementService, [
+      { provide: PaymentLinkCheckoutService, useValue: checkout },
+    ]);
     resetPrismaMock(h.prisma);
 
     // The ordinary settlement: a PENDING order with one line, an update
@@ -128,6 +152,58 @@ describe('SettlementService', () => {
     // `undefined`.
     h.prisma.orderConfirmationOutbox.create.mockResolvedValue(outboxRow());
     h.stripe.refundPaymentIntent.mockResolvedValue('re_refunded_by_the_suite');
+  });
+
+  describe('a checkout-session payment-link job', () => {
+    it('retrieves the event, settles the checkout session and stamps the webhook row', async () => {
+      const data = aCheckoutJob();
+      const event = aCheckoutEvent();
+      const now = new Date('2026-09-07T16:00:00.000Z');
+      h.stripe.retrieveEvent.mockResolvedValue(event);
+      checkout.settleCheckoutSession.mockResolvedValue({
+        orderId: 'order-1',
+        paymentId: 'payment-1',
+        status: OrderStatus.PAID,
+      });
+
+      await expect(h.service.settle(data, now)).resolves.toBe(
+        SettlementOutcome.PaymentLinkSettled,
+      );
+      expect(h.stripe.retrieveEvent).toHaveBeenCalledWith('evt_checkout');
+      expect(checkout.settleCheckoutSession).toHaveBeenCalledWith(event);
+      expect(h.prisma.webhookEvent.updateMany).toHaveBeenCalledWith({
+        where: { id: data.webhookEventId, processedAt: null },
+        data: { processedAt: now },
+      });
+      expect(h.prisma.order.findUnique).not.toHaveBeenCalled();
+      expect(h.stripe.refundPaymentIntent).not.toHaveBeenCalled();
+      expect(h.prisma.payment.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('acknowledges an unrelated checkout session as ignored and stamps the webhook row', async () => {
+      const data = aCheckoutJob();
+      const event = aCheckoutEvent();
+      h.stripe.retrieveEvent.mockResolvedValue(event);
+      checkout.settleCheckoutSession.mockResolvedValue(null);
+
+      await expect(h.service.settle(data)).resolves.toBe(
+        SettlementOutcome.Ignored,
+      );
+      expect(h.prisma.webhookEvent.updateMany).toHaveBeenCalledWith({
+        where: { id: data.webhookEventId, processedAt: null },
+        data: { processedAt: expect.any(Date) as Date },
+      });
+    });
+
+    it('fails without marking the webhook processed when Stripe retrieval fails', async () => {
+      const data = aCheckoutJob();
+      const failure = new Error('Stripe event unavailable');
+      h.stripe.retrieveEvent.mockRejectedValue(failure);
+
+      await expect(h.service.settle(data)).rejects.toBe(failure);
+      expect(checkout.settleCheckoutSession).not.toHaveBeenCalled();
+      expect(h.prisma.webhookEvent.updateMany).not.toHaveBeenCalled();
+    });
   });
 
   describe('an order that is still PENDING', () => {
@@ -474,7 +550,7 @@ describe('SettlementService', () => {
         // build this job, so reaching the branch means the enum grew and
         // this method did not — which is a gap to log, not a job to fail.
         eventType:
-          'checkout.session.completed' as unknown as SettlementEventType,
+          'charge.succeeded' as SettlementEventType.PaymentIntentSucceeded,
       });
 
       await expect(h.service.settle(data)).resolves.toBe(
@@ -485,7 +561,7 @@ describe('SettlementService', () => {
       // this worker has an opinion about.
       expect(h.prisma.order.findUnique).not.toHaveBeenCalled();
       expect(warn).toHaveBeenCalledWith(
-        `Nothing settles checkout.session.completed; Stripe event ${data.stripeEventId} was left recorded and unhandled.`,
+        `Nothing settles charge.succeeded; Stripe event ${data.stripeEventId} was left recorded and unhandled.`,
       );
       warn.mockRestore();
     });
@@ -542,9 +618,9 @@ describe('SettlementService', () => {
    * time, and park a payment that succeeded in the failed set that exists
    * to report lost ones.
    *
-   * The stubs below are the student's to fill: the behaviour they name was
-   * written by the assistant, so an assistant-written assertion would only
-   * agree with whatever it produced.
+   * The stubs below describe the behavior under test. An assertion derived
+   * only from that description would agree with the implementation rather
+   * than catch a mistake in it.
    */
   describe('the confirmation the customer gets', () => {
     it("sends it to the buyer's address, carrying the order's id and nothing else", async () => {
@@ -636,7 +712,7 @@ describe('SettlementService', () => {
     it('sends nothing for an event type it has no branch for', async () => {
       const data = aSettlementJob({
         eventType:
-          'checkout.session.completed' as unknown as SettlementEventType,
+          'charge.succeeded' as SettlementEventType.PaymentIntentSucceeded,
       });
 
       await expect(h.service.settle(data)).resolves.toBe(
@@ -651,11 +727,10 @@ describe('SettlementService', () => {
    * .Paid` no longer depends on the mail queue being reachable the instant
    * `pay` commits.
    *
-   * `outboxRow()` above is the fixture; what to assert is the student's,
-   * per this repo's rule that the assistant scaffolds cases and never the
-   * behaviour it wrote itself. The pair of cases at the end is the one
-   * this finding exists for: a payment already settled must never be
-   * retried to recover a lost confirmation, only the outbox row may be.
+   * `outboxRow()` above is the fixture. The assertions below must pin the
+   * durable behavior independently of the implementation. The pair of cases
+   * at the end covers the key rule: a payment already settled must never be
+   * retried to recover a lost confirmation; only the outbox row may be.
    */
   describe('the confirmation outbox', () => {
     it('writes the outbox row inside the same transaction that moves the order to PAID', async () => {

@@ -5,6 +5,7 @@ import { loadOrThrow } from '../common/load-or-throw';
 import { paginate, type Paginated } from '../common/pagination';
 import { Problems } from '../common/problem/problem.catalog';
 import { ProblemException } from '../common/problem/problem.exception';
+import { PaymentLinksService } from '../payments/payment-links/payment-links.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
 import { NOT_DELETED } from '../catalog/query';
@@ -51,6 +52,7 @@ export class ProductsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly storage: StorageService,
+    private readonly paymentLinks: PaymentLinksService,
   ) {}
 
   // URLs are presigned, so resolving them is asynchronous and done in bulk.
@@ -135,7 +137,7 @@ export class ProductsService {
   }
 
   async update(id: string, dto: UpdateProductDto): Promise<ManagerProductView> {
-    await this.loadForManager(id);
+    const product = await this.loadForManager(id);
     if (dto.categoryIds) await this.mustExistCategories(dto.categoryIds);
 
     await this.prisma.$transaction(async (tx) => {
@@ -162,6 +164,10 @@ export class ProductsService {
       }
     });
 
+    if (product.isActive && dto.isActive === false) {
+      await this.paymentLinks.deactivateForProduct(id);
+    }
+
     return this.toManager(await this.loadForManager(id));
   }
 
@@ -183,6 +189,8 @@ export class ProductsService {
       where: { id },
       data: { deletedAt: new Date(), isActive: false },
     });
+
+    await this.paymentLinks.deactivateForProduct(id);
   }
 
   // ------------------------------------------------------------------ apoyo

@@ -42,6 +42,18 @@ export const aJob = (
     },
   }) as Job<SettlementJobData>;
 
+const aCheckoutJob = (attemptsMade = 1): Job<SettlementJobData> =>
+  ({
+    name: JobName.SettlePayment,
+    attemptsMade,
+    data: {
+      webhookEventId: '018f3b6f-0000-7000-8000-000000000011',
+      stripeEventId: 'evt_checkout_failed',
+      eventType: SettlementEventType.CheckoutSessionCompleted,
+      checkoutSessionId: 'cs_checkout_failed',
+    },
+  }) as Job<SettlementJobData>;
+
 /**
  * The processor holds no logic, so most of this file is about the two things
  * a thin consumer can still get wrong.
@@ -121,6 +133,20 @@ describe('SettlementProcessor', () => {
   });
 
   describe('the failure log', () => {
+    it('names the checkout session target when a payment-link settlement fails', () => {
+      const { processor } = buildProcessor();
+      const log = jest.spyOn(Logger.prototype, 'error').mockImplementation();
+      const error = new Error('Stripe retrieval failed');
+
+      processor.onFailed(aCheckoutJob(3), error);
+
+      expect(log).toHaveBeenCalledWith(
+        'Settlement of Stripe event evt_checkout_failed for order cs_checkout_failed failed after 3 attempt(s): Stripe retrieval failed',
+        error.stack,
+      );
+      log.mockRestore();
+    });
+
     it('names the stripe event, the order and the attempt count', () => {
       const { processor } = buildProcessor();
       const log = jest.spyOn(Logger.prototype, 'error').mockImplementation();

@@ -98,16 +98,16 @@ export const translateAwsError: ProblemTranslator = (
 };
 
 /**
- * Extension point for week 5.
- *
- * Stripe is not a dependency yet, so there is nothing here to translate and
- * a translator written now would be untestable guesswork. When it arrives it
- * belongs beside this file and follows the same rule: Stripe's 4xx is our
+ * Stripe arrived, and `stripe.translator.ts` is where it landed — beside
+ * this file, as this note asked, applying the same rule: Stripe's 4xx is our
  * 500, because we are the ones who built the request, and Stripe's 429 or
- * 5xx is our 503. The cases it will need are a signature that does not
- * verify on the webhook route, which is a 400 of ours because the caller
- * genuinely sent it; a delivery we have already settled, which is a 200 and
- * not an error at all; a rate limit; and an outage. A card declined is the
- * one failure in the whole integration that the end user actually caused,
- * and the only one that earns a 4xx of ours — a 402.
+ * 5xx is our 503.
+ *
+ * What it covers is the rate limit and the outage. What is still owed to it
+ * belongs to the webhook route rather than to this layer: a signature that
+ * does not verify, which is a 400 of ours because the caller genuinely sent
+ * it, and a delivery we have already settled, which is a 200 and not an
+ * error at all. A card declined is the one failure in the whole integration
+ * that the end user actually caused, and the only one that earns a 4xx of
+ * ours — a 402, which `Problems` does not carry yet.
  */

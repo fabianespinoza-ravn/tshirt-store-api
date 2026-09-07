@@ -3,6 +3,7 @@ import { newId } from '../common/ids';
 import { Problems } from '../common/problem/problem.catalog';
 import { ProblemException } from '../common/problem/problem.exception';
 import { StockNotificationsService } from '../notifications/stock-notifications.service';
+import { PaymentLinksService } from '../payments/payment-links/payment-links.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
 import { NOT_DELETED } from '../catalog/query';
@@ -18,6 +19,7 @@ export class SkusService {
     private readonly storage: StorageService,
     private readonly products: ProductsService,
     private readonly stockNotifications: StockNotificationsService,
+    private readonly paymentLinks: PaymentLinksService,
   ) {}
 
   async create(productId: string, dto: CreateSkuDto): Promise<ManagerSkuView> {
@@ -114,10 +116,11 @@ export class SkusService {
       return written;
     });
 
-    // PENDING (Week 4): a price change deactivates this SKU's active Payment
-    // Link. That's an outbound call to Stripe inside a manager request, and
-    // what happens if Stripe doesn't respond is still undecided. Finding 9 of
-    // docs/DESIGN-ATTACK.md.
+    const priceChanged = dto.price !== undefined && dto.price !== sku.price;
+    const soldOut = dto.stock !== undefined && sku.stock > 0 && dto.stock === 0;
+    if (priceChanged || soldOut) {
+      await this.paymentLinks.deactivateForSku(skuId);
+    }
 
     return toManagerSku(updated, await this.imageViewOf(updated.imageId));
   }

@@ -367,6 +367,17 @@ describe('ProductsService writes', () => {
     });
   });
 
+  it('deactivates the product payment links when an active product is disabled', async () => {
+    const product = aFullProduct();
+    h.prisma.product.findFirst.mockResolvedValue(product);
+
+    await h.service.update(product.id, { isActive: false });
+
+    expect(h.paymentLinks.deactivateForProduct).toHaveBeenCalledWith(
+      product.id,
+    );
+  });
+
   /**
    * The delete is soft and terminal: the row survives because order history
    * references it through the SKU, and there's no restore path.
@@ -381,6 +392,17 @@ describe('ProductsService writes', () => {
       where: { id: product.id },
       data: { deletedAt: expect.any(Date) as Date, isActive: false },
     });
+  });
+
+  it('deactivates the product payment links after a soft delete', async () => {
+    const product = aFullProduct({ skus: [{ stock: 5, reserved: 0 }] });
+    h.prisma.product.findFirst.mockResolvedValue(product);
+
+    await h.service.remove(product.id);
+
+    expect(h.paymentLinks.deactivateForProduct).toHaveBeenCalledWith(
+      product.id,
+    );
   });
 
   it('refuses to delete while any variant still holds reserved units', async () => {

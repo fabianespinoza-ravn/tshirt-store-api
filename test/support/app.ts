@@ -67,7 +67,7 @@ export async function createE2eApp(): Promise<E2eApp> {
     .useValue(stripe)
     .compile();
 
-  const app = moduleFixture.createNestApplication();
+  const app = moduleFixture.createNestApplication({ rawBody: true });
   configureApp(app, app.get(ConfigService));
   await app.init();
 

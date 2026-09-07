@@ -163,7 +163,7 @@ export class OrdersController {
    * it work today for all three roles the matrix names. If the author would
    * rather model the history as its own subject — a defensible reading,
    * since it is a different resource with a different projection — the rules
-   * are the author's to write, not the assistant's, and they are:
+   * are the rules for that extension point:
    *
    *   CLIENT   · read · OrderStatusHistory · { order: { is: { userId: <caller> } } }
    *   MANAGER  · read · OrderStatusHistory · (unconditional)

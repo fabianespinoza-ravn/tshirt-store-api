@@ -79,6 +79,45 @@ describe('SkusService errors', () => {
     });
   });
 
+  it('deactivates the SKU payment links after a price change', async () => {
+    const sku = aSku('product-1', { id: 'sku-1', price: 2599 });
+    h.prisma.sku.findFirst.mockResolvedValue({
+      ...sku,
+      product: { images: [] },
+    } as never);
+    h.prisma.sku.update.mockResolvedValue({ ...sku, price: 3000 });
+
+    await h.service.update(sku.id, { price: 3000 });
+
+    expect(h.paymentLinks.deactivateForSku).toHaveBeenCalledWith(sku.id);
+  });
+
+  it('deactivates the SKU payment links when stock reaches zero', async () => {
+    const sku = aSku('product-1', { id: 'sku-1', stock: 5 });
+    h.prisma.sku.findFirst.mockResolvedValue({
+      ...sku,
+      product: { images: [] },
+    } as never);
+    h.prisma.sku.update.mockResolvedValue({ ...sku, stock: 0 });
+
+    await h.service.update(sku.id, { stock: 0 });
+
+    expect(h.paymentLinks.deactivateForSku).toHaveBeenCalledWith(sku.id);
+  });
+
+  it('keeps payment links active when stock remains positive', async () => {
+    const sku = aSku('product-1', { id: 'sku-1', stock: 5 });
+    h.prisma.sku.findFirst.mockResolvedValue({
+      ...sku,
+      product: { images: [] },
+    } as never);
+    h.prisma.sku.update.mockResolvedValue({ ...sku, stock: 6 });
+
+    await h.service.update(sku.id, { stock: 6 });
+
+    expect(h.paymentLinks.deactivateForSku).not.toHaveBeenCalled();
+  });
+
   it('returns 404 when the SKU or its product is gone', async () => {
     h.prisma.sku.findFirst.mockResolvedValue(null);
 

@@ -32,7 +32,7 @@ export function ApiProblems(...kinds: ProblemKind[]) {
 // The source of truth is info.version in W2-API/openapi.yaml: serving the
 // document with another version is a divergence from the deliverable, not a
 // detail.
-const CONTRACT_VERSION = '1.0.2';
+const CONTRACT_VERSION = '1.0.3';
 
 export function setupSwagger(app: INestApplication, env: ConfigService): void {
   const config = new DocumentBuilder()

@@ -62,6 +62,7 @@ export class AppAbilityFactory {
       can(['create', 'update', 'delete'], 'Product');
       can(['create', 'delete'], 'ProductImage');
       can(['create', 'update'], 'Sku');
+      can('create', 'PaymentLink');
       can(['read', 'update'], 'Order');
       can(['create', 'read', 'update'], 'PromoCode');
     }

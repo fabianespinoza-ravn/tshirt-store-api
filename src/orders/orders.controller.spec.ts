@@ -132,6 +132,9 @@ describe('OrdersController', () => {
    * hand over another buyer's transitions with the service none the wiser,
    * because the service scopes by the user it is given.
    *
+   * Stubs, not assertions: they describe the route's inputs and outputs,
+   * while the `expect` calls pin the behavior under test.
+   *
    * The response metadata is checked directly because an interface-only
    * return type disappears at runtime and leaves Swagger with no item schema.
    */
