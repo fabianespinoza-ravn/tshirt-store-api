@@ -20,20 +20,6 @@ envVarGroups:
     envVars:
       - key: NODE_ENV
         value: production
-      - key: DATABASE_URL
-        fromDatabase:
-          name: tshirt-store-db
-          property: connectionString
-      - key: REDIS_HOST
-        fromService:
-          name: tshirt-store-redis
-          type: keyvalue
-          property: host
-      - key: REDIS_PORT
-        fromService:
-          name: tshirt-store-redis
-          type: keyvalue
-          property: port
       - key: JWT_ACCESS_SECRET
         generateValue: true
       - key: JWT_ACCESS_TTL
@@ -42,30 +28,8 @@ envVarGroups:
         generateValue: true
       - key: JWT_REFRESH_TTL
         value: 7d
-      - key: CORS_ORIGINS
-        sync: false
-      - key: STRIPE_SECRET_KEY
-        sync: false
-      - key: STRIPE_WEBHOOK_SECRET
-        sync: false
       - key: AWS_REGION
         value: us-east-1
-      - key: AWS_S3_BUCKET
-        sync: false
-      - key: AWS_ACCESS_KEY_ID
-        sync: false
-      - key: AWS_SECRET_ACCESS_KEY
-        sync: false
-      - key: MAIL_FROM
-        sync: false
-      - key: SMTP_HOST
-        sync: false
-      - key: SMTP_PORT
-        sync: false
-      - key: SMTP_USER
-        sync: false
-      - key: SMTP_PASSWORD
-        sync: false
 
 services:
   - type: web
@@ -99,6 +63,44 @@ services:
     # was deployed yet to expand around — see the Deployment section.
     preDeployCommand: npm run prisma:sync:prod
     envVars:
+      # Environment groups cannot derive values from Render resources. Keep
+      # the database and Redis wiring on each consuming service instead.
+      - key: DATABASE_URL
+        fromDatabase:
+          name: tshirt-store-db
+          property: connectionString
+      - key: REDIS_HOST
+        fromService:
+          name: tshirt-store-redis
+          type: keyvalue
+          property: host
+      - key: REDIS_PORT
+        fromService:
+          name: tshirt-store-redis
+          type: keyvalue
+          property: port
+      - key: CORS_ORIGINS
+        sync: false
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: AWS_S3_BUCKET
+        sync: false
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: MAIL_FROM
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
       - fromGroup: tshirt-store-config
 
   - type: worker
@@ -110,6 +112,42 @@ services:
     dockerContext: .
     dockerCommand: node dist/worker
     envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: tshirt-store-db
+          property: connectionString
+      - key: REDIS_HOST
+        fromService:
+          name: tshirt-store-redis
+          type: keyvalue
+          property: host
+      - key: REDIS_PORT
+        fromService:
+          name: tshirt-store-redis
+          type: keyvalue
+          property: port
+      - key: CORS_ORIGINS
+        sync: false
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: AWS_S3_BUCKET
+        sync: false
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: MAIL_FROM
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
       - fromGroup: tshirt-store-config
 
   - type: keyvalue
