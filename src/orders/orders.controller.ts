@@ -27,6 +27,7 @@ import { ApiProblems } from '../common/swagger';
 import {
   CheckoutDto,
   ListOrdersQueryDto,
+  OrderStatusEventResponseDto,
   UpdateOrderStatusDto,
 } from './dto/orders.dto';
 import { OrdersService } from './orders.service';
@@ -185,6 +186,8 @@ export class OrdersController {
   @ApiResponse({
     status: 200,
     description: 'The transitions, ascending by sequence',
+    type: OrderStatusEventResponseDto,
+    isArray: true,
   })
   @ApiProblems(
     Problems.unauthorized,
