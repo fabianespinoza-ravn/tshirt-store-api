@@ -67,8 +67,10 @@ export class SettlementProcessor extends WorkerHost {
       return;
     }
 
+    const target =
+      job.data.orderId ?? job.data.checkoutSessionId ?? 'unknown-target';
     this.logger.error(
-      `Settlement of Stripe event ${job.data.stripeEventId} for order ${job.data.orderId} failed after ${job.attemptsMade} attempt(s): ${error.message}`,
+      `Settlement of Stripe event ${job.data.stripeEventId} for order ${target} failed after ${job.attemptsMade} attempt(s): ${error.message}`,
       error.stack,
     );
   }

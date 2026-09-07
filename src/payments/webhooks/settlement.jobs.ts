@@ -33,6 +33,7 @@ export interface PaymentIntentSettlementJobData extends SettlementJobBase {
   paymentIntentId: string;
   /** From the intent's metadata, which checkout set. */
   orderId: string;
+  checkoutSessionId?: never;
 }
 
 export interface CheckoutSessionSettlementJobData extends SettlementJobBase {
@@ -40,6 +41,8 @@ export interface CheckoutSessionSettlementJobData extends SettlementJobBase {
     | SettlementEventType.CheckoutSessionCompleted
     | SettlementEventType.CheckoutSessionAsyncPaymentSucceeded;
   checkoutSessionId: string;
+  paymentIntentId?: never;
+  orderId?: never;
 }
 
 export type SettlementJobData =

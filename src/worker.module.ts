@@ -7,6 +7,7 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { StockNotificationDispatcher } from './notifications/stock-notification.dispatcher';
 import { OrdersSweepService } from './orders/orders-sweep.service';
 import { PaymentsModule } from './payments/payments.module';
+import { PaymentLinksModule } from './payments/payment-links/payment-links.module';
 import { OrderConfirmationOutboxService } from './payments/webhooks/order-confirmation-outbox.service';
 import { SettlementService } from './payments/webhooks/settlement.service';
 import { PrismaModule } from './prisma/prisma.module';
@@ -42,6 +43,7 @@ import { StorageModule } from './storage/storage.module';
     PrismaModule,
     QueueModule,
     PaymentsModule,
+    PaymentLinksModule,
     // Settlement confirms a paid order by email, so the worker produces mail
     // as well as consuming it. The module carries the producer and nothing
     // else; the transport below is what actually sends.

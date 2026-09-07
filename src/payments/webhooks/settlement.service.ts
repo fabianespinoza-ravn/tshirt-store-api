@@ -11,7 +11,12 @@ import { MailService } from '../../mail/mail.service';
 import { recordStatus } from '../../orders/order-writes';
 import { PrismaService } from '../../prisma/prisma.service';
 import { StripeService } from '../stripe.service';
-import { SettlementEventType, type SettlementJobData } from './settlement.jobs';
+import { PaymentLinkCheckoutService } from '../payment-links/payment-link-checkout.service';
+import {
+  SettlementEventType,
+  type PaymentIntentSettlementJobData,
+  type SettlementJobData,
+} from './settlement.jobs';
 
 /** What one settlement job did, so the queue's completed set says something. */
 export enum SettlementOutcome {
@@ -21,6 +26,8 @@ export enum SettlementOutcome {
   Refunded = 'refunded',
   /** Somebody else had already moved the order. Nothing was written. */
   AlreadySettled = 'already-settled',
+  /** A paid Checkout Session produced or recovered a payment-link order. */
+  PaymentLinkSettled = 'payment-link-settled',
   /** An event type this worker does not act on. */
   Ignored = 'ignored',
 }
@@ -72,12 +79,29 @@ export class SettlementService {
     private readonly prisma: PrismaService,
     private readonly stripe: StripeService,
     private readonly mail: MailService,
+    private readonly paymentLinkCheckout: PaymentLinkCheckoutService,
   ) {}
 
   async settle(
     data: SettlementJobData,
     now: Date = new Date(),
   ): Promise<SettlementOutcome> {
+    if (
+      data.eventType === SettlementEventType.CheckoutSessionCompleted ||
+      data.eventType ===
+        SettlementEventType.CheckoutSessionAsyncPaymentSucceeded
+    ) {
+      const event = await this.stripe.retrieveEvent(data.stripeEventId);
+      const settlement =
+        await this.paymentLinkCheckout.settleCheckoutSession(event);
+
+      await this.markProcessed(this.prisma, data, now);
+
+      return settlement
+        ? SettlementOutcome.PaymentLinkSettled
+        : SettlementOutcome.Ignored;
+    }
+
     if (data.eventType !== SettlementEventType.PaymentIntentSucceeded) {
       // Not an error: the producer only enqueues types this branches on, so
       // reaching here means a type was added to the enum and not to this
@@ -156,7 +180,7 @@ export class SettlementService {
    */
   private async pay(
     order: SettleableOrder,
-    data: SettlementJobData,
+    data: PaymentIntentSettlementJobData,
     now: Date,
   ): Promise<SettlementOutcome> {
     const settled = await this.prisma.$transaction(
@@ -302,7 +326,7 @@ export class SettlementService {
    */
   private async refund(
     order: SettleableOrder,
-    data: SettlementJobData,
+    data: PaymentIntentSettlementJobData,
     now: Date,
   ): Promise<SettlementOutcome> {
     const refundId = await this.stripe.refundPaymentIntent(
@@ -363,7 +387,7 @@ export class SettlementService {
   private async recordCharge(
     tx: Prisma.TransactionClient,
     order: SettleableOrder,
-    data: SettlementJobData,
+    data: PaymentIntentSettlementJobData,
     refund: { stripeRefundId?: string; refundedAt?: Date },
   ): Promise<void> {
     const identity = {
