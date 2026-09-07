@@ -211,6 +211,10 @@ export class StripeService {
     );
   }
 
+  async retrieveEvent(stripeEventId: string): Promise<Stripe.Event> {
+    return this.client.events.retrieve(stripeEventId);
+  }
+
   /**
    * Turns a link off at Stripe, reporting rather than raising.
    *

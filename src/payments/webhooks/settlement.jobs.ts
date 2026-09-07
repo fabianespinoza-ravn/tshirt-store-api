@@ -19,17 +19,31 @@ import type Stripe from 'stripe';
  * read inside the transaction that moves it; copying a number out of the
  * event would introduce a second opinion about how much was owed.
  */
-export interface SettlementJobData {
+interface SettlementJobBase {
   /** The `webhook_events` row this job came from, so it can be marked processed. */
   webhookEventId: string;
   /** Stripe's id for the delivery, for logs and for the job's own id. */
   stripeEventId: string;
   /** The event type, so the worker branches on what actually arrived. */
   eventType: SettlementEventType;
+}
+
+export interface PaymentIntentSettlementJobData extends SettlementJobBase {
+  eventType: SettlementEventType.PaymentIntentSucceeded;
   paymentIntentId: string;
   /** From the intent's metadata, which checkout set. */
   orderId: string;
 }
+
+export interface CheckoutSessionSettlementJobData extends SettlementJobBase {
+  eventType:
+    | SettlementEventType.CheckoutSessionCompleted
+    | SettlementEventType.CheckoutSessionAsyncPaymentSucceeded;
+  checkoutSessionId: string;
+}
+
+export type SettlementJobData =
+  PaymentIntentSettlementJobData | CheckoutSessionSettlementJobData;
 
 /**
  * The Stripe event types this API settles.
@@ -58,6 +72,8 @@ export interface SettlementJobData {
  */
 export enum SettlementEventType {
   PaymentIntentSucceeded = 'payment_intent.succeeded',
+  CheckoutSessionCompleted = 'checkout.session.completed',
+  CheckoutSessionAsyncPaymentSucceeded = 'checkout.session.async_payment_succeeded',
 }
 
 const SETTLED_TYPES = new Set<string>(Object.values(SettlementEventType));
@@ -88,6 +104,21 @@ export function settlementJobFor(
 ): SettlementJobData | undefined {
   if (!SETTLED_TYPES.has(event.type)) return undefined;
 
+  const eventType = event.type as SettlementEventType;
+  if (
+    eventType === SettlementEventType.CheckoutSessionCompleted ||
+    eventType === SettlementEventType.CheckoutSessionAsyncPaymentSucceeded
+  ) {
+    const session = event.data.object as Stripe.Checkout.Session;
+
+    return {
+      webhookEventId,
+      stripeEventId: event.id,
+      eventType,
+      checkoutSessionId: session.id,
+    };
+  }
+
   const intent = event.data.object as Stripe.PaymentIntent;
   const orderId = intent.metadata?.orderId;
 
@@ -96,7 +127,7 @@ export function settlementJobFor(
   return {
     webhookEventId,
     stripeEventId: event.id,
-    eventType: event.type as SettlementEventType,
+    eventType: SettlementEventType.PaymentIntentSucceeded,
     paymentIntentId: intent.id,
     orderId,
   };

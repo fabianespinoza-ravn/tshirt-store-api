@@ -574,13 +574,16 @@ describe('StripeWebhookService', () => {
       );
     });
 
-    it('records but does not enqueue an event type this API does not settle', async () => {
-      const event = anEvent({ type: 'checkout.session.completed' });
+    it('records and enqueues a completed checkout session for worker settlement', async () => {
+      const event = anEvent({
+        type: 'checkout.session.completed',
+        intentId: 'cs_checkout',
+      });
       h.stripe.constructWebhookEvent.mockReturnValue(event);
 
       await expect(
         h.service.receive(rawBodyOf(event), aSignatureHeader),
-      ).resolves.toBe(WebhookOutcome.Recorded);
+      ).resolves.toBe(WebhookOutcome.Queued);
 
       expect(h.prisma.webhookEvent.create).toHaveBeenCalledWith({
         data: expect.objectContaining({
@@ -589,7 +592,17 @@ describe('StripeWebhookService', () => {
           eventType: 'checkout.session.completed',
         }),
       });
-      expect(queue.add).not.toHaveBeenCalled();
+      const inserted = h.prisma.webhookEvent.create.mock.calls[0]?.[0].data;
+      expect(queue.add).toHaveBeenCalledWith(
+        JobName.SettlePayment,
+        {
+          webhookEventId: inserted?.id,
+          stripeEventId: event.id,
+          eventType: SettlementEventType.CheckoutSessionCompleted,
+          checkoutSessionId: 'cs_checkout',
+        },
+        { jobId: event.id },
+      );
     });
 
     it('records but does not enqueue a succeeded intent whose metadata carries no order id', async () => {

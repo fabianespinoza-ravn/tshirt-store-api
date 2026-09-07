@@ -9,6 +9,7 @@ const paymentIntents = {
   retrieve: jest.fn(),
 };
 const refunds = { create: jest.fn() };
+const events = { retrieve: jest.fn() };
 // Typed, because a case below reads the buffer back out of `mock.calls` to
 // prove it was handed over rather than re-encoded, and an untyped double
 // makes that read an `any`.
@@ -17,7 +18,9 @@ const webhooks = {
 };
 
 jest.mock('stripe', () =>
-  jest.fn().mockImplementation(() => ({ paymentIntents, refunds, webhooks })),
+  jest
+    .fn()
+    .mockImplementation(() => ({ paymentIntents, refunds, events, webhooks })),
 );
 
 /**
@@ -48,6 +51,7 @@ describe('StripeService', () => {
     (Stripe as unknown as jest.Mock).mockImplementation(() => ({
       paymentIntents,
       refunds,
+      events,
       webhooks,
     }));
   });
@@ -288,5 +292,14 @@ describe('StripeService', () => {
         service.constructWebhookEvent(Buffer.from('{}'), 'bad'),
       ).toThrow('No signatures found');
     });
+  });
+
+  it('retrieves a recorded event by its Stripe id for worker settlement', async () => {
+    const service = makeService();
+    const event = { id: 'evt_checkout' } as Stripe.Event;
+    events.retrieve.mockResolvedValue(event);
+
+    await expect(service.retrieveEvent(event.id)).resolves.toBe(event);
+    expect(events.retrieve).toHaveBeenCalledWith(event.id);
   });
 });
