@@ -1,7 +1,10 @@
 import { OrderStatus, UserRole } from '@prisma/client';
 import type { AuthenticatedUser } from '../common/decorators/current-user.decorator';
 import { OrdersController } from './orders.controller';
+import { OrderStatusEventResponseDto } from './dto/orders.dto';
 import type { OrdersService } from './orders.service';
+
+const SWAGGER_API_RESPONSE = 'swagger/apiResponse';
 
 const client: AuthenticatedUser = {
   id: 'client-1',
@@ -131,11 +134,23 @@ describe('OrdersController', () => {
    *
    * Stubs, not assertions: they describe the route's inputs and outputs,
    * while the `expect` calls pin the behavior under test.
+   *
+   * The response metadata is checked directly because an interface-only
+   * return type disappears at runtime and leaves Swagger with no item schema.
    */
   describe('the status history passthrough', () => {
-    it.todo(
-      'declares the status history response schema with status, sequence and occurredAt',
-    );
+    it('declares the status history response DTO as an array item schema', () => {
+      const handler = OrdersController.prototype.statusHistory;
+      const responses = Reflect.getMetadata(
+        SWAGGER_API_RESPONSE,
+        handler,
+      ) as Record<number, { type?: unknown; isArray?: boolean }>;
+
+      expect(responses[200]).toMatchObject({
+        type: OrderStatusEventResponseDto,
+        isArray: true,
+      });
+    });
 
     it('asks the service for the history of the path id, for the token caller', async () => {
       service.statusHistory.mockResolvedValue([]);

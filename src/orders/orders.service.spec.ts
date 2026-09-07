@@ -21,6 +21,7 @@ import {
   anOrder,
   anOrderItem,
   aProduct,
+  aPromoCode,
   aSku,
 } from '../testing/factories';
 import {
@@ -289,6 +290,49 @@ describe('OrdersService', () => {
             total: sku.price * 2,
           }),
         }),
+      );
+    });
+
+    it('revalidates and reserves a promo use with the order and its stock', async () => {
+      const { sku } = arrangeCheckout();
+      const promoCode = aPromoCode({
+        id: 'promo-1',
+        code: 'SAVE10',
+        discountValue: 10,
+      });
+      h.prisma.promoCode.findUnique.mockResolvedValue(promoCode);
+      h.prisma.promoCode.updateMany.mockResolvedValue({ count: 1 });
+
+      await h.service.checkout(client, { ...address, promoCode: 'SAVE10' });
+
+      expect(h.prisma.promoCode.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            id: promoCode.id,
+            liveCode: 'SAVE10',
+            usageReserved: { lt: promoCode.usageLimit },
+          }),
+          data: { usageReserved: { increment: 1 } },
+        }),
+      );
+      expect(h.prisma.order.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            subtotal: sku.price * 2,
+            orderDiscountAmount: 250,
+            total: 2250,
+          }),
+        }),
+      );
+      expect(h.prisma.promoCodeRedemption.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          promoCodeId: promoCode.id,
+          codeSnapshot: 'SAVE10',
+          discountApplied: 250,
+        }),
+      });
+      expect(h.stripe.createPaymentIntent).toHaveBeenCalledWith(
+        expect.objectContaining({ total: 2250 }),
       );
     });
 
@@ -824,6 +868,22 @@ describe('OrdersService', () => {
       expect(h.prisma.sku.update).toHaveBeenCalledWith({
         where: { id: order.items[0].skuId },
         data: { reserved: { decrement: order.items[0].quantity } },
+      });
+    });
+
+    it('returns the reserved promo use when a pending order is cancelled', async () => {
+      const order = arrangeStatusChange();
+      h.prisma.order.findFirst.mockResolvedValue({
+        ...order,
+        redemption: { promoCodeId: 'promo-1', codeSnapshot: 'SAVE10' },
+      } as never);
+      h.prisma.promoCode.updateMany.mockResolvedValue({ count: 1 });
+
+      await h.service.updateStatus(client, order.id, OrderStatus.CANCELLED);
+
+      expect(h.prisma.promoCode.updateMany).toHaveBeenCalledWith({
+        where: { id: 'promo-1', usageReserved: { gt: 0 } },
+        data: { usageReserved: { decrement: 1 } },
       });
     });
 

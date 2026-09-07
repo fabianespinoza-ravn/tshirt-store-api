@@ -22,6 +22,7 @@ import { StripeService } from '../payments/stripe.service';
 import { intentToCancel } from './payment-recovery';
 import { PrismaService } from '../prisma/prisma.service';
 import { recordStatus, releaseReservations } from './order-writes';
+import { reservePromoCodeUsage } from '../promo-codes/promo-code-writes';
 import type { CheckoutDto, ListOrdersQueryDto } from './dto/orders.dto';
 import {
   destinationsFor,
@@ -342,7 +343,7 @@ export class OrdersService {
         }
 
         if (releasesStock(status)) {
-          await releaseReservations(tx, order.items);
+          await releaseReservations(tx, order.items, order.redemption);
         }
 
         await recordStatus(tx, order.id, status);
@@ -493,7 +494,7 @@ export class OrdersService {
       where: {
         AND: [this.scope(user, 'read'), { status: OrderStatus.PENDING }],
       },
-      include: { items: true },
+      include: { items: true, redemption: true },
       orderBy: { createdAt: 'desc' },
     });
 
@@ -521,7 +522,7 @@ export class OrdersService {
     // hand the same units back twice.
     if (cancelled.count === 0) return;
 
-    await releaseReservations(tx, pending.items);
+    await releaseReservations(tx, pending.items, pending.redemption);
     await recordStatus(tx, pending.id, OrderStatus.CANCELLED);
   }
 
@@ -609,6 +610,15 @@ export class OrdersService {
       });
     }
 
+    // Validation is only a preview. Eligibility and the finite usage cap are
+    // checked again here, and the use is held in the same transaction as the
+    // stock so neither reservation can survive without the other.
+    const promo = dto.promoCode
+      ? await reservePromoCodeUsage(tx, dto.promoCode, subtotal, new Date())
+      : null;
+    const discount = promo?.discountAmount ?? 0;
+    const total = promo?.total ?? subtotal;
+
     // The lines are nested in the parent's create rather than written first:
     // `OrderItem.orderId` references `Order.id`, so an item inserted before
     // its order violates the foreign key.
@@ -619,10 +629,8 @@ export class OrdersService {
         status: OrderStatus.PENDING,
         expiresAt: new Date(Date.now() + PENDING_ORDER_TTL_MS),
         subtotal,
-        // No promo codes in this block, so the discount is zero and the
-        // total is the subtotal. Both columns exist already.
-        orderDiscountAmount: 0,
-        total: subtotal,
+        orderDiscountAmount: discount,
+        total,
         recipientName: dto.recipientName,
         line1: dto.line1,
         line2: dto.line2 ?? null,
@@ -632,6 +640,18 @@ export class OrdersService {
         items: { create: lines },
       },
     });
+
+    if (promo) {
+      await tx.promoCodeRedemption.create({
+        data: {
+          id: newId(),
+          orderId,
+          promoCodeId: promo.promoCodeId,
+          codeSnapshot: promo.code,
+          discountApplied: promo.discountAmount,
+        },
+      });
+    }
 
     await recordStatus(tx, orderId, OrderStatus.PENDING);
 
@@ -652,7 +672,7 @@ export class OrdersService {
       );
     }
 
-    return { id: orderId, total: subtotal };
+    return { id: orderId, total };
   }
 }
 

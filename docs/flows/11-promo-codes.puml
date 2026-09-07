@@ -33,7 +33,7 @@ U -> F : Enters the promo code in the cart
 F -> A : POST /promo-codes/validate\ncode + the current cart
 activate A
 alt Doesn't exist, expired or exhausted
-  A --> F : 404 or 409
+  A --> F : 409 PromoCodeUnavailable
   F -> U : That code doesn't work
 else The cart doesn't reach the minimum
   A --> F : 409 Conflict

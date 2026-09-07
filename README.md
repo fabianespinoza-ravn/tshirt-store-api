@@ -1,8 +1,9 @@
 # T-Shirt Store API
 
 A NestJS REST API for a t-shirt store: authentication with roles, product catalog
-with variants and images, carts, orders and Stripe payments. Built on the ERD and
-the OpenAPI contract designed in the previous weeks of the Ravn NodeJS program.
+with variants and images, carts, promo codes, orders and Stripe payments. Built
+on the ERD and the OpenAPI contract designed in the previous weeks of the Ravn
+NodeJS program.
 
 ## Architecture
 
@@ -14,13 +15,13 @@ the OpenAPI contract designed in the previous weeks of the Ravn NodeJS program.
 - **Retry policies that differ by what the job carries, not by house style.** Payment settlement retries with backoff for close to a day and keeps its failures indefinitely, because there is no attempt count after which losing a payment is acceptable and its payload is only a Stripe identifier. Mail gets three attempts and then **keeps nothing** — its payload holds a one-time token the database deliberately stores only the hash of, so a retained failure would be a live credential sitting in Redis. Its diagnosis is a log line carrying the recipient and the error and never the body. The sweep does not retry at all: it runs again in a minute, and a second attempt would put two sweeps over the same expired orders.
 - **Redis earns its place twice**: the rate-limit counters live there too, because an in-process limiter multiplies its own limit by the number of API instances behind the load balancer.
 - **The webhook is acknowledged, not settled.** The API verifies the signature, records the event and answers; the worker moves the order afterwards, so an order can read `PENDING` for a moment after its payment succeeded.
-- **Checkout reserves before it charges.** Stock reservation and the `PENDING` order come first. If Stripe times out before returning a `clientSecret`, the order stays `PENDING` with no payment attempt and the repeatable sweep cancels the intent and releases the stock.
+- **Checkout reserves before it charges.** Stock and an optional promo-code use are reserved with the `PENDING` order. If Stripe times out before returning a `clientSecret`, the order stays `PENDING` with no payment attempt and the repeatable sweep cancels the intent and releases both holds.
 
 ### Deployment
 
 - **One container image, two entrypoints.** Shared build and pipeline, but each process is meant to scale on its own signal — request latency for the API, queue depth for the worker — which is why they are separate services rather than one. `render.yaml` declares no `scaling` block, so today both run at their fixed instance count and that separation is a shape the deployment is ready for rather than a policy it applies. `Dockerfile` builds the image; `render.yaml` runs `node dist/main` for the web service and `node dist/worker` for the worker.
 - **The schema syncs once as a release step**, never on boot, so instances never race to sync it. No migration history is kept: `prisma migrate diff` plans the SQL, the step refuses a plan that drops or narrows anything unless one deploy is explicitly allowed to, and `prisma db execute` applies it as one transaction. CI runs that same command inside the production image against a disposable PostgreSQL, so a path or engine problem surfaces in a pull request rather than in a deploy.
-- **Expand and contract.** The compatible change ships first and the old shape is dropped in a later release — a rollback is just redeploying the previous tag from the registry, and there's no migration history to roll back through either way. The `live_email`/`live_user_id` change is the one exception: nothing had been deployed yet, so it ships in a single release.
+- **Expand and contract.** The compatible change ships first and the old shape is dropped in a later release — a rollback is just redeploying the previous tag from the registry, and there's no migration history to roll back through either way. The initial `live_email`/`live_user_id`/`live_code` shape is the one exception: nothing has been deployed yet, so it ships in a single release.
 - **Pooling is a constraint, not a detail.** Prisma pools inside each Node process, so there is no shared pooler and open connections grow with the number of processes, not with traffic.
 - **The pool size is pinned on the database URL**, not left to Prisma's CPU-derived default, which reads the host's cores rather than the container's quota. The ceiling is PostgreSQL's `max_connections`, and it has to hold during a rolling deploy, when old and new instances are briefly up at once.
 
@@ -47,8 +48,9 @@ sequence diagrams for every flow live in [`docs/flows/`](docs/flows/).
 | Catalog | Categories, products, SKUs and images, with S3-backed storage |
 | Cart and likes | One active cart per client, lines added, updated and removed, and the product like |
 | Orders, payments | Checkout, order status history and Stripe webhook settlement |
+| Promotions | Manager creation/list/update, client cart validation, checkout reservation and payment settlement |
 
-Unit tests: **52 suites, 696 tests**, plus one documented `todo`.
+Unit tests: **53 suites, 745 tests**, with no pending `todo` cases.
 
 ## Requirements
 
@@ -99,6 +101,7 @@ src/
   mail/         outbound mail
   prisma/       database access
   products/     products
+  promo-codes/  promo-code management, validation and reservation lifecycle
   skus/         SKUs
   storage/      S3-compatible object storage
   testing/      unit-test harness and factories

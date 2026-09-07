@@ -79,6 +79,7 @@ const UNIQUE_CONFLICTS = new Map<string, string>([
     'ProductLike:userId,productId',
     'The like changed while the request was running.',
   ],
+  ['PromoCode:liveCode', 'Another live promo code already uses that code.'],
 ]);
 
 /**

@@ -1,6 +1,7 @@
 import {
   CartStatus,
   Color,
+  DiscountType,
   OrderStatus,
   Size,
   UserRole,
@@ -14,6 +15,8 @@ import {
   type Product,
   type ProductImage,
   type ProductLike,
+  type PromoCode,
+  type PromoCodeRedemption,
   type Sku,
   type User,
 } from '@prisma/client';
@@ -203,6 +206,45 @@ export function aProductLike(
     id: newId(),
     userId,
     productId,
+    createdAt: now(),
+    ...overrides,
+  };
+}
+
+export function aPromoCode(overrides: Overrides<PromoCode> = {}): PromoCode {
+  const code = overrides.code ?? 'SAVE10';
+  const deletedAt = overrides.deletedAt ?? null;
+
+  return {
+    id: newId(),
+    code,
+    liveCode: deletedAt === null ? code : null,
+    type: DiscountType.PERCENTAGE,
+    discountValue: 10,
+    minimumPurchaseAmount: null,
+    usageLimit: 100,
+    usageCount: 0,
+    usageReserved: 0,
+    expiresAt: new Date('2027-12-31T23:59:59.000Z'),
+    isActive: true,
+    deletedAt,
+    createdAt: now(),
+    updatedAt: now(),
+    ...overrides,
+  };
+}
+
+export function aPromoCodeRedemption(
+  orderId: string,
+  promoCodeId: string,
+  overrides: Overrides<PromoCodeRedemption> = {},
+): PromoCodeRedemption {
+  return {
+    id: newId(),
+    orderId,
+    promoCodeId,
+    codeSnapshot: 'SAVE10',
+    discountApplied: 200,
     createdAt: now(),
     ...overrides,
   };

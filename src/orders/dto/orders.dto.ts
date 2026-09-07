@@ -1,4 +1,4 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { OrderStatus } from '@prisma/client';
 import { Type } from 'class-transformer';
 import {
@@ -16,10 +16,11 @@ import { PaginationQueryDto } from '../../common/pagination';
 const ADDRESS_FIELD = 255;
 
 /**
- * The body of `POST /orders`. It carries the shipping address and nothing
- * else: the lines come from the caller's active cart, which is what makes
- * the operation a checkout rather than an order builder. Sending line items
- * here would let a client name a price.
+ * The body of `POST /orders`. The lines come from the caller's active cart,
+ * which is what makes the operation a checkout rather than an order builder.
+ * Sending line items here would let a client name a price. The optional promo
+ * code only names a campaign: prices and eligibility are recalculated inside
+ * the checkout transaction.
  *
  * The four required fields reject the empty string and not only a missing
  * key. `@IsString()` accepts `""`, and this address is copied onto the order
@@ -29,6 +30,17 @@ const ADDRESS_FIELD = 255;
  * is an absent one.
  */
 export class CheckoutDto {
+  @ApiPropertyOptional({
+    description:
+      'Promo code to revalidate and reserve atomically with this checkout.',
+    maxLength: 100,
+  })
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(100)
+  promoCode?: string;
+
   @IsString()
   @IsNotEmpty()
   @MaxLength(ADDRESS_FIELD)
