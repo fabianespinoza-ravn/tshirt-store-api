@@ -23,6 +23,12 @@ import {
   aProduct,
   aSku,
 } from '../testing/factories';
+import {
+  arrangeStatusHistory,
+  HISTORY_ORDER_ID,
+  RECORDED_TRANSITIONS,
+  SHUFFLED_TRANSITIONS,
+} from '../testing/order-history.fixtures';
 import { resetPrismaMock } from '../testing/prisma.mock';
 import { OrdersService } from './orders.service';
 import { exactlyTheseInAnyOrder } from '../testing/matchers';
@@ -509,6 +515,219 @@ describe('OrdersService', () => {
       ).rejects.toMatchObject({
         kind: Problems.notFound,
       });
+    });
+  });
+
+  /**
+   * `GET /orders/{orderId}/status-history`, and the two things that make it
+   * safe rather than merely present.
+   *
+   * THE SCOPE. `PoliciesGuard` grants `read Order` by role, so a CLIENT
+   * reaches this handler holding any order id at all; the only thing between
+   * them and another client's transitions is the `where` this service sends.
+   * That is why the cases below are written against
+   * `expect(h.prisma.order.findFirst).toHaveBeenCalledWith(...)` and never
+   * against the array the mock was told to return: a service that dropped the
+   * scope would still answer 404 for a missing order while publishing a
+   * stranger's history for one that exists, and only the `where` tells the
+   * two apart. The shape to expect is the one `getOne` already asserts —
+   * `{ AND: [{ OR: [{ userId: client.id }] }, { id: <the order> }] }` — because
+   * both now build it from the same `reachableOrder`, and a case pinning it
+   * on both is what keeps them from drifting.
+   *
+   * THE SEQUENCE. `recordStatus` numbers each row inside the transaction that
+   * moves the order, which is the only total order over the transitions that
+   * survives two of them landing in the same millisecond — see the last two
+   * rows of `RECORDED_TRANSITIONS`, which share a timestamp. So the claim
+   * "oldest first" is proved by asserting `orderBy: { sequence: 'asc' }` on
+   * the selected relation, not by inspecting the order of the returned array:
+   * the Prisma mock ignores `orderBy` and hands back whatever the fixture
+   * held, so an assertion on the array's order would pass against a service
+   * that asked for no order at all. `SHUFFLED_TRANSITIONS` in
+   * `../testing/order-history.fixtures` is there to make that visible.
+   *
+   * ONE THING THE SCAFFOLD ALREADY LEARNED. CASL does not preserve the order
+   * the rules were declared in, so the courier scope comes back as
+   * `[{ deliveredById }, { status: SHIPPED }]`. Pin it with
+   * `exactlyTheseInAnyOrder` as the DELIVERY block below already does; an
+   * `arrayContaining` would admit a third rule that widened the courier reach.
+   *
+   * Every case below began as an `it.todo`. The route and the query are the
+   * assistant's work, so the assertions are not: an assertion written next to
+   * generated code agrees with whatever that code does, bugs included. The
+   * fixtures, the arrangement and the names were scaffolded; the `expect`
+   * calls were written afterwards by this repository's author, which is what
+   * makes them worth anything.
+   */
+  describe('statusHistory', () => {
+    beforeEach(() => {
+      arrangeStatusHistory(h.prisma);
+    });
+
+    it("folds the read scope into the where, so a client cannot reach another client's history", async () => {
+      await h.service.statusHistory(client, HISTORY_ORDER_ID);
+
+      expect(h.prisma.order.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            AND: [{ OR: [{ userId: client.id }] }, { id: HISTORY_ORDER_ID }],
+          },
+        }),
+      );
+    });
+
+    it('sends the same where as getOne for the same caller and order id', async () => {
+      const order = { ...anOrder(client.id), items: [], payments: [] };
+      h.prisma.order.findFirst
+        .mockResolvedValueOnce(order)
+        .mockResolvedValueOnce({ statusHistory: [] } as never);
+
+      await h.service.getOne(client, HISTORY_ORDER_ID);
+      await h.service.statusHistory(client, HISTORY_ORDER_ID);
+
+      expect(h.prisma.order.findFirst.mock.calls[1]?.[0]?.where).toEqual(
+        h.prisma.order.findFirst.mock.calls[0]?.[0]?.where,
+      );
+    });
+
+    it('asks for the entries ordered by sequence ascending, not by their timestamp', async () => {
+      arrangeStatusHistory(h.prisma, { transitions: SHUFFLED_TRANSITIONS });
+
+      await h.service.statusHistory(client, HISTORY_ORDER_ID);
+
+      expect(h.prisma.order.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          select: {
+            statusHistory: expect.objectContaining({
+              orderBy: { sequence: 'asc' },
+            }),
+          },
+        }),
+      );
+    });
+
+    it('selects only status, sequence and createdAt, so a column added to the history row later is not published', async () => {
+      await h.service.statusHistory(client, HISTORY_ORDER_ID);
+
+      expect(h.prisma.order.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          select: {
+            statusHistory: {
+              select: {
+                status: true,
+                sequence: true,
+                createdAt: true,
+              },
+              orderBy: { sequence: 'asc' },
+            },
+          },
+        }),
+      );
+    });
+
+    it('reads the history through the order in a single query, never through orderStatusHistory.findMany', async () => {
+      await h.service.statusHistory(client, HISTORY_ORDER_ID);
+
+      expect(h.prisma.order.findFirst).toHaveBeenCalledTimes(1);
+      expect(h.prisma.orderStatusHistory.findMany).not.toHaveBeenCalled();
+    });
+
+    it('answers 404 and not 403 for an order outside the caller scope', async () => {
+      arrangeStatusHistory(h.prisma, { reachable: false });
+
+      await expect(
+        h.service.statusHistory(client, 'another-client-order'),
+      ).rejects.toMatchObject({ kind: Problems.notFound });
+    });
+
+    it('answers 404 with the same problem for an order that does not exist, so the route is not an identifier oracle', async () => {
+      arrangeStatusHistory(h.prisma, { reachable: false });
+
+      await expect(
+        h.service.statusHistory(client, 'missing-order'),
+      ).rejects.toMatchObject({ kind: Problems.notFound });
+    });
+
+    it('returns an empty list for a reachable order that has recorded no transitions', async () => {
+      arrangeStatusHistory(h.prisma, { transitions: [] });
+
+      await expect(
+        h.service.statusHistory(client, HISTORY_ORDER_ID),
+      ).resolves.toEqual([]);
+    });
+
+    it('serializes each entry occurredAt as an ISO 8601 string', async () => {
+      const result = await h.service.statusHistory(client, HISTORY_ORDER_ID);
+
+      expect(result.map((entry) => entry.occurredAt)).toEqual(
+        RECORDED_TRANSITIONS.map((entry) => entry.createdAt.toISOString()),
+      );
+    });
+
+    it('publishes the sequence on every entry, so a client can order them without trusting the array', async () => {
+      const result = await h.service.statusHistory(client, HISTORY_ORDER_ID);
+
+      expect(result.map((entry) => entry.sequence)).toEqual(
+        RECORDED_TRANSITIONS.map((entry) => entry.sequence),
+      );
+    });
+
+    it('publishes neither the history row id nor the courier who completed the delivery', async () => {
+      const result = await h.service.statusHistory(client, HISTORY_ORDER_ID);
+
+      expect(result).toEqual(
+        RECORDED_TRANSITIONS.map((entry) => ({
+          status: entry.status,
+          sequence: entry.sequence,
+          occurredAt: entry.createdAt.toISOString(),
+        })),
+      );
+    });
+
+    it('sends the manager scope, which is unconditional, for a manager reading any order', async () => {
+      await h.service.statusHistory(manager, HISTORY_ORDER_ID);
+
+      expect(h.prisma.order.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { AND: [{}, { id: HISTORY_ORDER_ID }] },
+        }),
+      );
+    });
+
+    it('sends the shipped-plus-own-deliveries scope for a courier', async () => {
+      await h.service.statusHistory(delivery, HISTORY_ORDER_ID);
+
+      expect(h.prisma.order.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            AND: [
+              {
+                OR: exactlyTheseInAnyOrder([
+                  { status: OrderStatus.SHIPPED },
+                  { deliveredById: delivery.id },
+                ]),
+              },
+              { id: HISTORY_ORDER_ID },
+            ],
+          },
+        }),
+      );
+    });
+
+    it('sends a scope matching nothing for a role the ability grants no order rule', async () => {
+      const unsupported = {
+        id: 'unsupported-1',
+        email: 'unsupported@example.test',
+        role: 'UNSUPPORTED' as UserRole,
+      };
+
+      await h.service.statusHistory(unsupported, HISTORY_ORDER_ID);
+
+      expect(h.prisma.order.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { AND: [{ OR: [] }, { id: HISTORY_ORDER_ID }] },
+        }),
+      );
     });
   });
 
