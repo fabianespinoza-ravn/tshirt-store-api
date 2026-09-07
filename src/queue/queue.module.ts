@@ -10,6 +10,28 @@ import {
   SWEEP_JOB_OPTIONS,
 } from './queue.constants';
 
+export function queueRootOptions(config: ConfigService) {
+  const password = config.get<string>('REDIS_PASSWORD');
+
+  return {
+    // Every queue's keys live under this, so a suite run and a
+    // developer's worker on the same Redis cannot consume each other's
+    // jobs. Without it the e2e suite would drain the mail queue of
+    // whoever happened to be running the app.
+    prefix: config.get<string>('QUEUE_PREFIX', 'tshirt'),
+    connection: {
+      host: config.getOrThrow<string>('REDIS_HOST'),
+      port: config.getOrThrow<number>('REDIS_PORT'),
+      ...(password ? { password } : {}),
+      // BullMQ requires this: with a retry limit, a command issued while
+      // Redis is briefly unreachable throws instead of waiting, and a
+      // job that was never enqueued is indistinguishable from one that
+      // was never asked for.
+      maxRetriesPerRequest: null,
+    },
+  };
+}
+
 /**
  * The producer side, and only the producer side.
  *
@@ -29,22 +51,7 @@ import {
   imports: [
     BullModule.forRootAsync({
       inject: [ConfigService],
-      useFactory: (config: ConfigService) => ({
-        // Every queue's keys live under this, so a suite run and a
-        // developer's worker on the same Redis cannot consume each other's
-        // jobs. Without it the e2e suite would drain the mail queue of
-        // whoever happened to be running the app.
-        prefix: config.get<string>('QUEUE_PREFIX', 'tshirt'),
-        connection: {
-          host: config.getOrThrow<string>('REDIS_HOST'),
-          port: config.getOrThrow<number>('REDIS_PORT'),
-          // BullMQ requires this: with a retry limit, a command issued while
-          // Redis is briefly unreachable throws instead of waiting, and a
-          // job that was never enqueued is indistinguishable from one that
-          // was never asked for.
-          maxRetriesPerRequest: null,
-        },
-      }),
+      useFactory: queueRootOptions,
     }),
     BullModule.registerQueue(
       { name: QueueName.Mail, defaultJobOptions: MAIL_JOB_OPTIONS },

@@ -50,6 +50,12 @@ describe('validateEnv', () => {
     expect(env.THROTTLE_LIMIT).toBe(10);
   });
 
+  it('refuses an explicitly empty Redis password', () => {
+    expect(() => validateEnv(anEnv({ REDIS_PASSWORD: '' }))).toThrow(
+      /REDIS_PASSWORD/,
+    );
+  });
+
   /**
    * The environment only ever hands over strings. Implicit conversion is
    * what makes `@IsInt()` see a number, and it's exactly what the module's
