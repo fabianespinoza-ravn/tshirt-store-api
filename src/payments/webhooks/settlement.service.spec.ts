@@ -641,28 +641,156 @@ describe('SettlementService', () => {
    * retried to recover a lost confirmation, only the outbox row may be.
    */
   describe('the confirmation outbox', () => {
-    it.todo(
-      'writes the outbox row inside the same transaction that moves the order to PAID',
-    );
-    it.todo(
-      "creates the outbox row with the order's id and the buyer's email, and nothing else",
-    );
-    it.todo('creates no outbox row when the PENDING update moved no row');
-    it.todo(
-      'creates no outbox row for an order that is CANCELLED and refunded',
-    );
-    it.todo('creates no outbox row for a delivery already settled');
-    it.todo(
-      'marks the outbox row SENT, with a sentAt, only after the confirmation was actually enqueued',
-    );
-    it.todo(
-      'leaves the outbox row PENDING when the confirmation enqueue rejects, so the drain can retry it',
-    );
-    it.todo(
-      'leaves the outbox row PENDING when marking it SENT fails, even though the mail was already enqueued',
-    );
-    it.todo(
-      'never re-settles a PAID order to retry a lost confirmation — settle() is not how the outbox gets drained',
-    );
+    it('writes the outbox row inside the same transaction that moves the order to PAID', async () => {
+      let releaseTransaction!: () => void;
+      const transactionResolved = new Promise<void>((resolve) => {
+        releaseTransaction = resolve;
+      });
+
+      h.prisma.$transaction.mockImplementation((operation: unknown) => {
+        if (typeof operation !== 'function') {
+          return Promise.all(operation as Promise<unknown>[]);
+        }
+
+        return (async () => {
+          const result = await (
+            operation as (tx: typeof h.prisma) => Promise<unknown>
+          )(h.prisma);
+          await transactionResolved;
+          return result;
+        })();
+      });
+
+      const settling = h.service.settle(aSettlementJob());
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(h.prisma.order.updateMany).toHaveBeenCalledWith({
+        where: {
+          id: aSettlementJob().orderId,
+          status: OrderStatus.PENDING,
+        },
+        data: { status: OrderStatus.PAID, expiresAt: null },
+      });
+      expect(h.prisma.orderConfirmationOutbox.create).toHaveBeenCalled();
+      expect(h.mail.sendOrderConfirmation).not.toHaveBeenCalled();
+
+      releaseTransaction();
+      await expect(settling).resolves.toBe(SettlementOutcome.Paid);
+    });
+
+    it("creates the outbox row with the order's id and the buyer's email, and nothing else", async () => {
+      const data = aSettlementJob();
+
+      await h.service.settle(data);
+
+      expect(h.prisma.orderConfirmationOutbox.create).toHaveBeenCalledWith({
+        data: {
+          id: expect.any(String),
+          orderId: data.orderId,
+          email: buyer.email,
+        },
+      });
+    });
+
+    it('creates no outbox row when the PENDING update moved no row', async () => {
+      h.prisma.order.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(h.service.settle(aSettlementJob())).rejects.toThrow();
+
+      expect(h.prisma.orderConfirmationOutbox.create).not.toHaveBeenCalled();
+    });
+
+    it('creates no outbox row for an order that is CANCELLED and refunded', async () => {
+      h.prisma.order.findUnique.mockResolvedValue(
+        aSettleableOrder({ status: OrderStatus.CANCELLED }),
+      );
+
+      await expect(h.service.settle(aSettlementJob())).resolves.toBe(
+        SettlementOutcome.Refunded,
+      );
+
+      expect(h.prisma.orderConfirmationOutbox.create).not.toHaveBeenCalled();
+    });
+
+    it('creates no outbox row for a delivery already settled', async () => {
+      h.prisma.order.findUnique.mockResolvedValue(
+        aSettleableOrder({ status: OrderStatus.PAID }),
+      );
+
+      await expect(h.service.settle(aSettlementJob())).resolves.toBe(
+        SettlementOutcome.AlreadySettled,
+      );
+
+      expect(h.prisma.orderConfirmationOutbox.create).not.toHaveBeenCalled();
+    });
+
+    it('marks the outbox row SENT, with a sentAt, only after the confirmation was actually enqueued', async () => {
+      const data = aSettlementJob();
+      const row = outboxRow();
+      h.prisma.orderConfirmationOutbox.create.mockResolvedValue(row);
+
+      await h.service.settle(data);
+
+      expect(h.prisma.orderConfirmationOutbox.updateMany).toHaveBeenCalledWith({
+        where: { id: row.id, status: NotificationStatus.PENDING },
+        data: { status: NotificationStatus.SENT, sentAt: expect.any(Date) },
+      });
+      expect(
+        h.prisma.orderConfirmationOutbox.updateMany.mock.invocationCallOrder[0],
+      ).toBeGreaterThan(
+        h.mail.sendOrderConfirmation.mock.invocationCallOrder[0],
+      );
+    });
+
+    it('leaves the outbox row PENDING when the confirmation enqueue rejects, so the drain can retry it', async () => {
+      h.mail.sendOrderConfirmation.mockRejectedValue(
+        new Error('mail queue unavailable'),
+      );
+
+      await expect(h.service.settle(aSettlementJob())).resolves.toBe(
+        SettlementOutcome.Paid,
+      );
+
+      expect(h.prisma.orderConfirmationOutbox.create).toHaveBeenCalled();
+      expect(
+        h.prisma.orderConfirmationOutbox.updateMany,
+      ).not.toHaveBeenCalled();
+    });
+
+    it('leaves the outbox row PENDING when marking it SENT fails, even though the mail was already enqueued', async () => {
+      h.prisma.orderConfirmationOutbox.updateMany.mockRejectedValue(
+        new Error('database unavailable'),
+      );
+
+      await expect(h.service.settle(aSettlementJob())).resolves.toBe(
+        SettlementOutcome.Paid,
+      );
+
+      expect(h.mail.sendOrderConfirmation).toHaveBeenCalledWith(
+        buyer.email,
+        aSettlementJob().orderId,
+      );
+      expect(h.prisma.orderConfirmationOutbox.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            status: NotificationStatus.PENDING,
+          }),
+        }),
+      );
+    });
+
+    it('never re-settles a PAID order to retry a lost confirmation — settle() is not how the outbox gets drained', async () => {
+      h.prisma.order.findUnique.mockResolvedValue(
+        aSettleableOrder({ status: OrderStatus.PAID }),
+      );
+
+      await expect(h.service.settle(aSettlementJob())).resolves.toBe(
+        SettlementOutcome.AlreadySettled,
+      );
+
+      expect(h.prisma.$transaction).not.toHaveBeenCalled();
+      expect(h.prisma.orderConfirmationOutbox.create).not.toHaveBeenCalled();
+      expect(h.mail.sendOrderConfirmation).not.toHaveBeenCalled();
+    });
   });
 });

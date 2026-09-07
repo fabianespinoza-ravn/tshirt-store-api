@@ -63,14 +63,13 @@ export const aDuplicateEvent = (): Prisma.PrismaClientKnownRequestError =>
   });
 
 /**
- * What this file has to prove, and what it deliberately leaves to whoever
- * writes the assertions.
+ * What this file has to prove.
  *
  * The route is the only unauthenticated write in the API and the only one
  * Stripe will call again — for three days — if it does not like the answer.
- * Three properties decide whether that is safe, and each is a stub below
- * rather than a comment, because a case named and unwritten is a visible
- * gap while a case asserted by the same hand that wrote the code is not:
+ * Three properties decide whether that is safe, and each is an executable
+ * case below rather than a comment, because a property described in prose
+ * is one nothing fails over:
  *
  * **It never trusts a parsed body.** The signature covers the bytes Stripe
  * sent. A test that fed the service a parsed object and passed would be
@@ -401,31 +400,138 @@ describe('StripeWebhookService', () => {
    * each field it drops, and the metadata-less shape a non-PaymentIntent
    * event or an intent with no order id produces.
    *
-   * These are stubs and not assertions on purpose — the allowlist is new
-   * behaviour this session wrote, so proving it is correct is the student's
-   * assertion to make, not this one's.
+   * The payload is asserted by exact equality rather than by
+   * `objectContaining`, which is the whole point: a field that slipped past
+   * the allowlist would satisfy a containment check and fail this one.
+   * Checked by mutation — spreading the Stripe object back into the return
+   * turns these two red and nothing else.
    */
   describe('the recorded payload — the allowlist and nothing else', () => {
-    it.todo("keeps the event's id in the stored payload");
-    it.todo("keeps the event's type in the stored payload");
-    it.todo(
-      "keeps event.data.object's id in the stored payload, as the PaymentIntent id for the events this API settles",
-    );
-    it.todo(
-      'keeps metadata.orderId in the stored payload when the object carries one',
-    );
-    it.todo(
-      'drops the full metadata object from the stored payload — only orderId survives it',
-    );
-    it.todo(
-      'drops every field outside the allowlist — e.g. receipt_email, shipping, charges[].billing_details — from the stored payload',
-    );
-    it.todo(
-      'stores a null orderId, not a missing key, when the object carries no metadata.orderId',
-    );
-    it.todo(
-      'stores a null orderId for an event type whose object has no metadata property at all',
-    );
+    it("keeps the event's id in the stored payload", async () => {
+      const event = anEvent({ id: 'evt_allowlisted_id' });
+      h.stripe.constructWebhookEvent.mockReturnValue(event);
+
+      await h.service.receive(rawBodyOf(event), aSignatureHeader);
+
+      expect(h.prisma.webhookEvent.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          payload: expect.objectContaining({ eventId: event.id }),
+        }),
+      });
+    });
+
+    it("keeps the event's type in the stored payload", async () => {
+      const event = anEvent({ type: 'payment_intent.succeeded' });
+      h.stripe.constructWebhookEvent.mockReturnValue(event);
+
+      await h.service.receive(rawBodyOf(event), aSignatureHeader);
+
+      expect(h.prisma.webhookEvent.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          payload: expect.objectContaining({ eventType: event.type }),
+        }),
+      });
+    });
+
+    it("keeps event.data.object's id in the stored payload, as the PaymentIntent id for the events this API settles", async () => {
+      const event = anEvent({ intentId: 'pi_allowlisted_object' });
+      h.stripe.constructWebhookEvent.mockReturnValue(event);
+
+      await h.service.receive(rawBodyOf(event), aSignatureHeader);
+
+      expect(h.prisma.webhookEvent.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          payload: expect.objectContaining({
+            objectId: 'pi_allowlisted_object',
+          }),
+        }),
+      });
+    });
+
+    it('keeps metadata.orderId in the stored payload when the object carries one', async () => {
+      const event = anEvent({ metadata: { orderId: 'order_allowlisted' } });
+      h.stripe.constructWebhookEvent.mockReturnValue(event);
+
+      await h.service.receive(rawBodyOf(event), aSignatureHeader);
+
+      expect(h.prisma.webhookEvent.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          payload: expect.objectContaining({ orderId: 'order_allowlisted' }),
+        }),
+      });
+    });
+
+    it('drops the full metadata object from the stored payload — only orderId survives it', async () => {
+      const event = anEvent({
+        metadata: {
+          orderId: 'order_allowlisted',
+          customerNote: 'leave at the back door',
+        },
+      });
+      h.stripe.constructWebhookEvent.mockReturnValue(event);
+
+      await h.service.receive(rawBodyOf(event), aSignatureHeader);
+
+      expect(h.prisma.webhookEvent.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          payload: {
+            eventId: event.id,
+            eventType: event.type,
+            objectId: paymentIntentId,
+            orderId: 'order_allowlisted',
+          },
+        }),
+      });
+    });
+
+    it('drops every field outside the allowlist — e.g. receipt_email, shipping, charges[].billing_details — from the stored payload', async () => {
+      const event = anEvent();
+      const object = event.data.object as unknown as Record<string, unknown>;
+      object.receipt_email = 'buyer@example.com';
+      object.shipping = { address: { line1: 'private street' } };
+      object.charges = [{ billing_details: { email: 'buyer@example.com' } }];
+      h.stripe.constructWebhookEvent.mockReturnValue(event);
+
+      await h.service.receive(rawBodyOf(event), aSignatureHeader);
+
+      expect(h.prisma.webhookEvent.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          payload: {
+            eventId: event.id,
+            eventType: event.type,
+            objectId: paymentIntentId,
+            orderId,
+          },
+        }),
+      });
+    });
+
+    it('stores a null orderId, not a missing key, when the object carries no metadata.orderId', async () => {
+      const event = anEvent({ metadata: { customer: 'cus_123' } });
+      h.stripe.constructWebhookEvent.mockReturnValue(event);
+
+      await h.service.receive(rawBodyOf(event), aSignatureHeader);
+
+      expect(h.prisma.webhookEvent.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          payload: expect.objectContaining({ orderId: null }),
+        }),
+      });
+    });
+
+    it('stores a null orderId for an event type whose object has no metadata property at all', async () => {
+      const event = anEvent({ type: 'charge.succeeded' });
+      delete (event.data.object as { metadata?: unknown }).metadata;
+      h.stripe.constructWebhookEvent.mockReturnValue(event);
+
+      await h.service.receive(rawBodyOf(event), aSignatureHeader);
+
+      expect(h.prisma.webhookEvent.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          payload: expect.objectContaining({ orderId: null }),
+        }),
+      });
+    });
   });
 
   describe('enqueuing the settlement', () => {
