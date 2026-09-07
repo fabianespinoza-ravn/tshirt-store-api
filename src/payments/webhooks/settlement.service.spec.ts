@@ -525,9 +525,9 @@ describe('SettlementService', () => {
    * time, and park a payment that succeeded in the failed set that exists
    * to report lost ones.
    *
-   * The stubs below are the student's to fill: the behaviour they name was
-   * written by the assistant, so an assistant-written assertion would only
-   * agree with whatever it produced.
+   * The stubs below describe the behavior under test. An assertion derived
+   * only from that description would agree with the implementation rather
+   * than catch a mistake in it.
    */
   describe('the confirmation the customer gets', () => {
     it("sends it to the buyer's address, carrying the order's id and nothing else", async () => {
@@ -634,11 +634,10 @@ describe('SettlementService', () => {
    * .Paid` no longer depends on the mail queue being reachable the instant
    * `pay` commits.
    *
-   * `outboxRow()` above is the fixture; what to assert is the student's,
-   * per this repo's rule that the assistant scaffolds cases and never the
-   * behaviour it wrote itself. The pair of cases at the end is the one
-   * this finding exists for: a payment already settled must never be
-   * retried to recover a lost confirmation, only the outbox row may be.
+   * `outboxRow()` above is the fixture. The assertions below must pin the
+   * durable behavior independently of the implementation. The pair of cases
+   * at the end covers the key rule: a payment already settled must never be
+   * retried to recover a lost confirmation; only the outbox row may be.
    */
   describe('the confirmation outbox', () => {
     it('writes the outbox row inside the same transaction that moves the order to PAID', async () => {

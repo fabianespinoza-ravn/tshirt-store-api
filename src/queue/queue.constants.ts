@@ -1,7 +1,7 @@
 import type { JobsOptions } from 'bullmq';
 
 /**
- * One queue per concern rather than one queue with four job names, so a
+ * One queue per concern rather than one queue with five job names, so a
  * settlement that keeps failing cannot hold up a verification email behind
  * it, and each gets its own worker concurrency.
  */
@@ -22,7 +22,7 @@ export enum JobName {
 }
 
 /**
- * Four jobs, four policies. Treating them alike is the mistake the week 4
+ * Five jobs, five policies. Treating them alike is the mistake the week 4
  * brief calls out, and the differences below are not stylistic: each answers
  * the review's question — *what happens to a job that fails twice?* — with a
  * different sentence.

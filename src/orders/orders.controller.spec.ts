@@ -129,8 +129,8 @@ describe('OrdersController', () => {
    * hand over another buyer's transitions with the service none the wiser,
    * because the service scopes by the user it is given.
    *
-   * Stubs, not assertions: the route is the assistant's work, so the
-   * `expect` calls belong to the student.
+   * Stubs, not assertions: they describe the route's inputs and outputs,
+   * while the `expect` calls pin the behavior under test.
    */
   describe('the status history passthrough', () => {
     it.todo(

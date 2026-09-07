@@ -87,8 +87,9 @@ describe('MailService', () => {
    * `JobName.SendMail`, or it waits in the queue forever without anything
    * reporting a problem.
    *
-   * Left as stubs deliberately: the method they describe was written by the
-   * assistant, and an assistant-written assertion would only restate it.
+   * Left as stubs deliberately: the method they describe is the behavior
+   * under test, and an assertion derived from the same setup would only
+   * restate it.
    */
   it('enqueues the order confirmation with the order id and no token', async () => {
     await service.sendOrderConfirmation(

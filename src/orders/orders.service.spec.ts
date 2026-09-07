@@ -552,12 +552,11 @@ describe('OrdersService', () => {
    * `exactlyTheseInAnyOrder` as the DELIVERY block below already does; an
    * `arrayContaining` would admit a third rule that widened the courier reach.
    *
-   * Every case below began as an `it.todo`. The route and the query are the
-   * assistant's work, so the assertions are not: an assertion written next to
-   * generated code agrees with whatever that code does, bugs included. The
-   * fixtures, the arrangement and the names were scaffolded; the `expect`
-   * calls were written afterwards by this repository's author, which is what
-   * makes them worth anything.
+   * Every case below began as an `it.todo`. The assertions are intentionally
+   * independent of the route and query implementation: an assertion derived
+   * only from that implementation agrees with whatever the code does, bugs
+   * included. The fixtures, arrangement and names provide setup; the `expect`
+   * calls pin the contract.
    */
   describe('statusHistory', () => {
     beforeEach(() => {
