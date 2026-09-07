@@ -121,13 +121,13 @@ enum Color {
 // ─── identity_and_access ────────────────────────────────────────────────────
 
 model User {
-  id              String     @id @db.Uuid
-  email           String     @db.VarChar
-  passwordHash    String?    @map("password_hash") @db.VarChar
-  role            UserRole   @default(CLIENT)
-  state           UserState  @default(ACTIVE)
-  emailVerifiedAt DateTime?  @map("email_verified_at") @db.Timestamptz
-  deletedAt       DateTime?  @map("deleted_at") @db.Timestamptz
+  id              String    @id @db.Uuid
+  email           String    @db.VarChar
+  passwordHash    String?   @map("password_hash") @db.VarChar
+  role            UserRole  @default(CLIENT)
+  state           UserState @default(ACTIVE)
+  emailVerifiedAt DateTime? @map("email_verified_at") @db.Timestamptz
+  deletedAt       DateTime? @map("deleted_at") @db.Timestamptz
   // Mirrors `email`, null instead of a value whenever `deletedAt` is set.
   // Postgres never treats two NULLs as a conflict in a unique index, so a
   // plain `@unique` on a nullable column excludes only one live row per
@@ -136,18 +136,18 @@ model User {
   // instead. No code path clears `deletedAt` today; the first one that does
   // must null this out in the same write, or a soft-deleted row keeps the
   // email address reserved forever.
-  liveEmail       String?    @unique(map: "uq_users_email_live") @map("live_email") @db.VarChar
-  createdAt       DateTime   @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt       DateTime   @updatedAt @map("updated_at") @db.Timestamptz
+  liveEmail       String?   @unique(map: "uq_users_email_live") @map("live_email") @db.VarChar
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz
 
-  refreshTokens          RefreshToken[]
-  passwordResetTokens    PasswordResetToken[]
+  refreshTokens           RefreshToken[]
+  passwordResetTokens     PasswordResetToken[]
   emailVerificationTokens EmailVerificationToken[]
-  carts                  Cart[]
-  productLikes           ProductLike[]
-  orders                 Order[]             @relation("OrderBuyer")
-  deliveries             Order[]             @relation("OrderDeliveredBy")
-  stockNotifications     StockNotification[]
+  carts                   Cart[]
+  productLikes            ProductLike[]
+  orders                  Order[]                  @relation("OrderBuyer")
+  deliveries              Order[]                  @relation("OrderDeliveredBy")
+  stockNotifications      StockNotification[]
 
   @@map("users")
 }
@@ -291,17 +291,17 @@ model Sku {
 // ─── cart_and_interaction ───────────────────────────────────────────────────
 
 model Cart {
-  id     String     @id @db.Uuid
-  userId String     @map("user_id") @db.Uuid
-  status CartStatus @default(ACTIVE)
+  id           String     @id @db.Uuid
+  userId       String     @map("user_id") @db.Uuid
+  status       CartStatus @default(ACTIVE)
   // Same nullable-column pattern as User.liveEmail, replacing
   // `uq_carts_user_active_partial`: mirrors `userId` while the cart is
   // ACTIVE, null once it is CHECKED_OUT, so a user has at most one active
   // cart. Every write that changes `status` must set this in the same
   // statement — checkout, when it lands, is the first one that will.
-  activeUserId String?  @unique(map: "uq_carts_user_active") @map("active_user_id") @db.Uuid
-  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  activeUserId String?    @unique(map: "uq_carts_user_active") @map("active_user_id") @db.Uuid
+  createdAt    DateTime   @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime   @updatedAt @map("updated_at") @db.Timestamptz
 
   user  User       @relation(fields: [userId], references: [id])
   items CartItem[]
@@ -363,10 +363,11 @@ model Order {
   user        User  @relation("OrderBuyer", fields: [userId], references: [id])
   deliveredBy User? @relation("OrderDeliveredBy", fields: [deliveredById], references: [id])
 
-  items         OrderItem[]
-  payments      Payment[]
-  statusHistory OrderStatusHistory[]
-  redemption    PromoCodeRedemption?
+  items              OrderItem[]
+  payments           Payment[]
+  statusHistory      OrderStatusHistory[]
+  redemption         PromoCodeRedemption?
+  confirmationOutbox OrderConfirmationOutbox?
 
   @@index([userId, createdAt, id], map: "idx_orders_user_created_id")
   @@index([status], map: "idx_orders_status")
@@ -506,4 +507,26 @@ model StockNotification {
 
   @@unique([userId, skuId, restockCycle], map: "uq_stock_notifications_user_sku_cycle")
   @@map("stock_notifications")
+}
+
+// The independent retry `SettlementService.pay` cannot give the confirmation
+// itself, because it must never fail the settlement job over a mail queue
+// outage. `SettlementService` writes this row in the same transaction that
+// moves the order to PAID, so the row survives whether or not the first send
+// attempt — made right after the commit — ever reaches the mail queue.
+// `OrderConfirmationOutboxService` drains rows still PENDING on its own
+// schedule, independent of that first attempt.
+model OrderConfirmationOutbox {
+  id        String             @id @db.Uuid
+  orderId   String             @unique(map: "uq_order_confirmation_outbox_order") @map("order_id") @db.Uuid
+  email     String             @db.VarChar
+  status    NotificationStatus @default(PENDING)
+  attempts  Int                @default(0)
+  sentAt    DateTime?          @map("sent_at") @db.Timestamptz
+  createdAt DateTime           @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime           @updatedAt @map("updated_at") @db.Timestamptz
+
+  order Order @relation(fields: [orderId], references: [id])
+
+  @@map("order_confirmation_outbox")
 }

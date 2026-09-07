@@ -7,8 +7,11 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { StockNotificationDispatcher } from './notifications/stock-notification.dispatcher';
 import { OrdersSweepService } from './orders/orders-sweep.service';
 import { PaymentsModule } from './payments/payments.module';
+import { OrderConfirmationOutboxService } from './payments/webhooks/order-confirmation-outbox.service';
 import { SettlementService } from './payments/webhooks/settlement.service';
 import { PrismaModule } from './prisma/prisma.module';
+import { ConfirmationOutboxScheduler } from './queue/confirmation-outbox.scheduler';
+import { ConfirmationOutboxProcessor } from './queue/processors/confirmation-outbox.processor';
 import { MailProcessor } from './queue/processors/mail.processor';
 import { MaintenanceProcessor } from './queue/processors/maintenance.processor';
 import { SettlementProcessor } from './queue/processors/settlement.processor';
@@ -59,6 +62,9 @@ import { StorageModule } from './storage/storage.module';
     SettlementProcessor,
     StockNotificationDispatcher,
     StockNotificationProcessor,
+    OrderConfirmationOutboxService,
+    ConfirmationOutboxProcessor,
+    ConfirmationOutboxScheduler,
   ],
 })
 export class WorkerModule {}

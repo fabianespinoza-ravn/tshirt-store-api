@@ -1,5 +1,6 @@
 import { Logger } from '@nestjs/common';
 import {
+  NotificationStatus,
   OrderStatus,
   PaymentMethod,
   PaymentStatus,
@@ -60,6 +61,23 @@ export const aSettlementJob = (
 });
 
 /**
+ * The row `pay` writes inside its own transaction, for the confirmation
+ * `OrderConfirmationOutboxService` retries independently of this job. Only
+ * its id is read back in `settlement.service.ts`, but the shape is spelled
+ * out here so a test can assert what the row was created with.
+ */
+export const outboxRow = (overrides: { id?: string } = {}) => ({
+  id: overrides.id ?? '018f3b6f-0000-7000-8000-000000000099',
+  orderId: aSettlementJob().orderId,
+  email: buyer.email,
+  status: NotificationStatus.PENDING,
+  attempts: 0,
+  sentAt: null,
+  createdAt: new Date('2026-09-01T00:00:00.000Z'),
+  updatedAt: new Date('2026-09-01T00:00:00.000Z'),
+});
+
+/**
  * The one file in this block where a missing assertion costs money, and the
  * cases are named accordingly.
  *
@@ -104,6 +122,11 @@ describe('SettlementService', () => {
     h.prisma.payment.updateMany.mockResolvedValue({ count: 1 });
     h.prisma.webhookEvent.updateMany.mockResolvedValue({ count: 1 });
     h.prisma.orderStatusHistory.count.mockResolvedValue(1);
+    // `pay` reads this row's id back to mark it SENT after the confirmation
+    // is actually enqueued; without a fixture here every PENDING case would
+    // have to supply one just to keep `confirm` from being handed
+    // `undefined`.
+    h.prisma.orderConfirmationOutbox.create.mockResolvedValue(outboxRow());
     h.stripe.refundPaymentIntent.mockResolvedValue('re_refunded_by_the_suite');
   });
 
@@ -604,5 +627,42 @@ describe('SettlementService', () => {
       );
       expect(h.mail.sendOrderConfirmation).not.toHaveBeenCalled();
     });
+  });
+
+  /**
+   * The durable half of the confirmation, and the reason `SettlementOutcome
+   * .Paid` no longer depends on the mail queue being reachable the instant
+   * `pay` commits.
+   *
+   * `outboxRow()` above is the fixture; what to assert is the student's,
+   * per this repo's rule that the assistant scaffolds cases and never the
+   * behaviour it wrote itself. The pair of cases at the end is the one
+   * this finding exists for: a payment already settled must never be
+   * retried to recover a lost confirmation, only the outbox row may be.
+   */
+  describe('the confirmation outbox', () => {
+    it.todo(
+      'writes the outbox row inside the same transaction that moves the order to PAID',
+    );
+    it.todo(
+      "creates the outbox row with the order's id and the buyer's email, and nothing else",
+    );
+    it.todo('creates no outbox row when the PENDING update moved no row');
+    it.todo(
+      'creates no outbox row for an order that is CANCELLED and refunded',
+    );
+    it.todo('creates no outbox row for a delivery already settled');
+    it.todo(
+      'marks the outbox row SENT, with a sentAt, only after the confirmation was actually enqueued',
+    );
+    it.todo(
+      'leaves the outbox row PENDING when the confirmation enqueue rejects, so the drain can retry it',
+    );
+    it.todo(
+      'leaves the outbox row PENDING when marking it SENT fails, even though the mail was already enqueued',
+    );
+    it.todo(
+      'never re-settles a PAID order to retry a lost confirmation — settle() is not how the outbox gets drained',
+    );
   });
 });

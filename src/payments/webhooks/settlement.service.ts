@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import {
+  NotificationStatus,
   OrderStatus,
   PaymentMethod,
   PaymentStatus,
@@ -173,14 +174,24 @@ export class SettlementService {
         await consumeReservations(tx, order.items);
         await recordStatus(tx, order.id, OrderStatus.PAID);
         await this.recordCharge(tx, order, data, {});
+        // The durable half of the confirmation, committed alongside the
+        // order it confirms. `confirm` below still makes the first attempt
+        // right after the commit, but a queue outage there is no longer the
+        // end of it: this row is what `OrderConfirmationOutboxService`
+        // rereads on its own schedule, so the retry does not depend on the
+        // process that settled this job still being the one that tries
+        // again.
+        const outbox = await tx.orderConfirmationOutbox.create({
+          data: { id: newId(), orderId: order.id, email: order.user.email },
+        });
         await this.markProcessed(tx, data, now);
 
-        return true;
+        return outbox.id;
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
 
-    if (!settled) {
+    if (settled === false) {
       throw new Error(
         `Order ${order.id} stopped being ${OrderStatus.PENDING} while Stripe event ${data.stripeEventId} was settling it; nothing was written and the job must run again.`,
       );
@@ -193,7 +204,7 @@ export class SettlementService {
     // transaction survives a rollback — BullMQ writes to Redis, which knows
     // nothing about Postgres — so a rolled-back settlement would still tell
     // the customer their order was paid.
-    await this.confirm(order);
+    await this.confirm(order, settled);
 
     return SettlementOutcome.Paid;
   }
@@ -223,19 +234,50 @@ export class SettlementService {
    * enqueued has no way to be verified, and failing the request is more
    * honest than a 201 that promises a message nobody will send.
    *
-   * The log line is the only artefact either way — `MAIL_JOB_OPTIONS` keeps
-   * neither completed nor failed jobs — so it names the order and never the
-   * payload. The recipient is a customer's address; `MailProcessor` is the
-   * one place with a reason to write one down, and it has already made that
-   * argument for itself.
+   * **A refused enqueue no longer ends here.** `outboxId` names the row
+   * `pay` committed alongside the order, still PENDING until this method
+   * marks it SENT. If `sendOrderConfirmation` rejects, the row is left
+   * exactly as it was — nothing to mark, nothing to undo — and
+   * `OrderConfirmationOutboxService.drain` retries it independently of
+   * this call, this job and this process. A retry that reaches the mark
+   * below and fails only leaves a confirmation that was actually sent
+   * looking unconfirmed, which the drain's own `status: PENDING` guard
+   * turns into a harmless second send rather than a lost one.
+   *
+   * The log line is the only artefact either way `MailProcessor`'s and the
+   * outbox row's own status do not already carry — so it names the order
+   * and never the payload. The recipient is a customer's address;
+   * `MailProcessor` is the one place with a reason to write one down, and
+   * it has already made that argument for itself.
    */
-  private async confirm(order: SettleableOrder): Promise<void> {
+  private async confirm(
+    order: SettleableOrder,
+    outboxId: string,
+  ): Promise<void> {
     try {
       await this.mail.sendOrderConfirmation(order.user.email, order.id);
-      this.logger.log(`Queued the confirmation for order ${order.id}.`);
     } catch (error) {
       this.logger.error(
         `Could not enqueue the confirmation for order ${order.id}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      return;
+    }
+
+    try {
+      await this.prisma.orderConfirmationOutbox.updateMany({
+        where: { id: outboxId, status: NotificationStatus.PENDING },
+        data: { status: NotificationStatus.SENT, sentAt: new Date() },
+      });
+      this.logger.log(`Queued the confirmation for order ${order.id}.`);
+    } catch (error) {
+      // The mail job is already enqueued; only the outbox's own bookkeeping
+      // failed. Left PENDING, the drain resends a confirmation that already
+      // went out — a duplicate email, not a lost one — rather than this
+      // method throwing over a write the settlement itself no longer needs.
+      this.logger.error(
+        `Enqueued the confirmation for order ${order.id} but could not mark the outbox row sent: ${
           error instanceof Error ? error.message : String(error)
         }`,
       );
