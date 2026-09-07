@@ -22,7 +22,7 @@ import {
 } from '@casl/prisma';
 import type { AuthenticatedUser } from '../../common/decorators/current-user.decorator';
 
-export type AppAction = 'create' | 'read' | 'update' | 'delete';
+export type AppAction = 'create' | 'read' | 'update' | 'delete' | 'validate';
 
 /** Static names that can appear in @CheckPolicies. */
 export type AppSubjectName =
@@ -63,6 +63,7 @@ export class AppAbilityFactory {
       can(['create', 'delete'], 'ProductImage');
       can(['create', 'update'], 'Sku');
       can(['read', 'update'], 'Order');
+      can(['create', 'read', 'update'], 'PromoCode');
     }
 
     // The CLIENT rules for the cart and the like, from
@@ -109,6 +110,7 @@ export class AppAbilityFactory {
       can(['create', 'delete'], 'ProductLike', { userId: user.id });
       can('create', 'Order');
       can(['read', 'update'], 'Order', { userId: user.id });
+      can('validate', 'PromoCode');
     }
 
     // ─── Extension point: the DELIVERY rules ────────────────────────────

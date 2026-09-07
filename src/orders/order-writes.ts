@@ -1,5 +1,6 @@
 import { newId } from '../common/ids';
 import type { OrderStatus, Prisma } from '@prisma/client';
+import { releasePromoCodeReservation } from '../promo-codes/promo-code-writes';
 
 /**
  * The two writes that follow an order leaving a status, shared by the two
@@ -14,15 +15,16 @@ import type { OrderStatus, Prisma } from '@prisma/client';
  */
 
 /**
- * Gives an order's units back to the shelf.
+ * Gives an order's units back to the shelf and returns its promo-code hold.
  *
  * The caller decides *whether* to call this; getting that wrong is how the
- * same units are returned twice. Only whoever actually moved the order out
- * of the status that held them owns them.
+ * same units or promo use are returned twice. Only whoever actually
+ * moved the order out of the status that held them owns them.
  */
 export async function releaseReservations(
   tx: Prisma.TransactionClient,
   items: readonly { skuId: string; quantity: number }[],
+  redemption?: { promoCodeId: string } | null,
 ): Promise<void> {
   for (const item of items) {
     await tx.sku.update({
@@ -30,6 +32,8 @@ export async function releaseReservations(
       data: { reserved: { decrement: item.quantity } },
     });
   }
+
+  await releasePromoCodeReservation(tx, redemption ?? null);
 }
 
 /**

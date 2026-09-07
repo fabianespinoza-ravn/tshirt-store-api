@@ -31,6 +31,8 @@ export interface OrderView {
   items: OrderItemView[];
   subtotal: number;
   discount: number;
+  /** The immutable code captured at checkout, or null when none was used. */
+  promoCode: string | null;
   total: number;
   shippingAddress: ShippingAddressView;
   /**
@@ -69,6 +71,7 @@ export const ORDER_INCLUDE = {
     select: { method: true, status: true, createdAt: true },
     orderBy: { createdAt: 'desc' },
   },
+  redemption: { select: { promoCodeId: true, codeSnapshot: true } },
 } satisfies Prisma.OrderInclude;
 
 export type OrderRow = Prisma.OrderGetPayload<{
@@ -93,6 +96,7 @@ export function toOrder(order: OrderRow): OrderView {
     items: order.items.map(toOrderItem),
     subtotal: order.subtotal,
     discount: order.orderDiscountAmount,
+    promoCode: order.redemption?.codeSnapshot ?? null,
     total: order.total,
     shippingAddress: {
       recipientName: order.recipientName,

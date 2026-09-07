@@ -5,7 +5,11 @@ import { OrderStatus, Payment } from '@prisma/client';
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
 
 import { buildService, type ServiceHarness } from '../testing/build-service';
-import { anOrder, anOrderItem } from '../testing/factories';
+import {
+  anOrder,
+  anOrderItem,
+  aPromoCodeRedemption,
+} from '../testing/factories';
 import { resetPrismaMock } from '../testing/prisma.mock';
 import { OrdersSweepService, SWEEP_BATCH_SIZE } from './orders-sweep.service';
 import { deferred, flushMicrotasks } from '../testing/deferred';
@@ -95,6 +99,7 @@ describe('OrdersSweepService', () => {
     function expiredOrder(
       id: string,
       items = [anOrderItem(`${id}-item`, `${id}-sku`, { quantity: 3 })],
+      redemption: ReturnType<typeof aPromoCodeRedemption> | null = null,
     ) {
       return {
         ...anOrder('user-1', {
@@ -110,6 +115,7 @@ describe('OrdersSweepService', () => {
           expiresAt: new Date('2026-09-04T11:00:00.000Z'),
         }),
         items,
+        redemption,
       };
     }
 
@@ -189,6 +195,19 @@ describe('OrdersSweepService', () => {
       expect(h.prisma.sku.update).toHaveBeenNthCalledWith(2, {
         where: { id: 'sku-2' },
         data: { reserved: { decrement: 2 } },
+      });
+    });
+
+    it('returns a cancelled order promo use to the available cap', async () => {
+      const redemption = aPromoCodeRedemption('order-1', 'promo-1');
+      arrangeSweep([expiredOrder('order-1', undefined, redemption)]);
+      h.prisma.promoCode.updateMany.mockResolvedValue({ count: 1 });
+
+      await h.service.sweep(now);
+
+      expect(h.prisma.promoCode.updateMany).toHaveBeenCalledWith({
+        where: { id: 'promo-1', usageReserved: { gt: 0 } },
+        data: { usageReserved: { decrement: 1 } },
       });
     });
 
