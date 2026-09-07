@@ -109,9 +109,6 @@ export class SettlementService {
       // method. Answering `Ignored` keeps the job out of the failed set,
       // and the log line is what says the gap exists.
       this.logger.warn(
-        // `String` because the enum has a single member today, so the
-        // narrowing above leaves the type as `never` and a template literal
-        // refuses it. A second member removes the need for this.
         `Nothing settles ${String(data.eventType)}; Stripe event ${data.stripeEventId} was left recorded and unhandled.`,
       );
       return SettlementOutcome.Ignored;

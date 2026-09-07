@@ -50,7 +50,7 @@ sequence diagrams for every flow live in [`docs/flows/`](docs/flows/).
 | Orders, payments | Checkout, order status history and Stripe webhook settlement |
 | Promotions | Manager creation/list/update, client cart validation, checkout reservation and payment settlement |
 
-Unit tests: **53 suites, 745 tests**, with no pending `todo` cases.
+Unit tests: **60 suites, 861 tests**, with no pending `todo` cases.
 
 ## Requirements
 

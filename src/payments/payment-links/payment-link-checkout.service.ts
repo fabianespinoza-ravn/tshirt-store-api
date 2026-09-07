@@ -391,11 +391,9 @@ export class PaymentLinkCheckoutService {
       // order, its single line, and a `Payment` row carrying the checkout
       // session and the payment intent.
       //
-      // The other half of the answer is not here at all. A link should stop
-      // taking money when its SKU sells out or its product is withdrawn, and
-      // nothing deactivates one today — see the extension point at the foot
-      // of `payment-links.service.ts`, which owns that call. Refusing the
-      // sale is damage control; not offering it is the fix.
+      // Catalogue mutations deactivate known stale links locally and at
+      // Stripe. This branch still protects the race where a purchase lands
+      // before that best-effort cleanup completes, or Stripe refuses it.
       // ──────────────────────────────────────────────────────────────────
       this.logger.error(
         `Order ${orderId} was paid through payment link ${link.id} but could not be fulfilled from SKU ${link.skuId}; it owes a refund.`,

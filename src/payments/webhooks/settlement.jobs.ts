@@ -56,22 +56,14 @@ export type SettlementJobData =
  * and three copies of `'payment_intent.succeeded'` is three chances for one
  * of them to be misspelled into a silence nobody notices.
  *
- * Only one member today, and the two obvious absences are deliberate.
- *
  * `payment_intent.payment_failed` is not here because nothing in the current
  * flow acts on it: the order simply stays PENDING until the sweep reclaims
  * it, and an event type listed here is a promise that a job will be created
  * for it.
  *
- * **`checkout.session.completed` is the payment-link seam.** A link purchase
- * arrives as that event and settles differently — there is no cart, possibly
- * no account, and the order is created by the handler rather than moved by
- * it. Adding the member here is the whole of the producer's side of that
- * wiring; the worker then needs a branch in `SettlementService.settle` that
- * calls the payment-link handler instead of `pay`, and the payload above
- * needs the session id, which the intent id cannot stand in for. Until both
- * exist, such an event is recorded in `webhook_events` and enqueued for
- * nothing, which is the honest state rather than a job with no consumer.
+ * Checkout completion and asynchronous payment success are the Payment Link
+ * path. Their jobs carry the Checkout Session id, and the worker retrieves
+ * the full event from Stripe before delegating to the link handler.
  */
 export enum SettlementEventType {
   PaymentIntentSucceeded = 'payment_intent.succeeded',

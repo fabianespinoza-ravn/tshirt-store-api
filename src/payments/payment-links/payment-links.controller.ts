@@ -28,11 +28,11 @@ import type { PaymentLinkView } from './payment-links.views';
 export class PaymentLinksController {
   constructor(private readonly links: PaymentLinksService) {}
 
-  // ─── Extension point: the MANAGER rule for PaymentLink ──────────────────
+  // ─── Authorization: the MANAGER rule for PaymentLink ───────────────────
   //
   // `PaymentLink` is already a declared subject in
-  // `auth/casl/app-ability.factory.ts` and carries no rule, so this route
-  // answers **403 to everyone, a manager included**, until one is written.
+  // `auth/casl/app-ability.factory.ts` and carries a manager-only create rule,
+  // so this route answers 201 to a manager and 403 to every other role.
   // That is `PoliciesGuard` doing its job — a protected route the ability
   // grants nothing for is denied — and not a bug in this module.
   //
@@ -51,9 +51,7 @@ export class PaymentLinksController {
   // dropped condition could not be a leak — there is nothing to drop — which
   // is the opposite of the cart and order rules the same file warns about.
   //
-  // Writing the rule is the student's, per CLAUDE.md. What is written here
-  // is the requirement it has to satisfy, and the route that proves it: with
-  // no rule the response is 403, with the rule it is 201.
+  // The route and its e2e coverage prove the rule at the HTTP boundary.
   // ────────────────────────────────────────────────────────────────────────
   @CheckPolicies({ action: 'create', subject: 'PaymentLink' })
   @ApiOperation({ summary: 'Create a Stripe Payment Link for one SKU' })
