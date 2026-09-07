@@ -166,9 +166,10 @@ request — the refusal list exists because of that. Schema changes still expand
 and contract — the compatible change ships first, the old shape is dropped in a
 later release — because a rollback is just redeploying the previous tag from
 the registry, and there is no migration history to roll back through either way.
-The one exception is this repository's first schema change, `live_email` and
-`live_user_id`: it shipped in a single release together with the code that reads
-it, because nothing had been deployed yet — `render.yaml` and the `Dockerfile`
+The one exception is this repository's pre-deployment schema, including
+`live_email`, `live_user_id` and `live_code`: it ships in a single release
+together with the code that reads it, because nothing has been deployed yet —
+`render.yaml` and the `Dockerfile`
 it builds describe a topology nothing is running, no image exists in a registry,
 and so there was no window in which an old instance and a new one serve traffic
 at once. Expand-then-contract applies

@@ -15,8 +15,8 @@
 // partial-unique invariant is expressed as a nullable column plus a plain
 // @@unique instead of raw SQL; see User.liveEmail,
 // EmailVerificationToken.liveUserId and Cart.activeUserId for the pattern.
-// The same pattern still needs applying to PaymentLink, Payment and
-// PromoCode once each has service code, and to the order sweep's partial
+// The same pattern still needs applying to PaymentLink and Payment once each
+// has service code, and to the order sweep's partial
 // index alongside Order —
 // a CHECK constraint, meanwhile, has no schema.prisma equivalent at all and
 // moves to application-level validation instead.
@@ -459,6 +459,11 @@ model OrderStatusHistory {
 model PromoCode {
   id                    String       @id @db.Uuid
   code                  String       @db.VarChar
+  // Mirrors `code`, null instead of a value whenever `deletedAt` is set.
+  // This expresses the live-code partial unique invariant with a nullable
+  // column Prisma can manage. Any future soft-delete write must clear both
+  // fields in the same statement.
+  liveCode              String?      @unique(map: "uq_promo_codes_code_live") @map("live_code") @db.VarChar
   type                  DiscountType
   discountValue         Int          @map("discount_value")
   minimumPurchaseAmount Int?         @map("minimum_purchase_amount")
@@ -473,7 +478,6 @@ model PromoCode {
 
   redemptions PromoCodeRedemption[]
 
-  // uq_promo_codes_code_live_partial: UNIQUE (code) WHERE deleted_at IS NULL → pending, see the header
   @@map("promo_codes")
 }
 

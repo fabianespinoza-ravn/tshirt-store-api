@@ -1,10 +1,9 @@
 /**
- * One-time data backfill, not a recurring schema constraint: `prisma db
- * push` adds `live_email` and `live_user_id` as plain nullable columns with
- * no default, so every pre-existing row gets them as NULL. Without this,
- * `findLiveByEmail` and the token lookups in `auth.service.ts` — which now
- * query exclusively by the new columns — cannot find any account or token
- * that existed before this deploy.
+ * One-time data backfill, not a recurring schema constraint: schema sync adds
+ * `live_email`, `live_user_id` and `live_code` as plain nullable columns with
+ * no default, so every pre-existing row gets them as NULL. Without this, live
+ * users, tokens and promo codes that existed before the deploy cannot be found
+ * through their new unique lookup columns.
  *
  * Idempotent and safe to run every time: each statement only fills a NULL
  * slot that its own condition says should hold a value, so re-running it
@@ -32,9 +31,15 @@ async function main(): Promise<void> {
       SET live_user_id = user_id
       WHERE consumed_at IS NULL AND live_user_id IS NULL
     `;
+    const promoCodes = await prisma.$executeRaw`
+      UPDATE promo_codes
+      SET live_code = CASE WHEN deleted_at IS NULL THEN code ELSE NULL END
+      WHERE live_code IS DISTINCT FROM
+        CASE WHEN deleted_at IS NULL THEN code ELSE NULL END
+    `;
 
     console.log(
-      `Backfilled live_email on ${users} user(s) and live_user_id on ${tokens} token(s).`,
+      `Backfilled live_email on ${users} user(s), live_user_id on ${tokens} token(s) and live_code on ${promoCodes} promo code(s).`,
     );
   } finally {
     await prisma.$disconnect();

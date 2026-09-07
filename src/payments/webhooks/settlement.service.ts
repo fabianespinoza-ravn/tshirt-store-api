@@ -9,6 +9,7 @@ import {
 import { newId } from '../../common/ids';
 import { MailService } from '../../mail/mail.service';
 import { recordStatus } from '../../orders/order-writes';
+import { consumePromoCodeReservation } from '../../promo-codes/promo-code-writes';
 import { PrismaService } from '../../prisma/prisma.service';
 import { StripeService } from '../stripe.service';
 import { SettlementEventType, type SettlementJobData } from './settlement.jobs';
@@ -38,7 +39,7 @@ export enum SettlementOutcome {
  */
 type SettleableOrder = Prisma.OrderGetPayload<{
   include: { items: true; user: { select: { email: true } } };
-}>;
+}> & { redemption?: { promoCodeId: string } | null };
 
 /**
  * The half of the payment flow the webhook route deliberately does not do.
@@ -94,7 +95,11 @@ export class SettlementService {
 
     const order = await this.prisma.order.findUnique({
       where: { id: data.orderId },
-      include: { items: true, user: { select: { email: true } } },
+      include: {
+        items: true,
+        user: { select: { email: true } },
+        redemption: { select: { promoCodeId: true } },
+      },
     });
 
     if (!order) {
@@ -172,6 +177,7 @@ export class SettlementService {
         if (moved.count === 0) return false;
 
         await consumeReservations(tx, order.items);
+        await consumePromoCodeReservation(tx, order.redemption ?? null);
         await recordStatus(tx, order.id, OrderStatus.PAID);
         await this.recordCharge(tx, order, data, {});
         // The durable half of the confirmation, committed alongside the
@@ -422,8 +428,8 @@ export class SettlementService {
 }
 
 /**
- * Spends an order's reservation: the units leave `reserved` and leave
- * `stock` in the same statement.
+ * Spends an order's reservations: units leave `reserved` and `stock` in the
+ * same statement, and a promo use moves from reserved to settled.
  *
  * The mirror of `releaseReservations` in `src/orders/order-writes.ts`, and
  * the same warning applies twice over — only the writer that actually moved

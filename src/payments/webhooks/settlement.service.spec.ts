@@ -153,6 +153,23 @@ describe('SettlementService', () => {
         status: OrderStatus.PENDING,
       });
     });
+    it('converts the order promo reservation into a settled use', async () => {
+      h.prisma.order.findUnique.mockResolvedValue({
+        ...aSettleableOrder({ id: aSettlementJob().orderId }),
+        redemption: { promoCodeId: 'promo-1' },
+      } as never);
+      h.prisma.promoCode.updateMany.mockResolvedValue({ count: 1 });
+
+      await h.service.settle(aSettlementJob());
+
+      expect(h.prisma.promoCode.updateMany).toHaveBeenCalledWith({
+        where: { id: 'promo-1', usageReserved: { gt: 0 } },
+        data: {
+          usageReserved: { decrement: 1 },
+          usageCount: { increment: 1 },
+        },
+      });
+    });
     it('writes nothing else when that update moved no row', async () => {
       h.prisma.order.updateMany.mockResolvedValue({ count: 0 });
 

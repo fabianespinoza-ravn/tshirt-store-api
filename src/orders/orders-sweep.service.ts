@@ -116,7 +116,7 @@ export class OrdersSweepService {
         status: OrderStatus.PENDING,
         expiresAt: { not: null, lte: now },
       },
-      include: { items: true },
+      include: { items: true, redemption: true },
       // Oldest first, so a backlog drains in the order it built up rather
       // than starving whatever happened to expire earliest.
       orderBy: { expiresAt: 'asc' },
@@ -160,7 +160,7 @@ export class OrdersSweepService {
 
             if (moved.count === 0) return false;
 
-            await releaseReservations(tx, order.items);
+            await releaseReservations(tx, order.items, order.redemption);
             await recordStatus(tx, order.id, OrderStatus.CANCELLED);
             return true;
           },
