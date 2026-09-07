@@ -18,6 +18,7 @@ describe('AppAbilityFactory', () => {
     expect(ability.can('update', 'Product')).toBe(true);
     expect(ability.can('delete', 'ProductImage')).toBe(true);
     expect(ability.can('create', 'Sku')).toBe(true);
+    expect(ability.can('create', 'PaymentLink')).toBe(true);
     expect(ability.can('read', 'Cart')).toBe(false);
     expect(ability.can('create', 'Order')).toBe(false);
     expect(ability.can('update', 'ProductLike')).toBe(false);
@@ -33,6 +34,7 @@ describe('AppAbilityFactory', () => {
     expect(ability.can('create', 'Category')).toBe(false);
     expect(ability.can('update', 'Product')).toBe(false);
     expect(ability.can('delete', 'Sku')).toBe(false);
+    expect(ability.can('create', 'PaymentLink')).toBe(false);
   });
 
   /**
@@ -96,6 +98,7 @@ describe('AppAbilityFactory', () => {
       expect(ability.can('update', 'Product')).toBe(false);
       expect(ability.can('create', 'Sku')).toBe(false);
       expect(ability.can('delete', 'ProductImage')).toBe(false);
+      expect(ability.can('create', 'PaymentLink')).toBe(false);
     });
 
     it('builds the conditional read scope for shipped and own delivered orders', () => {
@@ -142,6 +145,7 @@ describe('AppAbilityFactory', () => {
       const ability = factory.createForUser(undefined);
 
       expect(ability.can('read', 'Order')).toBe(false);
+      expect(ability.can('create', 'PaymentLink')).toBe(false);
       expect(accessibleBy(ability, 'read').ofType('Order')).toEqual({ OR: [] });
     });
   });
