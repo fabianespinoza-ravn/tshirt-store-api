@@ -23,7 +23,12 @@ import {
   aProduct,
   aSku,
 } from '../testing/factories';
-import { arrangeStatusHistory } from '../testing/order-history.fixtures';
+import {
+  arrangeStatusHistory,
+  HISTORY_ORDER_ID,
+  RECORDED_TRANSITIONS,
+  SHUFFLED_TRANSITIONS,
+} from '../testing/order-history.fixtures';
 import { resetPrismaMock } from '../testing/prisma.mock';
 import { OrdersService } from './orders.service';
 import { exactlyTheseInAnyOrder } from '../testing/matchers';
@@ -547,64 +552,183 @@ describe('OrdersService', () => {
    * `exactlyTheseInAnyOrder` as the DELIVERY block below already does; an
    * `arrayContaining` would admit a third rule that widened the courier reach.
    *
-   * Every case below is an `it.todo`. The route and the query are the
+   * Every case below began as an `it.todo`. The route and the query are the
    * assistant's work, so the assertions are not: an assertion written next to
    * generated code agrees with whatever that code does, bugs included. The
-   * fixtures, the arrangement and the names are here; the `expect` calls are
-   * the student's, and this block is not done until they replace the stubs.
+   * fixtures, the arrangement and the names were scaffolded; the `expect`
+   * calls were written afterwards by this repository's author, which is what
+   * makes them worth anything.
    */
   describe('statusHistory', () => {
     beforeEach(() => {
       arrangeStatusHistory(h.prisma);
     });
 
-    it.todo(
-      "folds the read scope into the where, so a client cannot reach another client's history",
-    );
+    it("folds the read scope into the where, so a client cannot reach another client's history", async () => {
+      await h.service.statusHistory(client, HISTORY_ORDER_ID);
 
-    it.todo('sends the same where as getOne for the same caller and order id');
+      expect(h.prisma.order.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            AND: [{ OR: [{ userId: client.id }] }, { id: HISTORY_ORDER_ID }],
+          },
+        }),
+      );
+    });
 
-    it.todo(
-      'asks for the entries ordered by sequence ascending, not by their timestamp',
-    );
+    it('sends the same where as getOne for the same caller and order id', async () => {
+      const order = { ...anOrder(client.id), items: [], payments: [] };
+      h.prisma.order.findFirst
+        .mockResolvedValueOnce(order)
+        .mockResolvedValueOnce({ statusHistory: [] } as never);
 
-    it.todo(
-      'selects only status, sequence and createdAt, so a column added to the history row later is not published',
-    );
+      await h.service.getOne(client, HISTORY_ORDER_ID);
+      await h.service.statusHistory(client, HISTORY_ORDER_ID);
 
-    it.todo(
-      'reads the history through the order in a single query, never through orderStatusHistory.findMany',
-    );
+      expect(h.prisma.order.findFirst.mock.calls[1]?.[0]?.where).toEqual(
+        h.prisma.order.findFirst.mock.calls[0]?.[0]?.where,
+      );
+    });
 
-    it.todo('answers 404 and not 403 for an order outside the caller scope');
+    it('asks for the entries ordered by sequence ascending, not by their timestamp', async () => {
+      arrangeStatusHistory(h.prisma, { transitions: SHUFFLED_TRANSITIONS });
 
-    it.todo(
-      'answers 404 with the same problem for an order that does not exist, so the route is not an identifier oracle',
-    );
+      await h.service.statusHistory(client, HISTORY_ORDER_ID);
 
-    it.todo(
-      'returns an empty list for a reachable order that has recorded no transitions',
-    );
+      expect(h.prisma.order.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          select: {
+            statusHistory: expect.objectContaining({
+              orderBy: { sequence: 'asc' },
+            }),
+          },
+        }),
+      );
+    });
 
-    it.todo('serializes each entry occurredAt as an ISO 8601 string');
+    it('selects only status, sequence and createdAt, so a column added to the history row later is not published', async () => {
+      await h.service.statusHistory(client, HISTORY_ORDER_ID);
 
-    it.todo(
-      'publishes the sequence on every entry, so a client can order them without trusting the array',
-    );
+      expect(h.prisma.order.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          select: {
+            statusHistory: {
+              select: {
+                status: true,
+                sequence: true,
+                createdAt: true,
+              },
+              orderBy: { sequence: 'asc' },
+            },
+          },
+        }),
+      );
+    });
 
-    it.todo(
-      'publishes neither the history row id nor the courier who completed the delivery',
-    );
+    it('reads the history through the order in a single query, never through orderStatusHistory.findMany', async () => {
+      await h.service.statusHistory(client, HISTORY_ORDER_ID);
 
-    it.todo(
-      'sends the manager scope, which is unconditional, for a manager reading any order',
-    );
+      expect(h.prisma.order.findFirst).toHaveBeenCalledTimes(1);
+      expect(h.prisma.orderStatusHistory.findMany).not.toHaveBeenCalled();
+    });
 
-    it.todo('sends the shipped-plus-own-deliveries scope for a courier');
+    it('answers 404 and not 403 for an order outside the caller scope', async () => {
+      arrangeStatusHistory(h.prisma, { reachable: false });
 
-    it.todo(
-      'sends a scope matching nothing for a role the ability grants no order rule',
-    );
+      await expect(
+        h.service.statusHistory(client, 'another-client-order'),
+      ).rejects.toMatchObject({ kind: Problems.notFound });
+    });
+
+    it('answers 404 with the same problem for an order that does not exist, so the route is not an identifier oracle', async () => {
+      arrangeStatusHistory(h.prisma, { reachable: false });
+
+      await expect(
+        h.service.statusHistory(client, 'missing-order'),
+      ).rejects.toMatchObject({ kind: Problems.notFound });
+    });
+
+    it('returns an empty list for a reachable order that has recorded no transitions', async () => {
+      arrangeStatusHistory(h.prisma, { transitions: [] });
+
+      await expect(
+        h.service.statusHistory(client, HISTORY_ORDER_ID),
+      ).resolves.toEqual([]);
+    });
+
+    it('serializes each entry occurredAt as an ISO 8601 string', async () => {
+      const result = await h.service.statusHistory(client, HISTORY_ORDER_ID);
+
+      expect(result.map((entry) => entry.occurredAt)).toEqual(
+        RECORDED_TRANSITIONS.map((entry) => entry.createdAt.toISOString()),
+      );
+    });
+
+    it('publishes the sequence on every entry, so a client can order them without trusting the array', async () => {
+      const result = await h.service.statusHistory(client, HISTORY_ORDER_ID);
+
+      expect(result.map((entry) => entry.sequence)).toEqual(
+        RECORDED_TRANSITIONS.map((entry) => entry.sequence),
+      );
+    });
+
+    it('publishes neither the history row id nor the courier who completed the delivery', async () => {
+      const result = await h.service.statusHistory(client, HISTORY_ORDER_ID);
+
+      expect(result).toEqual(
+        RECORDED_TRANSITIONS.map((entry) => ({
+          status: entry.status,
+          sequence: entry.sequence,
+          occurredAt: entry.createdAt.toISOString(),
+        })),
+      );
+    });
+
+    it('sends the manager scope, which is unconditional, for a manager reading any order', async () => {
+      await h.service.statusHistory(manager, HISTORY_ORDER_ID);
+
+      expect(h.prisma.order.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { AND: [{}, { id: HISTORY_ORDER_ID }] },
+        }),
+      );
+    });
+
+    it('sends the shipped-plus-own-deliveries scope for a courier', async () => {
+      await h.service.statusHistory(delivery, HISTORY_ORDER_ID);
+
+      expect(h.prisma.order.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            AND: [
+              {
+                OR: exactlyTheseInAnyOrder([
+                  { status: OrderStatus.SHIPPED },
+                  { deliveredById: delivery.id },
+                ]),
+              },
+              { id: HISTORY_ORDER_ID },
+            ],
+          },
+        }),
+      );
+    });
+
+    it('sends a scope matching nothing for a role the ability grants no order rule', async () => {
+      const unsupported = {
+        id: 'unsupported-1',
+        email: 'unsupported@example.test',
+        role: 'UNSUPPORTED' as UserRole,
+      };
+
+      await h.service.statusHistory(unsupported, HISTORY_ORDER_ID);
+
+      expect(h.prisma.order.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { AND: [{ OR: [] }, { id: HISTORY_ORDER_ID }] },
+        }),
+      );
+    });
   });
 
   describe('updateStatus', () => {

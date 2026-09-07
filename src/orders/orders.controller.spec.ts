@@ -133,15 +133,43 @@ describe('OrdersController', () => {
    * `expect` calls belong to the student.
    */
   describe('the status history passthrough', () => {
-    it.todo(
-      'asks the service for the history of the path id, for the token caller',
-    );
+    it('asks the service for the history of the path id, for the token caller', async () => {
+      service.statusHistory.mockResolvedValue([]);
 
-    it.todo('returns the entries the service produced, untouched');
+      await controller.statusHistory(client, 'path-order-id');
 
-    it.todo(
-      'never derives the caller from the path, so a client id in the url reads nothing',
-    );
+      expect(service.statusHistory).toHaveBeenCalledWith(
+        client,
+        'path-order-id',
+      );
+    });
+
+    it('returns the entries the service produced, untouched', async () => {
+      const history = [
+        {
+          status: OrderStatus.PENDING,
+          sequence: 0,
+          occurredAt: '2026-01-10T09:00:00.000Z',
+        },
+      ];
+      service.statusHistory.mockResolvedValue(history);
+
+      await expect(
+        controller.statusHistory(client, 'path-order-id'),
+      ).resolves.toBe(history);
+    });
+
+    it('never derives the caller from the path, so a client id in the url reads nothing', async () => {
+      service.statusHistory.mockResolvedValue([]);
+
+      await controller.statusHistory(client, manager.id);
+
+      expect(service.statusHistory).toHaveBeenCalledWith(client, manager.id);
+      expect(service.statusHistory).not.toHaveBeenCalledWith(
+        manager,
+        manager.id,
+      );
+    });
   });
 
   /**
