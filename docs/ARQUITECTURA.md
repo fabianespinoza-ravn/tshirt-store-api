@@ -153,8 +153,9 @@ image and runs the same `preDeployCommand` inside it against a disposable
 PostgreSQL, then asserts the three things a deploy depends on — that the step
 applies the plan, that running it a second time finds nothing to do, and that a
 plan carrying a refused statement class fails loudly with nothing applied. The
-rest of CI reaches the same script through `ts-node` on the runner, which proves
-the logic but not the image. The pipeline never prompts and never passes
+only other job that reaches this script is `e2e`, whose global setup runs it
+through `ts-node` on the runner, which proves the logic but not the image;
+`verify` never runs it at all. The pipeline never prompts and never passes
 `--accept-data-loss`: `prisma db push` would stop to ask before adding a unique
 constraint to an existing table, and in a pipeline nobody answers. The
 "contract" half of a rollout is let through for a single deploy by setting

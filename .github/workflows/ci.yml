@@ -126,10 +126,13 @@ jobs:
       - name: End-to-end tests
         run: npm run test:e2e -- --ci
 
-  # The compiled pre-deploy path, run the way a deploy runs it. `verify` and
-  # `e2e` both reach `prisma/sync-schema.ts` through `prisma:sync`, which is
-  # `ts-node` on the runner with the repository checked out and every
-  # devDependency installed. `render.yaml` runs `prisma:sync:prod` instead:
+  # The compiled pre-deploy path, run the way a deploy runs it. `e2e` is the
+  # only job that reaches `prisma/sync-schema.ts` at all, and it does so
+  # through its global setup rather than a step: `test/support/global-setup.ts`
+  # shells out to `prisma:sync`, which is `ts-node` on the runner with the
+  # repository checked out and every devDependency installed. `verify` never
+  # runs it — `prisma:generate` is the whole of its Prisma work.
+  # `render.yaml` runs `prisma:sync:prod` instead:
   # plain `node` over `dist-deploy/`, inside the production image, where
   # ts-node is absent, the working directory is /app, only `prisma/schema.prisma`
   # was copied in and the Prisma CLI has to resolve out of the production
@@ -220,3 +223,20 @@ jobs:
           fi
           cat refusal.log
           grep -q 'the plan contains DROP COLUMN' refusal.log
+
+          # The message and the exit status are both things a refusal that
+          # checked *after* it applied would still produce, so neither one
+          # proves what the message claims. `sync-schema.ts` refuses before
+          # `prisma db execute` today; the assertion below is what would
+          # notice if that order were ever swapped, which is the only way
+          # this job earns the sentence above it. The column the step added
+          # is still there if, and only if, nothing was applied.
+          docker run --rm --network host --env PGPASSWORD=ci postgres:17-alpine \
+            psql --host localhost --username ci --dbname tshirt_store_sync \
+              --tuples-only --no-align --command \
+              "select count(*) from information_schema.columns
+                 where table_schema = 'public'
+                   and table_name = 'users'
+                   and column_name = 'prod_sync_smoke';" \
+            | tee column.log
+          grep -qx '1' column.log
