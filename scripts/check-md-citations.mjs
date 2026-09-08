@@ -7,12 +7,16 @@
 // the old file. Runs as part of `npm run lint:ci`.
 
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { basename } from 'node:path';
 
 const tracked = execFileSync('git', ['ls-files', '-z'], { encoding: 'utf8' })
   .split('\0')
-  .filter(Boolean);
+  .filter(Boolean)
+  // `git ls-files` includes tracked paths deleted in the worktree. Excluding
+  // them makes a reference to a deleted document dangling immediately and
+  // lets this check run while that deletion is still uncommitted.
+  .filter(existsSync);
 const trackedNames = new Set(tracked.map((file) => basename(file)));
 
 // A path-like token that ends in `.md`, once URLs are out of the way.

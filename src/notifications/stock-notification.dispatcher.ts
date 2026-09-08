@@ -157,9 +157,8 @@ export class StockNotificationDispatcher {
   /**
    * Liked the product, has not bought it, and can still be written to.
    *
-   * The like is per product and the crossing is per SKU, which is the
-   * fan-out finding 11 of docs/DESIGN-ATTACK.md describes — under this
-   * reading it does not bite, because a sale takes one variant across the
+   * The like is per product and the crossing is per SKU. Under this reading
+   * the fan-out remains bounded, because a sale takes one variant across the
    * threshold at a time rather than a restock taking all forty-eight at
    * once, and the message can therefore say *which* variant is running out.
    *

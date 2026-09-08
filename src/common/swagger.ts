@@ -1,5 +1,4 @@
 import { applyDecorators, type INestApplication } from '@nestjs/common';
-import type { ConfigService } from '@nestjs/config';
 import { ApiResponse, DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import type { ProblemKind } from './problem/problem.catalog';
 
@@ -34,7 +33,7 @@ export function ApiProblems(...kinds: ProblemKind[]) {
 // detail.
 const CONTRACT_VERSION = '1.0.3';
 
-export function setupSwagger(app: INestApplication, env: ConfigService): void {
+export function setupSwagger(app: INestApplication): void {
   const config = new DocumentBuilder()
     .setTitle('T-Shirt Store API')
     .setVersion(CONTRACT_VERSION)
@@ -43,13 +42,6 @@ export function setupSwagger(app: INestApplication, env: ConfigService): void {
         'camelCase fields, UUID identifiers. Monetary amounts are integers in ' +
         'the minor unit of the single currency. Errors are RFC 9457 problem ' +
         'documents served as application/problem+json.',
-    )
-    // The port comes from configuration, not from a constant: announcing one
-    // that isn't the one actually listening sends anyone using the document
-    // nowhere.
-    .addServer(
-      `http://localhost:${env.get<number>('PORT', 3000)}/api/v1`,
-      'Local development',
     )
     .addBearerAuth(
       { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },

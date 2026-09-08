@@ -7,23 +7,44 @@ NodeJS program.
 
 ## Architecture
 
-![Production architecture](docs/diagram.png)
+![Production architecture](docs/diagram.svg)
 
 ### Queue
 
 - **BullMQ over the Redis already in the runtime** — retries, priorities and delayed jobs inside Nest, without adding a broker for a single service.
 - **Retry policies that differ by what the job carries, not by house style.** Payment settlement retries with backoff for close to a day and keeps its failures indefinitely, because there is no attempt count after which losing a payment is acceptable and its payload is only a Stripe identifier. Mail gets three attempts and then **keeps nothing** — its payload holds a one-time token the database deliberately stores only the hash of, so a retained failure would be a live credential sitting in Redis. Its diagnosis is a log line carrying the recipient and the error and never the body. The sweep does not retry at all: it runs again in a minute, and a second attempt would put two sweeps over the same expired orders.
-- **Redis earns its place twice**: the rate-limit counters live there too, because an in-process limiter multiplies its own limit by the number of API instances behind the load balancer.
+- **Rate limiting is currently process-local.** That is sufficient for the single API replica; moving its counters to Redis is required before horizontal scaling so each replica does not enforce an independent allowance.
 - **The webhook is acknowledged, not settled.** The API verifies the signature, records the event and answers; the worker moves the order afterwards, so an order can read `PENDING` for a moment after its payment succeeded.
 - **Checkout reserves before it charges.** Stock and an optional promo-code use are reserved with the `PENDING` order. If Stripe times out before returning a `clientSecret`, the order stays `PENDING` with no payment attempt and the repeatable sweep cancels the intent and releases both holds.
 
 ### Deployment
 
-- **One container image, two entrypoints.** Shared build and pipeline, but each process is meant to scale on its own signal — request latency for the API, queue depth for the worker — which is why they are separate services rather than one. `render.yaml` declares no `scaling` block, so today both run at their fixed instance count and that separation is a shape the deployment is ready for rather than a policy it applies. `Dockerfile` builds the image; `render.yaml` runs `node dist/main` for the web service and `node dist/worker` for the worker.
-- **The schema syncs once as a release step**, never on boot, so instances never race to sync it. No migration history is kept: `prisma migrate diff` plans the SQL, the step refuses a plan that drops or narrows anything unless one deploy is explicitly allowed to, and `prisma db execute` applies it as one transaction. CI runs that same command inside the production image against a disposable PostgreSQL, so a path or engine problem surfaces in a pull request rather than in a deploy.
-- **Expand and contract.** The compatible change ships first and the old shape is dropped in a later release — a rollback is just redeploying the previous tag from the registry, and there's no migration history to roll back through either way. The initial `live_email`/`live_user_id`/`live_code` shape is the one exception: nothing has been deployed yet, so it ships in a single release.
-- **Pooling is a constraint, not a detail.** Prisma pools inside each Node process, so there is no shared pooler and open connections grow with the number of processes, not with traffic.
-- **The pool size is pinned on the database URL**, not left to Prisma's CPU-derived default, which reads the host's cores rather than the container's quota. The ceiling is PostgreSQL's `max_connections`, and it has to hold during a rolling deploy, when old and new instances are briefly up at once.
+Production runs on Railway from `main`. Both services use the same `Dockerfile`
+but Railway builds and deploys them independently:
+
+| Railway service       | Start command      | Pre-deploy                 | Networking                |
+| --------------------- | ------------------ | -------------------------- | ------------------------- |
+| `tshirt-store-api`    | `node dist/main`   | `npm run prisma:sync:prod` | Public domain             |
+| `tshirt-store-worker` | `node dist/worker` | None                       | Private; no public domain |
+
+The API is currently exposed at
+[`https://tshirt-store-api-production.up.railway.app`](https://tshirt-store-api-production.up.railway.app).
+Its API, Swagger and Stripe webhook paths are `/api/v1`, `/api/v1/docs` and
+`/api/v1/webhooks/stripe`. The generated OpenAPI document uses paths relative
+to that origin, so Swagger's **Execute** button works on Railway and locally.
+
+PostgreSQL and Redis are Railway services reached over the private network.
+Both application services receive the same database, Redis, JWT, Stripe, S3
+and SMTP variables; only Railway's injected `PORT` is specific to the API.
+`AWS_S3_ENDPOINT` stays unset in production so the AWS SDK uses S3 rather than
+the local MinIO endpoint. No credential or `.env` file belongs in Git.
+
+The schema sync runs only on the API's pre-deploy step, never on application
+boot and never on the worker. It plans the SQL with `prisma migrate diff`,
+rejects destructive changes unless that one deployment explicitly enables
+`ALLOW_DESTRUCTIVE_SCHEMA_CHANGE=1`, and applies the accepted plan in one
+transaction. CI smoke-tests the same compiled command inside the production
+image against disposable PostgreSQL before Railway can deploy it.
 
 ### Monitoring
 
@@ -41,16 +62,18 @@ sequence diagrams for every flow live in [`docs/flows/`](docs/flows/).
 
 ## What is implemented
 
-| Area | State |
-|---|---|
-| Authentication | Sign up, email verification, sign in, refresh rotation, sign out, password reset and change |
-| Authorization | CASL abilities, policy guard, roles for client, manager and delivery |
-| Catalog | Categories, products, SKUs and images, with S3-backed storage |
-| Cart and likes | One active cart per client, lines added, updated and removed, and the product like |
-| Orders, payments | Checkout, order status history and Stripe webhook settlement |
-| Promotions | Manager creation/list/update, client cart validation, checkout reservation and payment settlement |
+| Area             | State                                                                                             |
+| ---------------- | ------------------------------------------------------------------------------------------------- |
+| Authentication   | Sign up, email verification, sign in, refresh rotation, sign out, password reset and change       |
+| Authorization    | CASL abilities, policy guard, roles for client, manager and delivery                              |
+| Catalog          | Categories, products, SKUs and images, with S3-backed storage                                     |
+| Cart and likes   | One active cart per client, lines added, updated and removed, and the product like                |
+| Orders, payments | Checkout, order status history and Stripe webhook settlement                                      |
+| Promotions       | Manager creation/list/update, client cart validation, checkout reservation and payment settlement |
 
-Unit tests: **61 suites, 864 tests**, with no pending `todo` cases.
+The unit suite has no pending `todo` cases; CI reports the current suite and
+test counts on every pull request rather than duplicating a number here that
+would become stale after the next feature.
 
 ## Requirements
 
@@ -67,9 +90,11 @@ npm run prisma:sync           # plan, guard and apply the schema, then the backf
 npm run start:dev
 ```
 
-Swagger UI is served at `/api/v1/docs` once the application is running. The
-order status-history endpoint returns an ordered array of `status`, `sequence`
-and ISO 8601 `occurredAt` entries; its schema is published in that document.
+Swagger UI is served locally at `http://localhost:3010/api/v1/docs` and in
+production at
+[`https://tshirt-store-api-production.up.railway.app/api/v1/docs`](https://tshirt-store-api-production.up.railway.app/api/v1/docs).
+The order status-history endpoint returns an ordered array of `status`,
+`sequence` and ISO 8601 `occurredAt` entries; its schema is published there.
 
 ## Testing
 
@@ -107,6 +132,5 @@ src/
   testing/      unit-test harness and factories
 prisma/         schema and the one-time live-column backfill
 docs/           architecture write-up and flow diagrams
-Dockerfile      the production image: one build, both entrypoints
-render.yaml     the Render blueprint that deploys it
+Dockerfile      production image definition with API and worker entrypoints
 ```

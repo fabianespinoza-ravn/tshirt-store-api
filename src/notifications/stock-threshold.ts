@@ -12,9 +12,8 @@ import { OrderStatus } from '@prisma/client';
  * It is deliberately not an environment variable. Making it configurable
  * would mean a `StockNotification` row no longer records which threshold it
  * was written for, and `uq_stock_notifications_user_sku_cycle` would start
- * deduplicating across two different rules. That is finding 12's "would
- * change if" in docs/DESIGN-ATTACK.md, and it needs a schema column before
- * it needs a variable.
+ * deduplicating across two different rules. A configurable threshold first
+ * needs to become part of the persisted notification identity.
  */
 export const LOW_STOCK_THRESHOLD = 3;
 
@@ -43,16 +42,14 @@ export const fallsToThreshold = (
  *
  * `Sku.restockCycle` is the third column of
  * `uq_stock_notifications_user_sku_cycle`, so it is the thing that lets the
- * same user be told about the same SKU twice in its lifetime. Nothing in the
- * contract writes it — finding 12 in docs/DESIGN-ATTACK.md — and until
- * something does, a SKU that sells down, is restocked and sells down again
- * notifies nobody the second time.
+ * same user be told about the same SKU twice in its lifetime. Without
+ * advancing it on restock, a SKU that sells down, is replenished and sells
+ * down again would notify nobody the second time.
  *
- * This is the rule that finding recommends: the cycle advances when stock
- * comes back up through the threshold, which is the only reading under which
- * the word *cycle* means anything. It must be applied in the same write that
- * changes the stock, which is why it is exposed as a predicate rather than
- * performed here.
+ * The cycle advances when stock comes back up through the threshold, which
+ * is the only reading under which the word *cycle* means anything. It must be
+ * applied in the same write that changes the stock, which is why it is exposed
+ * as a predicate rather than performed here.
  */
 export const risesAboveThreshold = (
   previousStock: number,

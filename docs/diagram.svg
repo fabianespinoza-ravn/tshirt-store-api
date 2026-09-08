@@ -1,0 +1,112 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760" role="img" aria-labelledby="title desc">
+  <title id="title">T-Shirt Store API production architecture on Railway</title>
+  <desc id="desc">Clients reach the public API. The API and private worker share Railway PostgreSQL and Redis services and integrate with Stripe, AWS S3 and SMTP. GitHub Actions gates Railway deployment, and schema synchronization runs only before the API deploy.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#64748b"/>
+    </marker>
+    <style>
+      .title{font:700 26px 'Segoe UI',Arial,sans-serif;fill:#172033}.subtitle{font:14px 'Segoe UI',Arial,sans-serif;fill:#526071}.group{fill:#f8fafc;stroke:#cbd5e1;stroke-width:2}.group-title{font:700 15px 'Segoe UI',Arial,sans-serif;fill:#334155}.box{stroke-width:2}.process{fill:#e9f1fb;stroke:#6389bb}.store{fill:#eaf5ec;stroke:#6fa17d}.external{fill:#fff7e6;stroke:#c49a4a}.actor{fill:#f4eefa;stroke:#9d86b9}.pipeline{fill:#f1f5f9;stroke:#94a3b8}.label{font:700 14px 'Segoe UI',Arial,sans-serif;fill:#1f2937;text-anchor:middle}.detail{font:12px 'Segoe UI',Arial,sans-serif;fill:#526071;text-anchor:middle}.line{fill:none;stroke:#64748b;stroke-width:2;marker-end:url(#arrow)}.line-dashed{fill:none;stroke:#64748b;stroke-width:2;stroke-dasharray:6 5;marker-end:url(#arrow)}.edge-label{font:11px 'Segoe UI',Arial,sans-serif;fill:#526071;text-anchor:middle}.url{font:600 13px Consolas,'Courier New',monospace;fill:#215a91;text-anchor:middle}
+    </style>
+  </defs>
+
+  <rect width="1200" height="760" fill="#ffffff"/>
+  <text class="title" x="600" y="42" text-anchor="middle">T-Shirt Store API · production</text>
+  <text class="subtitle" x="600" y="68" text-anchor="middle">Two Railway services, one Dockerfile, private data services</text>
+
+  <rect class="group" x="30" y="105" width="170" height="330" rx="16"/>
+  <text class="group-title" x="50" y="134">Clients</text>
+  <rect class="box actor" x="55" y="165" width="120" height="55" rx="10"/>
+  <text class="label" x="115" y="198">Client</text>
+  <rect class="box actor" x="55" y="250" width="120" height="55" rx="10"/>
+  <text class="label" x="115" y="283">Manager</text>
+  <rect class="box actor" x="55" y="335" width="120" height="55" rx="10"/>
+  <text class="label" x="115" y="368">Delivery</text>
+
+  <rect class="group" x="235" y="105" width="685" height="420" rx="16"/>
+  <text class="group-title" x="255" y="134">Railway project · production</text>
+
+  <rect class="box process" x="270" y="165" width="190" height="80" rx="12"/>
+  <text class="label" x="365" y="192">Public networking</text>
+  <text class="detail" x="365" y="213">TLS · generated domain</text>
+  <text class="detail" x="365" y="231">HTTP → API only</text>
+
+  <rect class="box process" x="515" y="160" width="180" height="90" rx="12"/>
+  <text class="label" x="605" y="187">API service</text>
+  <text class="detail" x="605" y="208">node dist/main</text>
+  <text class="detail" x="605" y="226">1 replica · stateless</text>
+  <text class="detail" x="605" y="243">pre-deploy: schema sync</text>
+
+  <rect class="box process" x="720" y="160" width="165" height="90" rx="12"/>
+  <text class="label" x="802" y="187">Worker service</text>
+  <text class="detail" x="802" y="208">node dist/worker</text>
+  <text class="detail" x="802" y="226">1 replica · private</text>
+  <text class="detail" x="802" y="243">no pre-deploy</text>
+
+  <rect class="box store" x="435" y="330" width="180" height="85" rx="42"/>
+  <text class="label" x="525" y="360">Redis</text>
+  <text class="detail" x="525" y="380">BullMQ jobs</text>
+  <text class="detail" x="525" y="398">schedules · retries</text>
+
+  <rect class="box store" x="690" y="330" width="180" height="85" rx="42"/>
+  <text class="label" x="780" y="360">PostgreSQL</text>
+  <text class="detail" x="780" y="380">orders · inventory</text>
+  <text class="detail" x="780" y="398">payments · claims</text>
+
+  <text class="url" x="577" y="477">tshirt-store-api-production.up.railway.app</text>
+  <text class="detail" x="577" y="500">/api/v1 · /api/v1/docs · /api/v1/webhooks/stripe</text>
+
+  <rect class="group" x="955" y="105" width="215" height="420" rx="16"/>
+  <text class="group-title" x="975" y="134">External services</text>
+  <rect class="box external" x="980" y="165" width="165" height="70" rx="10"/>
+  <text class="label" x="1062" y="194">Stripe</text>
+  <text class="detail" x="1062" y="214">payments · webhooks</text>
+  <rect class="box external" x="980" y="275" width="165" height="70" rx="10"/>
+  <text class="label" x="1062" y="304">AWS S3</text>
+  <text class="detail" x="1062" y="324">product images</text>
+  <rect class="box external" x="980" y="385" width="165" height="70" rx="10"/>
+  <text class="label" x="1062" y="414">SMTP / Ethereal</text>
+  <text class="detail" x="1062" y="434">transactional mail</text>
+
+  <path class="line" d="M175 192 H270"/>
+  <path class="line" d="M175 277 H230 V205 H270"/>
+  <path class="line" d="M175 362 H220 V205 H270"/>
+  <path class="line" d="M460 205 H515"/>
+  <path class="line" d="M605 250 V292 H525 V330"/>
+  <path class="line" d="M720 205 H680 V292 H525 V330"/>
+  <path class="line" d="M605 250 V300 H780 V330"/>
+  <path class="line" d="M802 250 V330"/>
+  <path class="line" d="M695 190 H930 V200 H980"/>
+  <path class="line-dashed" d="M980 220 H940 V145 H365 V165"/>
+  <path class="line" d="M695 225 H935 V310 H980"/>
+  <path class="line" d="M885 225 H945 V420 H980"/>
+  <text class="edge-label" x="222" y="186">HTTPS</text>
+  <text class="edge-label" x="487" y="286">enqueue</text>
+  <text class="edge-label" x="750" y="292">SQL</text>
+  <text class="edge-label" x="850" y="137">signed webhook</text>
+
+  <rect class="group" x="30" y="565" width="1140" height="155" rx="16"/>
+  <text class="group-title" x="50" y="594">Deployment pipeline</text>
+  <rect class="box pipeline" x="65" y="620" width="145" height="58" rx="10"/>
+  <text class="label" x="137" y="646">main</text>
+  <text class="detail" x="137" y="664">GitHub push</text>
+  <rect class="box pipeline" x="270" y="610" width="190" height="78" rx="10"/>
+  <text class="label" x="365" y="637">GitHub Actions</text>
+  <text class="detail" x="365" y="657">verify · e2e</text>
+  <text class="detail" x="365" y="674">prod-sync smoke</text>
+  <rect class="box pipeline" x="520" y="620" width="175" height="58" rx="10"/>
+  <text class="label" x="607" y="646">Railway build</text>
+  <text class="detail" x="607" y="664">Dockerfile</text>
+  <rect class="box pipeline" x="755" y="610" width="175" height="78" rx="10"/>
+  <text class="label" x="842" y="637">API pre-deploy</text>
+  <text class="detail" x="842" y="657">plan · guard · apply</text>
+  <text class="detail" x="842" y="674">backfill</text>
+  <rect class="box pipeline" x="990" y="620" width="145" height="58" rx="10"/>
+  <text class="label" x="1062" y="646">Rollout</text>
+  <text class="detail" x="1062" y="664">API + worker</text>
+  <path class="line" d="M210 649 H270"/>
+  <path class="line" d="M460 649 H520"/>
+  <path class="line" d="M695 649 H755"/>
+  <path class="line" d="M930 649 H990"/>
+  <text class="edge-label" x="490" y="639">green</text>
+</svg>
