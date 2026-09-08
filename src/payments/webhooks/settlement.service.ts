@@ -8,6 +8,10 @@ import {
 } from '@prisma/client';
 import { newId } from '../../common/ids';
 import { MailService } from '../../mail/mail.service';
+import {
+  StockNotificationsService,
+  type StockChange,
+} from '../../notifications/stock-notifications.service';
 import { recordStatus } from '../../orders/order-writes';
 import { consumePromoCodeReservation } from '../../promo-codes/promo-code-writes';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -81,6 +85,7 @@ export class SettlementService {
     private readonly stripe: StripeService,
     private readonly mail: MailService,
     private readonly paymentLinkCheckout: PaymentLinkCheckoutService,
+    private readonly stockNotifications: StockNotificationsService,
   ) {}
 
   async settle(
@@ -197,7 +202,7 @@ export class SettlementService {
 
         if (moved.count === 0) return false;
 
-        await consumeReservations(tx, order.items);
+        const stockChanges = await consumeReservations(tx, order.items);
         await consumePromoCodeReservation(tx, order.redemption ?? null);
         await recordStatus(tx, order.id, OrderStatus.PAID);
         await this.recordCharge(tx, order, data, {});
@@ -213,7 +218,7 @@ export class SettlementService {
         });
         await this.markProcessed(tx, data, now);
 
-        return outbox.id;
+        return { outboxId: outbox.id, stockChanges };
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
@@ -226,14 +231,33 @@ export class SettlementService {
 
     this.logger.log(`Settled order ${order.id} as ${OrderStatus.PAID}.`);
 
+    await this.observeStockChanges(order.id, settled.stockChanges);
+
     // After the commit and outside it, which is the whole of why the call
     // is on this line and not four lines up. A job enqueued inside the
     // transaction survives a rollback — BullMQ writes to Redis, which knows
     // nothing about Postgres — so a rolled-back settlement would still tell
     // the customer their order was paid.
-    await this.confirm(order, settled);
+    await this.confirm(order, settled.outboxId);
 
     return SettlementOutcome.Paid;
+  }
+
+  private async observeStockChanges(
+    orderId: string,
+    changes: readonly StockChange[],
+  ): Promise<void> {
+    for (const change of changes) {
+      try {
+        await this.stockNotifications.observeStockChange(change);
+      } catch (error) {
+        this.logger.error(
+          `Could not observe the stock change for SKU ${change.skuId} after settling order ${orderId}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+    }
   }
 
   /**
@@ -464,14 +488,25 @@ export class SettlementService {
 async function consumeReservations(
   tx: Prisma.TransactionClient,
   items: readonly { skuId: string; quantity: number }[],
-): Promise<void> {
+): Promise<StockChange[]> {
+  const changes: StockChange[] = [];
+
   for (const item of items) {
-    await tx.sku.update({
+    const updated = await tx.sku.update({
       where: { id: item.skuId },
       data: {
         reserved: { decrement: item.quantity },
         stock: { decrement: item.quantity },
       },
     });
+
+    changes.push({
+      skuId: updated.id,
+      previousStock: updated.stock + item.quantity,
+      newStock: updated.stock,
+      restockCycle: updated.restockCycle,
+    });
   }
+
+  return changes;
 }
