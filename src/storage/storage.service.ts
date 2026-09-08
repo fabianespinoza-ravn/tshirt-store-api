@@ -72,9 +72,8 @@ export function detectImageType(buffer: Buffer): AcceptedImageType | undefined {
   return undefined;
 }
 
-// One hour is enough for an API response; F8's restock email needs another
-// route because it's read days later, once the signing credential has
-// already expired (finding 15 in docs/DESIGN-ATTACK.md).
+// One hour is enough for an API response. Restock email images are attached
+// instead, because messages may be read after the signing credential expires.
 const SIGNED_URL_TTL_SECONDS = 3600;
 
 @Injectable()

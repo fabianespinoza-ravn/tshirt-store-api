@@ -53,14 +53,13 @@ jobs:
       - name: Build
         run: npm run build
 
-      # `start:prod` and both `dockerCommand` entries in render.yaml run
-      # `node dist/main`. A build can succeed while emitting the entrypoint
+      # The API service runs `node dist/main`. A build can succeed while
+      # emitting the entrypoint
       # somewhere else (widening tsconfig's `include` past src/ once moved it
       # to dist/src/main.js), so the path is checked explicitly.
-      # Both entrypoints, for the same reason: render.yaml runs
-      # `node dist/main` for the web service and `node dist/worker` for the
-      # worker, and a build can succeed while emitting either one somewhere
-      # else.
+      # Both entrypoints, for the same reason: Railway runs `node dist/main`
+      # for the API and `node dist/worker` for the worker, and a build can
+      # succeed while emitting either one somewhere else.
       - name: Production entrypoints
         run: test -f dist/main.js && test -f dist/worker.js
 
@@ -132,13 +131,13 @@ jobs:
   # shells out to `prisma:sync`, which is `ts-node` on the runner with the
   # repository checked out and every devDependency installed. `verify` never
   # runs it — `prisma:generate` is the whole of its Prisma work.
-  # `render.yaml` runs `prisma:sync:prod` instead:
+  # Railway's API pre-deploy step runs `prisma:sync:prod` instead:
   # plain `node` over `dist-deploy/`, inside the production image, where
   # ts-node is absent, the working directory is /app, only `prisma/schema.prisma`
   # was copied in and the Prisma CLI has to resolve out of the production
   # tree. Nothing proved that path — the image build only checks that the two
   # compiled files exist and that `prisma --version` resolves — so its first
-  # real execution would have been Render's pre-deploy against the live
+  # real execution would have been Railway's pre-deploy against the live
   # database. This job moves that first execution into a pull request.
   #
   # It builds an image, which is minutes `verify` and `e2e` do not spend, so
@@ -173,7 +172,7 @@ jobs:
       # Every `docker run` below passes `--network host`, which puts the
       # container in the runner's own network namespace; `localhost:5432` is
       # then the same address the runner uses, and the step receives what
-      # Render also gives it — a DATABASE_URL in the environment, read by
+      # Railway also gives it — a DATABASE_URL in the environment, read by
       # schema.prisma's env("DATABASE_URL") and never handled by the script.
       DATABASE_URL: postgresql://ci:ci@localhost:5432/tshirt_store_sync?schema=public
 
@@ -183,7 +182,7 @@ jobs:
       - name: Build the production image
         run: docker build --tag "$IMAGE" .
 
-      # Exactly render.yaml's `preDeployCommand`, against an empty database:
+      # Exactly Railway's API pre-deploy command, against an empty database:
       # the plan is the whole schema, so this asserts the step applied
       # something rather than finding nothing to do.
       - name: Pre-deploy step against an empty database

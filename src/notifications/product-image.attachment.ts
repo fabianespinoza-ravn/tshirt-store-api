@@ -5,8 +5,8 @@ import type { StorageService } from '../storage/storage.service';
 /**
  * Why the image is attached rather than linked.
  *
- * Finding 15 of docs/DESIGN-ATTACK.md measured it: a SigV4 presigned URL
- * lives at most seven days, and if it was signed with *temporary*
+ * A SigV4 presigned URL lives at most seven days, and if it was signed with
+ * *temporary*
  * credentials — which is what an IAM role on any container platform hands
  * out — it dies with the credential instead, in hours. The bucket is not
  * public. An email is read whenever its owner gets round to it, so a link is

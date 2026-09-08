@@ -1,205 +1,162 @@
 # Production architecture
 
 ```mermaid
-%%{init: {"theme":"base","themeVariables":{"fontFamily":"Segoe UI, Helvetica, Arial, sans-serif","fontSize":"12px","lineColor":"#8a97a4","primaryColor":"#eef2f6","primaryTextColor":"#1f2933","primaryBorderColor":"#9aa7b4","clusterBkg":"#fafbfc","clusterBorder":"#ccd4dc","edgeLabelBackground":"#ffffff"},"flowchart":{"curve":"linear","nodeSpacing":30,"rankSpacing":70,"padding":8}}}%%
+%%{init: {"theme":"base","themeVariables":{"fontFamily":"Segoe UI, Helvetica, Arial, sans-serif","fontSize":"12px","lineColor":"#64748b","primaryColor":"#eff6ff","primaryTextColor":"#172033","primaryBorderColor":"#6b8db8","clusterBkg":"#f8fafc","clusterBorder":"#cbd5e1","edgeLabelBackground":"#ffffff"},"flowchart":{"curve":"linear","nodeSpacing":35,"rankSpacing":55,"padding":10}}}%%
 flowchart TB
-  subgraph USR["Clients"]
+  subgraph USERS["Clients"]
     direction LR
-    CL["Client"]
-    MG["Manager"]
-    DL["Delivery"]
+    CLIENT["Client"]
+    MANAGER["Manager"]
+    DELIVERY["Delivery"]
   end
 
-  subgraph RT["Runtime"]
-    direction TB
-    LB["Load balancer<br/>TLS termination · health checks"]
-    API["API · stateless, scales on latency<br/>auth · catalog · cart<br/>orders · payments · promos"]
-    AP(["Prisma pool<br/>per process, no shared pooler"])
-    RD[("Redis · BullMQ<br/>jobs · retries · rate limits (pending)")]
-    WK["Worker · scales on queue depth<br/>settlement · refunds<br/>expiry sweep · mail"]
-    WP(["Prisma pool<br/>per process, no shared pooler"])
-    PG[("PostgreSQL · single primary<br/>orders · stock · webhook events")]
-
-    LB -->|"routes"| API
-    API -->|"borrows"| AP
-    API -->|"enqueue"| RD
-    RD -->|"jobs"| WK
-    WK -->|"sweep"| RD
-    WK -->|"borrows"| WP
-    AP -->|"SQL"| PG
-    WP -->|"SQL"| PG
-  end
-
-  subgraph EXT["Third-party"]
+  subgraph RAILWAY["Railway project · production"]
     direction LR
-    ST["Stripe<br/>payments and refunds"]
-    S3["S3<br/>product image store"]
-    MAIL["SMTP<br/>transactional mail"]
+    EDGE["Public networking<br/>TLS · generated domain"]
+    API["API service · 1 replica<br/>node dist/main"]
+    REDIS[("Redis<br/>BullMQ · schedules · rate-limit target")]
+    WORKER["Worker service · 1 replica<br/>node dist/worker · private"]
+    POSTGRES[("PostgreSQL<br/>orders · stock · webhook events")]
+
+    EDGE -->|HTTP| API
+    API -->|SQL| POSTGRES
+    WORKER -->|SQL| POSTGRES
+    API -->|enqueue| REDIS
+    REDIS -->|jobs| WORKER
+    WORKER -->|repeatable jobs| REDIS
   end
 
-  subgraph CD["Continuous delivery"]
+  subgraph EXTERNAL["External services"]
     direction LR
-    C["Commit"] -->|"push"| CI["CI<br/>lint · build · unit · e2e · pre-deploy smoke"]
-    CI -->|"green"| REL["Release<br/>version tag"]
-    REL -->|"tag"| REG["Container registry<br/>image tagged by the release"]
-    REG -->|"image"| MIG["Sync schema<br/>plan · refuse destructive · apply · pre-deploy"]
-    MIG -->|"synced"| DEP["Deploy<br/>rolling replace"]
+    STRIPE["Stripe<br/>payments · refunds · webhook"]
+    S3["AWS S3<br/>product images"]
+    SMTP["SMTP / Ethereal<br/>transactional mail"]
   end
 
-  CL -->|"browse · buy"| LB
-  MG -->|"manage"| LB
-  DL -->|"deliver"| LB
-  CL -->|"card"| ST
-  CL -->|"images"| S3
-  ST -->|"webhook"| LB
-  API -->|"intents"| ST
-  API -->|"upload"| S3
-  WK -->|"refunds"| ST
-  WK -->|"mail"| MAIL
-  DEP -->|"image"| API
-  DEP -->|"image"| WK
+  subgraph DELIVERY_PIPELINE["Delivery pipeline"]
+    direction LR
+    COMMIT["main"] --> ACTIONS["GitHub Actions<br/>verify · e2e · prod-sync smoke"]
+    ACTIONS -->|green| BUILD["Railway<br/>Dockerfile build"]
+    BUILD --> PREDEPLOY["API pre-deploy<br/>npm run prisma:sync:prod"]
+    PREDEPLOY --> API
+    BUILD --> WORKER
+  end
 
-  classDef pipe fill:#fdf7ec,stroke:#c9a35c,color:#4a3708
-  classDef proc fill:#e9f1fb,stroke:#6389bb,color:#16324f
-  classDef pool fill:#ffffff,stroke:#9aa7b4,stroke-dasharray:4 3,color:#3d4a57
+  CLIENT -->|browse · buy| EDGE
+  MANAGER -->|manage| EDGE
+  DELIVERY -->|update delivery| EDGE
+  CLIENT -->|card details| STRIPE
+  STRIPE -->|signed webhook| EDGE
+  API -->|intents · links| STRIPE
+  WORKER -->|settlement · refunds| STRIPE
+  API -->|upload · read URL| S3
+  WORKER -->|email attachments| S3
+  WORKER -->|mail| SMTP
+
+  classDef actor fill:#f4eefa,stroke:#9d86b9,color:#372a45
+  classDef process fill:#e9f1fb,stroke:#6389bb,color:#16324f
   classDef store fill:#eaf5ec,stroke:#6fa17d,color:#1f3d29
-  classDef ext fill:#f4eefa,stroke:#9d86b9,color:#372a45
-  class C,CI,REL,REG,MIG,DEP pipe
-  class LB,API,WK proc
-  class AP,WP pool
-  class PG,RD store
-  class CL,MG,DL,ST,S3,MAIL ext
+  classDef external fill:#fff7e6,stroke:#c49a4a,color:#4a3708
+  classDef pipeline fill:#f1f5f9,stroke:#94a3b8,color:#263445
+  class CLIENT,MANAGER,DELIVERY actor
+  class EDGE,API,WORKER process
+  class REDIS,POSTGRES store
+  class STRIPE,S3,SMTP external
+  class COMMIT,ACTIONS,BUILD,PREDEPLOY pipeline
 ```
 
-## Queue
+The repository also contains a standalone SVG version at
+[`diagram.svg`](diagram.svg) for renderers that do not execute Mermaid.
 
-The size of the service is not the argument for BullMQ; two requirements that an
-event emitter cannot meet are. Mail alone would not justify it — a resend costs
-nothing and nothing else is waiting on it, so an emitter would be enough for that
-job by itself.
+## Runtime boundaries
 
-**The expired-order sweep needs elapsed time, not an event.** An emitter only
-runs when something happens — a checkout, a webhook. Nothing happens when Stripe
-never answers; the order just sits `PENDING` past its `expires_at` with no event
-to react to. Something has to poll the clock instead, and that is what BullMQ's
-repeatable job does: on a schedule, not on a trigger, it finds every order past
-`expires_at`, cancels the Stripe intent and releases the stock.
+- **API:** authentication, authorization, catalog, carts, checkout, Stripe
+  webhook verification and queue production. It is stateless apart from its
+  PostgreSQL and Redis dependencies.
+- **Worker:** payment settlement and refunds, expired-order sweep,
+  confirmation outbox, low-stock dispatch and mail delivery. It has no HTTP
+  listener and must not expose a public domain.
+- **PostgreSQL:** source of truth for users, products, inventory, orders,
+  payment state, webhook receipts and idempotency claims.
+- **Redis/BullMQ:** durable handoff between the API and worker plus repeatable
+  maintenance jobs. It is transport, not the source of truth for orders.
+- **AWS S3, Stripe and SMTP:** remain outside Railway. Production leaves
+  `AWS_S3_ENDPOINT` unset; local development points it at MinIO.
 
-**Payment settlement has to survive a process restart.** An in-process emitter
-keeps its listeners and their state in memory. A deploy, a crash or an OOM kill
-between "Stripe confirmed the charge" and "the order moved to `PAID`" would drop
-that handler on the floor, leaving an order `PENDING` with money already taken.
-BullMQ persists the job in Redis before the handler runs, so a restart re-delivers
-it instead of losing it. What each job does when it runs out of attempts is
-decided by what its payload carries, not by a single house rule. Settlement
-retries with backoff for close to a day and its failures are kept and alerted on,
-because no number of attempts makes losing a payment acceptable and the payload is
-only a Stripe identifier. Mail gets three attempts and then keeps nothing: its
-payload holds a one-time token that the database stores only the hash of, so a
-retained failure would leave a usable credential in Redis — worse than the
-exposure the hashing exists to prevent. What is given up is retrying a send by
-hand, and a client who never received a verification link asks for another; the
-diagnosis moves to a log line carrying the recipient and the error and never the
-body. The sweep does not retry at all, because the next minute's run is the retry
-and two sweeps over the same expired orders is the one thing it must not do.
+## Queue decisions
 
-The rejected alternative is `@nestjs/schedule` for the sweep plus a transactional
-outbox for settlement: an `@Interval` job in place of the repeatable job, and an
-`outbox` table written in the same transaction as the payment update, drained by
-a poller, in place of a persisted job. It removes the Redis dependency, and it is
-a legitimate design. Switching to it needs two things to be true: the team is
-willing to build and operate the outbox poller and its own retry and backoff by
-hand — what BullMQ gives for free today — and nothing else in the system still
-wants a job runtime once that happens. Neither holds yet, so BullMQ stays. Redis
-is meant to earn its place twice — the rate-limit counters should live there too,
-because an in-process limiter multiplies its own limit by the number of API
-instances behind the load balancer — but that part is **pending**: `ThrottlerModule`
-is registered without a `storage` option (`src/app.module.ts:20-31`), so today the
-counters live in each process's memory and do exactly the multiplying this design
-means to avoid.
+- The API acknowledges a valid Stripe webhook after recording and enqueueing
+  it. Settlement happens asynchronously, so an order may remain `PENDING` for
+  a short period after Stripe accepted the payment.
+- Settlement jobs survive process restarts and retain terminal failures for
+  inspection. Losing a confirmed payment after a deployment is not an
+  acceptable failure mode.
+- Mail gets three attempts and is removed afterwards. Its payload can contain
+  a one-time token, so failed jobs must not retain usable credentials in
+  Redis. Diagnostics log recipient and error, never the body or token.
+- The expired-order sweep does not retry immediately; the next scheduled run
+  is its retry. This avoids overlapping sweeps over the same reservations.
+- Checkout reserves stock and an optional promo-code use before calling
+  Stripe. The sweep releases both if the pending order expires.
+- Rate-limit counters currently use the throttler's process-local storage.
+  Moving them to Redis remains an operational hardening item before scaling
+  the API above one replica.
 
-The API verifies the webhook signature, records the event and acknowledges it;
-the worker is what moves the order afterwards, so an order can still read
-`PENDING` for a moment after its payment has succeeded. Checkout creates the stock
-reservation and the `PENDING` order before it calls Stripe. If Stripe times out
-before returning a `clientSecret`, the order is left `PENDING` with no payment
-attempt, and the repeatable sweep cancels the intent and releases the stock.
+## Railway deployment
 
-## Deployment
+Production is connected to the `main` branch. Railway waits for GitHub Actions
+and builds the repository's `Dockerfile` separately for each application
+service.
 
-One container image runs both the API and the worker under different entrypoints. Build and
-pipeline are shared, but each is meant to scale on its own signal: request
-latency for the API, queue depth for the worker. That is the reason they are two
-services and not one, and it is so far a shape rather than a policy —
-`render.yaml` declares no `scaling` block, so both run at a fixed instance count
-until one is added. The `Dockerfile` is multi-stage and the
-final stage installs production dependencies only, so what runs the API, the
-worker and the pre-deploy step is the same image and none of it carries a
-compiler. The schema is synced once as its own
-pre-deploy step, after the release is tagged and the image is built, and never
-on boot, so instances never race to sync it. No migration history is kept. The
-step (`prisma/sync-schema.ts`) has `prisma migrate diff` compute the SQL that
-takes the live database to `schema.prisma`, prints that plan into the deploy
-log, refuses it when it contains a statement class that loses data or locks
-rows out — `DROP TABLE`, `DROP COLUMN`, a column type change, `SET NOT NULL`,
-`DROP CONSTRAINT` — and otherwise has `prisma db execute` apply it as one
-transaction, so a unique constraint that meets duplicates fails loudly with
-nothing applied. It runs from JavaScript in the image and not from TypeScript:
-`ts-node` is a devDependency, the pre-deploy command runs inside the production
-image, and so the image compiles that script — and the backfill beside it — to
-`dist-deploy/` at build time. That compiled path is proven before a deploy ever
-reaches it: the `prod-sync-smoke` job in `.github/workflows/ci.yml` builds the
-image and runs the same `preDeployCommand` inside it against a disposable
-PostgreSQL, then asserts the three things a deploy depends on — that the step
-applies the plan, that running it a second time finds nothing to do, and that a
-plan carrying a refused statement class fails loudly with nothing applied. The
-only other job that reaches this script is `e2e`, whose global setup runs it
-through `ts-node` on the runner, which proves the logic but not the image;
-`verify` never runs it at all. The pipeline never prompts and never passes
-`--accept-data-loss`: `prisma db push` would stop to ask before adding a unique
-constraint to an existing table, and in a pipeline nobody answers. The
-"contract" half of a rollout is let through for a single deploy by setting
-`ALLOW_DESTRUCTIVE_SCHEMA_CHANGE=1` in that deploy's environment and removing
-it afterwards; the override is named in the log of that deploy. What keeping no
-history costs is that the SQL is reviewed in the deploy log, not in the pull
-request — the refusal list exists because of that. Schema changes still expand
-and contract — the compatible change ships first, the old shape is dropped in a
-later release — because a rollback is just redeploying the previous tag from
-the registry, and there is no migration history to roll back through either way.
-The one exception is this repository's pre-deployment schema, including
-`live_email`, `live_user_id` and `live_code`: it ships in a single release
-together with the code that reads it, because nothing has been deployed yet —
-`render.yaml` and the `Dockerfile`
-it builds describe a topology nothing is running, no image exists in a registry,
-and so there was no window in which an old instance and a new one serve traffic
-at once. Expand-then-contract applies
-from the first deploy with live rows onward.
+| Service               | Start command      | Pre-deploy command         | Public networking |
+| --------------------- | ------------------ | -------------------------- | ----------------- |
+| `tshirt-store-api`    | `node dist/main`   | `npm run prisma:sync:prod` | Enabled           |
+| `tshirt-store-worker` | `node dist/worker` | None                       | Disabled          |
 
-Connection pooling is a design constraint here rather than a detail. Prisma pools
-inside each Node process, so there is no shared pooler and the total number of
-open connections grows with the number of processes, not with traffic. The pool
-size is pinned explicitly on the database URL rather than left to Prisma's
-CPU-derived default, which reads the host's cores and not the container's quota.
-The ceiling to respect is PostgreSQL's `max_connections`, and it has to hold
-during a rolling deploy, when old and new instances are briefly up at once.
+The public API domain is
+`https://tshirt-store-api-production.up.railway.app`:
+
+- API prefix: `/api/v1`
+- Swagger UI: `/api/v1/docs`
+- Stripe webhook: `/api/v1/webhooks/stripe`
+
+The API and worker share the same Railway references for PostgreSQL and Redis
+and the same application configuration: JWT secrets, Stripe credentials, S3
+credentials, SMTP credentials and queue prefix. Railway injects `PORT` for the
+API. Do not set `PORT` on the worker, and do not enable public networking for
+it. Secrets and `.env` files are never committed.
+
+The database sync belongs only to the API pre-deploy phase. Running it in both
+services would race two schema plans during the same release; running it on
+every boot would repeat that race on restarts and replicas. The command uses
+the JavaScript compiled into `dist-deploy/`, because the production image does
+not contain the `ts-node` development dependency.
+
+`prisma/sync-schema.ts` asks `prisma migrate diff` for the SQL required to
+reach `schema.prisma`, prints the plan in the deployment log and rejects
+destructive statement classes by default. It then applies an accepted plan as
+one transaction and runs the live-column backfill. A deliberate contract step
+requires `ALLOW_DESTRUCTIVE_SCHEMA_CHANGE=1` for that deployment only, followed
+by removing the override. CI's `prod-sync-smoke` job exercises this exact
+compiled path against disposable PostgreSQL and checks a second run is a no-op.
+
+Prisma owns one connection pool per Node process, so connection demand grows
+with API and worker replicas. The production `DATABASE_URL` should include an
+explicit `connection_limit` sized below PostgreSQL's total capacity, including
+the overlap while Railway replaces old replicas.
 
 ## Monitoring
 
-Four domain alerts, none of which a generic dashboard would catch: webhook events
-recorded but not settled for more than N minutes; depth and age of the settlement
-dead-letter queue; orders still `PENDING` past `expires_at`, which means the sweep
-is not running; and `SUCCEEDED` payments belonging to `CANCELLED` orders with no
-`stripe_refund_id`, which is money taken and not returned.
+Alert on these domain failures in addition to generic error rate, latency,
+memory and database-pool saturation:
 
-Mail is the one queue with nothing to measure, and that is a consequence of
-its own retention rather than an oversight. It discards a job on both outcomes,
-so its depth sits near zero whether every message is arriving or none is, and
-there is no failed entry left to inspect afterwards. The signal is the
-processor's error line — the kind, the recipient and the error, never the body —
-and what is alerted on is the rate of it. A queue-depth alert here would be
-worse than no alert at all, because it would read healthy while every send
-failed.
+- Stripe webhook events recorded but not settled after the expected delay.
+- Settlement jobs retained as failed, including their age and retry count.
+- Orders still `PENDING` after `expires_at`, indicating a stopped sweep.
+- Successful payments on `CANCELLED` orders without `stripe_refund_id`.
+- Mail processor error rate; mail queue depth is not useful because completed
+  and failed mail jobs are both removed.
+- Low-stock crossings with no corresponding notification job or claim.
 
-Underneath sits the generic base: error rate and p95 per route, pool saturation
-seen as Prisma's pool-timeout errors, queue depth and job age, and structured JSON
-logs carrying a correlation id, with customer data redacted from webhook payloads.
+Logs must carry correlation identifiers while excluding webhook bodies,
+passwords, tokens, Stripe secrets, AWS keys and SMTP credentials.

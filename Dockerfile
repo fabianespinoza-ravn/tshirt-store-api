@@ -1,10 +1,9 @@
 # Production image for tshirt-store-api.
 #
 # One image, two entrypoints: `node dist/main` runs the API and
-# `node dist/worker` runs the queue worker, which is what render.yaml declares
-# as the `dockerCommand` of each service and what the Deployment section of
-# docs/ARQUITECTURA.md describes. Build and pipeline are shared; only the
-# command differs, so the two processes can never drift apart.
+# `node dist/worker` runs the queue worker. Railway creates two services from
+# this Dockerfile and assigns those commands in each service's settings. The
+# build definition is shared; only the runtime command differs.
 #
 # Node 24 is the version .github/workflows/ci.yml verifies against, and
 # package.json declares no `engines` range, so CI is the only statement of
@@ -41,7 +40,7 @@ RUN npm run build && npm run build:deploy
 # tsconfig's `include` past src/ moves dist/main.js to dist/src/main.js — and
 # the deploy would then build cleanly and never start. CI checks the same two
 # paths for the same reason; this checks them again where the image is made,
-# together with the two files render.yaml's preDeployCommand runs.
+# together with the two files the API's Railway pre-deploy command runs.
 RUN test -f dist/main.js \
   && test -f dist/worker.js \
   && test -f dist-deploy/sync-schema.js \
@@ -55,7 +54,7 @@ WORKDIR /app
 # Production dependencies only. The Prisma CLI comes with them: package.json
 # lists `prisma` under devDependencies, but @prisma/client declares it as a
 # peer dependency, so package-lock.json resolves it into the production tree
-# and `--omit=dev` keeps it. That is what lets render.yaml's preDeployCommand
+# and `--omit=dev` keeps it. That is what lets Railway's pre-deploy command
 # run `prisma migrate diff` and `prisma db execute` from inside this image
 # without any of the devDependencies proper.
 #
@@ -86,9 +85,9 @@ RUN node node_modules/prisma/build/index.js --version
 # The image ships nothing that needs to be written or owned by root.
 USER node
 
-# Documentation only; Render injects PORT and main.ts binds to it.
+# Documentation only; Railway injects PORT and main.ts binds to it.
 EXPOSE 3000
 
-# The default is the API. render.yaml overrides it with `node dist/worker`
-# for the worker service.
+# The default is the API. Railway overrides it with `node dist/worker` on the
+# private worker service.
 CMD ["node", "dist/main"]

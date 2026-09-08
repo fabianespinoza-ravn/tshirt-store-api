@@ -5,12 +5,10 @@ import { WorkerModule } from './worker.module';
 /**
  * The second process. Same image as the API, no HTTP server.
  *
- * The file is `worker.ts` and not `main.worker.ts` because `render.yaml`
- * already declares `dockerCommand: node dist/worker` for the worker service,
- * and a name that compiled to `dist/main.worker.js` would leave a deploy
- * that builds and never starts. `npm run build` emitting this path is
- * checked in CI next to the API's entrypoint, for the same reason that check
- * exists at all: a build can succeed while putting the file somewhere else.
+ * The file is `worker.ts` because the Railway worker starts with
+ * `node dist/worker`; a name that compiled elsewhere would leave a deploy
+ * that builds and never starts. CI and the Dockerfile both assert this exact
+ * entrypoint.
  *
  * `createApplicationContext` rather than `create`: there is nothing to
  * listen on. The process stays alive because BullMQ's workers hold the event

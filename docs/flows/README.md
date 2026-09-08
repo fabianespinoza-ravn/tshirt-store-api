@@ -1,52 +1,104 @@
-# Flows in PlantUML
+# Request and worker flows
 
-Eleven sequence diagrams, one per flow, written against `../../W2-API/openapi.yaml`
-and `../ARQUITECTURA.md`. Between the eleven they cover **all 38 operations of the contract**.
+These eleven sequence diagrams cover all 38 operations in the API contract.
+The `.puml` files are the editable PlantUML sources; the matching SVG files in
+[`rendered/`](rendered/) are committed so GitHub and other Markdown viewers
+show diagrams rather than source code.
 
-**They are not part of the one-page deliverable.** `ARQUITECTURA.md` is what gets
-submitted; this is material for the oral defense and for the repo's README.
+| Flow                              | Source                                                                       | Rendered diagram                                                                    |
+| --------------------------------- | ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| Sign-up and verification          | [`01-auth-signup.puml`](01-auth-signup.puml)                                 | [`01-auth-signup.svg`](rendered/01-auth-signup.svg)                                 |
+| Sign-in and refresh rotation      | [`02-auth-session.puml`](02-auth-session.puml)                               | [`02-auth-session.svg`](rendered/02-auth-session.svg)                               |
+| Password recovery and change      | [`03-auth-passwords.puml`](03-auth-passwords.puml)                           | [`03-auth-passwords.svg`](rendered/03-auth-passwords.svg)                           |
+| Public catalog reads              | [`04-catalog-read.puml`](04-catalog-read.puml)                               | [`04-catalog-read.svg`](rendered/04-catalog-read.svg)                               |
+| Catalog management                | [`05-catalog-management.puml`](05-catalog-management.puml)                   | [`05-catalog-management.svg`](rendered/05-catalog-management.svg)                   |
+| Likes and low-stock notifications | [`06-like-and-stock-notification.puml`](06-like-and-stock-notification.puml) | [`06-like-and-stock-notification.svg`](rendered/06-like-and-stock-notification.svg) |
+| Cart operations                   | [`07-cart.puml`](07-cart.puml)                                               | [`07-cart.svg`](rendered/07-cart.svg)                                               |
+| Checkout and payment settlement   | [`08-checkout-and-payment.puml`](08-checkout-and-payment.puml)               | [`08-checkout-and-payment.svg`](rendered/08-checkout-and-payment.svg)               |
+| Payment Links and guest orders    | [`09-payment-link-guest.puml`](09-payment-link-guest.puml)                   | [`09-payment-link-guest.svg`](rendered/09-payment-link-guest.svg)                   |
+| Orders and status history         | [`10-orders-history-statuses.puml`](10-orders-history-statuses.puml)         | [`10-orders-history-statuses.svg`](rendered/10-orders-history-statuses.svg)         |
+| Promo-code lifecycle              | [`11-promo-codes.puml`](11-promo-codes.puml)                                 | [`11-promo-codes.svg`](rendered/11-promo-codes.svg)                                 |
 
-## How to render them
+## Diagrams
 
-Each `.puml` is a complete diagram. Open [planttext.com](https://www.planttext.com),
-paste the contents of **one** file and hit Refresh. PlantText renders one diagram
-at a time, so don't paste them together.
+<details open>
+<summary>01 · Sign-up and verification</summary>
 
-Alternative without copy-pasting: the public server accepts the source in the URL, and
-the PlantUML extensions for VS Code and JetBrains preview the file
-directly when you open it.
+![Sign-up and verification sequence](rendered/01-auth-signup.svg)
+</details>
 
-## What each one covers
+<details>
+<summary>02 · Sign-in and refresh rotation</summary>
 
-| File | Contract operations |
-|---|---|
-| `01-auth-signup.puml` | `signUp`, `resendEmailVerification`, `confirmEmailVerification` |
-| `02-auth-session.puml` | `signIn`, `refreshSession`, `signOut` |
-| `03-auth-passwords.puml` | `forgotPassword`, `resetPassword`, `changePassword` |
-| `04-catalog-read.puml` | `listCategories`, `listProducts`, `getProduct` |
-| `05-catalog-management.puml` | `createCategory`, `updateCategory`, `deleteCategory`, `createProduct`, `updateProduct`, `deleteProduct`, `uploadProductImage`, `deleteProductImage`, `createSku`, `updateSku` |
-| `06-like-and-stock-notification.puml` | `setProductLike` and the queue it triggers |
-| `07-cart.puml` | `getCart`, `addCartItem`, `updateCartItem`, `removeCartItem` |
-| `08-checkout-and-payment.puml` | `checkout`, `receiveStripeEvent` |
-| `09-payment-link-guest.puml` | `createPaymentLink`, `getGuestOrder` |
-| `10-orders-history-statuses.puml` | `listOrders`, `getOrder`, `updateOrderStatus` |
-| `11-promo-codes.puml` | `createPromoCode`, `listPromoCodes`, `updatePromoCode`, `validatePromoCode` |
+![Sign-in and refresh rotation sequence](rendered/02-auth-session.svg)
+</details>
 
-## The notes in red
+<details>
+<summary>03 · Password recovery and change</summary>
 
-The `#ffe0e0` boxes are not decoration: they mark the six spots where the design can
-bite you, and they're the questions worth arriving with an answer for.
+![Password recovery and change sequence](rendered/03-auth-passwords.svg)
+</details>
 
-| Diagram | What it marks |
-|---|---|
-| `04` | `anyOf` validates if **any** branch validates: the contract can't detect a wrong-role projection in either direction |
-| `07` | A bare `cartItemId` in the route: if the service doesn't check whose line it is, that's a BOLA |
-| `08` | The webhook's 200 is an acknowledgment, not settlement; and you have to cancel in Stripe **before** releasing the stock |
-| `09` | Without address collection the webhook can't fill NOT NULL columns: the charge goes through and the order never gets recorded. And possessing the URL of a guest order **is** the credential |
-| `10` | 404 and never 403 outside of scope, so the status code can't be used as an enumerator |
-| `11` | Validating a coupon doesn't hold anything: checkout re-checks it |
+<details>
+<summary>04 · Public catalog reads</summary>
 
-## Pending verification
+![Public catalog sequence](rendered/04-catalog-read.svg)
+</details>
 
-None of them has been rendered: there is no PlantUML in the project. Before using
-them in the defense, run them through PlantText.
+<details>
+<summary>05 · Catalog management</summary>
+
+![Catalog management sequence](rendered/05-catalog-management.svg)
+</details>
+
+<details>
+<summary>06 · Likes and low-stock notifications</summary>
+
+![Likes and low-stock notification sequence](rendered/06-like-and-stock-notification.svg)
+</details>
+
+<details>
+<summary>07 · Cart operations</summary>
+
+![Cart sequence](rendered/07-cart.svg)
+</details>
+
+<details>
+<summary>08 · Checkout and payment settlement</summary>
+
+![Checkout and payment settlement sequence](rendered/08-checkout-and-payment.svg)
+</details>
+
+<details>
+<summary>09 · Payment Links and guest orders</summary>
+
+![Payment Links and guest order sequence](rendered/09-payment-link-guest.svg)
+</details>
+
+<details>
+<summary>10 · Orders and status history</summary>
+
+![Orders and status history sequence](rendered/10-orders-history-statuses.svg)
+</details>
+
+<details>
+<summary>11 · Promo-code lifecycle</summary>
+
+![Promo-code sequence](rendered/11-promo-codes.svg)
+</details>
+
+## Maintaining the diagrams
+
+Update the `.puml` source first, render it locally to SVG and commit both files.
+Do not depend on a public PlantUML server from the README: a checked-in image is
+available offline, does not disclose source during rendering and cannot break
+when an external service is unavailable.
+
+With a local PlantUML CLI, run this directory's sources with SVG output directed
+to `rendered/`. The checked-in files were generated locally with PlantUML's
+official JavaScript engine.
+
+Red note boxes identify security boundaries or non-obvious contracts worth
+preserving: ownership checks, asynchronous webhook acknowledgement, Stripe
+cancellation before releasing reservations, guest-link possession as a
+credential, scoped 404 responses and promo-code revalidation at checkout.

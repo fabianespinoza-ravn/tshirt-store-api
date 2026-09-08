@@ -43,8 +43,8 @@ export function configureApp(
   //
   // On the query string this rejects any extra parameter, `utm_source`
   // included. That's deliberate for now: it's the same thing that stops
-  // `customerId` from being silently ignored. See finding 35 of
-  // docs/DESIGN-ATTACK.md.
+  // `customerId` from being silently ignored. If tracking parameters become
+  // a product requirement, they need to be declared explicitly instead.
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
