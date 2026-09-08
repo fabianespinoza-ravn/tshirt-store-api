@@ -11,6 +11,10 @@ import {
 import type Stripe from 'stripe';
 import { availableOf } from '../../catalog/views';
 import { newId } from '../../common/ids';
+import {
+  StockNotificationsService,
+  type StockChange,
+} from '../../notifications/stock-notifications.service';
 import { recordStatus } from '../../orders/order-writes';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PAYMENT_LINK_QUANTITY } from '../stripe.service';
@@ -104,6 +108,7 @@ export class PaymentLinkCheckoutService {
   constructor(
     private readonly prisma: PrismaService,
     config: ConfigService,
+    private readonly stockNotifications: StockNotificationsService,
   ) {
     this.expectedCurrency = config.getOrThrow<string>('STRIPE_CURRENCY');
   }
@@ -283,7 +288,7 @@ export class PaymentLinkCheckoutService {
     const orderId = newId();
     const paymentId = newId();
 
-    const status = await this.prisma.$transaction(
+    const result = await this.prisma.$transaction(
       async (tx) => {
         const buyerId = await this.buyerFor(tx, email);
 
@@ -304,11 +309,19 @@ export class PaymentLinkCheckoutService {
           sku.product.isActive &&
           availableOf(sku) >= PAYMENT_LINK_QUANTITY;
 
+        let stockChange: StockChange | null = null;
+
         if (fulfillable) {
-          await tx.sku.update({
+          const updated = await tx.sku.update({
             where: { id: link.skuId },
             data: { stock: { decrement: PAYMENT_LINK_QUANTITY } },
           });
+          stockChange = {
+            skuId: updated.id,
+            previousStock: updated.stock + PAYMENT_LINK_QUANTITY,
+            newStock: updated.stock,
+            restockCycle: updated.restockCycle,
+          };
         }
 
         const orderStatus = fulfillable ? OrderStatus.PAID : OrderStatus.FAILED;
@@ -365,12 +378,24 @@ export class PaymentLinkCheckoutService {
           },
         });
 
-        return orderStatus;
+        return { status: orderStatus, stockChange };
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
 
-    if (status === OrderStatus.FAILED) {
+    if (result.stockChange) {
+      try {
+        await this.stockNotifications.observeStockChange(result.stockChange);
+      } catch (error) {
+        this.logger.error(
+          `Could not observe the stock change for SKU ${result.stockChange.skuId} after settling payment-link order ${orderId}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+    }
+
+    if (result.status === OrderStatus.FAILED) {
       // ─── Extension point: the refund this order owes ──────────────────
       //
       // A FAILED order with a SUCCEEDED payment is money kept for goods that
@@ -400,7 +425,7 @@ export class PaymentLinkCheckoutService {
       );
     }
 
-    return { orderId, paymentId, status };
+    return { orderId, paymentId, status: result.status };
   }
 
   /**

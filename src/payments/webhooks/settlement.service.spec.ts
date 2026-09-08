@@ -146,6 +146,10 @@ describe('SettlementService', () => {
     h.prisma.payment.updateMany.mockResolvedValue({ count: 1 });
     h.prisma.webhookEvent.updateMany.mockResolvedValue({ count: 1 });
     h.prisma.orderStatusHistory.count.mockResolvedValue(1);
+    h.prisma.sku.update.mockResolvedValue({
+      ...sku,
+      stock: sku.stock - 3,
+    });
     // `pay` reads this row's id back to mark it SENT after the confirmation
     // is actually enqueued; without a fixture here every PENDING case would
     // have to supply one just to keep `confirm` from being handed
@@ -386,6 +390,66 @@ describe('SettlementService', () => {
       await h.service.settle(aSettlementJob());
 
       expect(h.prisma.$transaction).toHaveBeenCalledTimes(1);
+    });
+
+    it('observes the authoritative stock change after the settlement transaction commits', async () => {
+      let releaseTransaction!: () => void;
+      const transactionResolved = new Promise<void>((resolve) => {
+        releaseTransaction = resolve;
+      });
+
+      h.prisma.$transaction.mockImplementation((operation: unknown) => {
+        if (typeof operation !== 'function') {
+          return Promise.all(operation as Promise<unknown>[]);
+        }
+
+        return (async () => {
+          const result = await (
+            operation as (tx: typeof h.prisma) => Promise<unknown>
+          )(h.prisma);
+          await transactionResolved;
+          return result;
+        })();
+      });
+
+      const settling = h.service.settle(aSettlementJob());
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(h.stockNotifications.observeStockChange).not.toHaveBeenCalled();
+
+      releaseTransaction();
+      await expect(settling).resolves.toBe(SettlementOutcome.Paid);
+      expect(h.stockNotifications.observeStockChange).toHaveBeenCalledWith({
+        skuId: sku.id,
+        previousStock: 10,
+        newStock: 7,
+        restockCycle: sku.restockCycle,
+      });
+    });
+
+    it(`still answers ${SettlementOutcome.Paid} when observing stock rejects after commit`, async () => {
+      const logged = jest.spyOn(Logger.prototype, 'error').mockImplementation();
+      h.stockNotifications.observeStockChange.mockRejectedValue(
+        new Error('stock queue unavailable'),
+      );
+
+      await expect(h.service.settle(aSettlementJob())).resolves.toBe(
+        SettlementOutcome.Paid,
+      );
+      expect(h.stockNotifications.observeStockChange).toHaveBeenCalledTimes(1);
+      expect(logged).toHaveBeenCalledWith(
+        expect.stringContaining('stock queue unavailable'),
+      );
+      logged.mockRestore();
+    });
+
+    it('does not observe stock when the settlement transaction fails', async () => {
+      h.prisma.sku.update.mockRejectedValue(new Error('write failed'));
+
+      await expect(h.service.settle(aSettlementJob())).rejects.toThrow(
+        'write failed',
+      );
+      expect(h.stockNotifications.observeStockChange).not.toHaveBeenCalled();
     });
   });
 

@@ -9,6 +9,7 @@ import {
   type Product,
   type Sku,
 } from '@prisma/client';
+import { Logger } from '@nestjs/common';
 import type Stripe from 'stripe';
 import { newId } from '../../common/ids';
 import { ProblemException } from '../../common/problem/problem.exception';
@@ -139,6 +140,7 @@ describe('PaymentLinkCheckoutService', () => {
   beforeEach(() => {
     resetPrismaMock(harness.prisma);
     jest.clearAllMocks();
+    harness.stockNotifications.observeStockChange.mockResolvedValue(false);
 
     product = aProduct();
     sku = aSku(product.id, { price: 2599, stock: 10, reserved: 0 });
@@ -158,6 +160,10 @@ describe('PaymentLinkCheckoutService', () => {
       ...sku,
       product,
     } as never);
+    harness.prisma.sku.update.mockResolvedValue({
+      ...sku,
+      stock: sku.stock - PAYMENT_LINK_QUANTITY,
+    });
     harness.prisma.user.findUnique.mockResolvedValue(null);
     harness.prisma.orderStatusHistory.count.mockResolvedValue(0);
   });
@@ -433,6 +439,89 @@ describe('PaymentLinkCheckoutService', () => {
 
       expect(settlement?.status).toBe(OrderStatus.FAILED);
       expect(harness.prisma.sku.update).not.toHaveBeenCalled();
+    });
+
+    it('observes the authoritative stock change after the Serializable transaction commits', async () => {
+      let releaseTransaction!: () => void;
+      const transactionResolved = new Promise<void>((resolve) => {
+        releaseTransaction = resolve;
+      });
+
+      harness.prisma.$transaction.mockImplementation((operation: unknown) => {
+        if (typeof operation !== 'function') {
+          return Promise.all(operation as Promise<unknown>[]);
+        }
+
+        return (async () => {
+          const result = await (
+            operation as (tx: typeof harness.prisma) => Promise<unknown>
+          )(harness.prisma);
+          await transactionResolved;
+          return result;
+        })();
+      });
+
+      const settling = settle();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(
+        harness.stockNotifications.observeStockChange,
+      ).not.toHaveBeenCalled();
+
+      releaseTransaction();
+      await expect(settling).resolves.toEqual(
+        expect.objectContaining({ status: OrderStatus.PAID }),
+      );
+      expect(
+        harness.stockNotifications.observeStockChange,
+      ).toHaveBeenCalledWith({
+        skuId: sku.id,
+        previousStock: 10,
+        newStock: 9,
+        restockCycle: sku.restockCycle,
+      });
+    });
+
+    it('does not observe stock when the transaction fails', async () => {
+      harness.prisma.sku.update.mockRejectedValue(new Error('write failed'));
+
+      await expect(settle()).rejects.toThrow('write failed');
+      expect(
+        harness.stockNotifications.observeStockChange,
+      ).not.toHaveBeenCalled();
+    });
+
+    it('does not observe stock when the paid purchase cannot be fulfilled', async () => {
+      harness.prisma.sku.findUnique.mockResolvedValue({
+        ...sku,
+        stock: 0,
+        product,
+      } as never);
+
+      await expect(settle()).resolves.toEqual(
+        expect.objectContaining({ status: OrderStatus.FAILED }),
+      );
+      expect(
+        harness.stockNotifications.observeStockChange,
+      ).not.toHaveBeenCalled();
+    });
+
+    it('keeps the paid settlement successful when observing stock rejects after commit', async () => {
+      const logged = jest.spyOn(Logger.prototype, 'error').mockImplementation();
+      harness.stockNotifications.observeStockChange.mockRejectedValue(
+        new Error('stock queue unavailable'),
+      );
+
+      await expect(settle()).resolves.toEqual(
+        expect.objectContaining({ status: OrderStatus.PAID }),
+      );
+      expect(
+        harness.stockNotifications.observeStockChange,
+      ).toHaveBeenCalledTimes(1);
+      expect(logged).toHaveBeenCalledWith(
+        expect.stringContaining('stock queue unavailable'),
+      );
+      logged.mockRestore();
     });
   });
 
