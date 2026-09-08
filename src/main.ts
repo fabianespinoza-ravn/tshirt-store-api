@@ -21,7 +21,7 @@ async function bootstrap() {
   const config = app.get(ConfigService);
 
   configureApp(app, config);
-  setupSwagger(app, config);
+  setupSwagger(app);
 
   await app.listen(config.get<number>('PORT') ?? 3000);
 }
