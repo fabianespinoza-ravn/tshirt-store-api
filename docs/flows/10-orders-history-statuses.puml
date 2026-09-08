@@ -1,5 +1,6 @@
 @startuml
 !theme plain
+skinparam backgroundColor #FFFFFF
 title Orders · History, detail and status lifecycle
 autonumber
 skinparam responseMessageBelowArrow true

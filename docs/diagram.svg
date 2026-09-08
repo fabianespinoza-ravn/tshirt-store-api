@@ -40,7 +40,7 @@
   <rect class="box process" x="720" y="160" width="165" height="90" rx="12"/>
   <text class="label" x="802" y="187">Worker service</text>
   <text class="detail" x="802" y="208">node dist/worker</text>
-  <text class="detail" x="802" y="226">1 replica · private</text>
+  <text class="detail" x="802" y="226">jobs · SQL · private</text>
   <text class="detail" x="802" y="243">no pre-deploy</text>
 
   <rect class="box store" x="435" y="330" width="180" height="85" rx="42"/>
@@ -69,21 +69,24 @@
   <text class="detail" x="1062" y="434">transactional mail</text>
 
   <path class="line" d="M175 192 H270"/>
-  <path class="line" d="M175 277 H230 V205 H270"/>
-  <path class="line" d="M175 362 H220 V205 H270"/>
+  <path class="line" d="M175 277 H210 V205 H270"/>
+  <path class="line" d="M175 362 H230 V220 H270"/>
   <path class="line" d="M460 205 H515"/>
-  <path class="line" d="M605 250 V292 H525 V330"/>
-  <path class="line" d="M720 205 H680 V292 H525 V330"/>
-  <path class="line" d="M605 250 V300 H780 V330"/>
-  <path class="line" d="M802 250 V330"/>
-  <path class="line" d="M695 190 H930 V200 H980"/>
-  <path class="line-dashed" d="M980 220 H940 V145 H365 V165"/>
-  <path class="line" d="M695 225 H935 V310 H980"/>
-  <path class="line" d="M885 225 H945 V420 H980"/>
+  <path class="line" d="M560 250 V285 H500 V330"/>
+  <path class="line" d="M600 415 V445 H900 V235 H885"/>
+  <path class="line" d="M640 250 V300 H750 V330"/>
+  <path class="line" d="M920 190 H980"/>
+  <path class="line-dashed" d="M1145 220 H1190 V80 H365 V165"/>
+  <path class="line" d="M920 310 H980"/>
+  <path class="line" d="M920 420 H980"/>
   <text class="edge-label" x="222" y="186">HTTPS</text>
-  <text class="edge-label" x="487" y="286">enqueue</text>
-  <text class="edge-label" x="750" y="292">SQL</text>
-  <text class="edge-label" x="850" y="137">signed webhook</text>
+  <text class="edge-label" x="500" y="278">enqueue</text>
+  <text class="edge-label" x="750" y="438">jobs</text>
+  <text class="edge-label" x="735" y="294">SQL</text>
+  <text class="edge-label" x="900" y="74">signed webhook</text>
+  <text class="edge-label" x="950" y="182">API</text>
+  <text class="edge-label" x="950" y="302">API</text>
+  <text class="edge-label" x="950" y="412">worker</text>
 
   <rect class="group" x="30" y="565" width="1140" height="155" rx="16"/>
   <text class="group-title" x="50" y="594">Deployment pipeline</text>

@@ -1,5 +1,6 @@
 @startuml
 !theme plain
+skinparam backgroundColor #FFFFFF
 title Auth 1 of 3 · Sign-up and email verification
 autonumber
 skinparam responseMessageBelowArrow true

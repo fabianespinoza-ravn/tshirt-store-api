@@ -1,5 +1,6 @@
 @startuml
 !theme plain
+skinparam backgroundColor #FFFFFF
 title Auth 2 of 3 · Session: sign in, rotate and sign out
 autonumber
 skinparam responseMessageBelowArrow true
