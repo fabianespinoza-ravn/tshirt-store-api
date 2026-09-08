@@ -1,5 +1,6 @@
 @startuml
 !theme plain
+skinparam backgroundColor #FFFFFF
 title Catalog 2 of 3 · Management: product, images and variants
 autonumber
 skinparam responseMessageBelowArrow true

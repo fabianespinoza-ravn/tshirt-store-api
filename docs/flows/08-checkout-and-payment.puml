@@ -1,5 +1,6 @@
 @startuml
 !theme plain
+skinparam backgroundColor #FFFFFF
 title Checkout and payment · Customer, frontend, backend and Stripe
 autonumber
 skinparam responseMessageBelowArrow true

@@ -1,5 +1,6 @@
 @startuml
 !theme plain
+skinparam backgroundColor #FFFFFF
 title Catalog 1 of 3 · Public reads and role-based projection
 autonumber
 skinparam responseMessageBelowArrow true

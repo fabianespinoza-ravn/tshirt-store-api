@@ -1,5 +1,6 @@
 @startuml
 !theme plain
+skinparam backgroundColor #FFFFFF
 title Payment link · Selling to someone without an account
 autonumber
 skinparam responseMessageBelowArrow true

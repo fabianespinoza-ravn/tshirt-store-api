@@ -1,5 +1,6 @@
 @startuml
 !theme plain
+skinparam backgroundColor #FFFFFF
 title Promo codes · Manager management and customer validation
 autonumber
 skinparam responseMessageBelowArrow true

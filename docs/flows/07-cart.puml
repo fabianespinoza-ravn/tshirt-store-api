@@ -1,5 +1,6 @@
 @startuml
 !theme plain
+skinparam backgroundColor #FFFFFF
 title Cart · The four operations and their conflicts
 autonumber
 skinparam responseMessageBelowArrow true
