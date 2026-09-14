@@ -396,30 +396,11 @@ export class PaymentLinkCheckoutService {
     }
 
     if (result.status === OrderStatus.FAILED) {
-      // ─── Extension point: the refund this order owes ──────────────────
-      //
-      // A FAILED order with a SUCCEEDED payment is money kept for goods that
-      // cannot be sent. The refund belongs to the settlement processor that
-      // owns `POST /webhooks/stripe` and the queue — it is the same path that
-      // already refunds a payment landing on a CANCELLED order, and
-      // duplicating it here would give one order two refunders.
-      //
-      // **How often this branch is reached is not a rare-case question.** It
-      // is not only sell-out: availability is `stock - reserved`, so a single
-      // cart checkout holding a reservation is enough, and that reservation
-      // can lapse half an hour later and put the unit back on the shelf with
-      // the link buyer's money still ours. Nothing here retries and nothing
-      // reconciles, so until the refund path exists this log line is the only
-      // alarm, and it is an `error` for that reason rather than a `warn`.
-      //
-      // What this branch guarantees for that path is the state to act on: the
-      // order, its single line, and a `Payment` row carrying the checkout
-      // session and the payment intent.
-      //
-      // Catalogue mutations deactivate known stale links locally and at
-      // Stripe. This branch still protects the race where a purchase lands
-      // before that best-effort cleanup completes, or Stripe refuses it.
-      // ──────────────────────────────────────────────────────────────────
+      // A FAILED order with a SUCCEEDED payment owes a refund, but this
+      // service does not issue it — that stays the settlement processor's
+      // job, to avoid two refunders. Until it covers this case too, this
+      // error log is the only alarm. See
+      // docs/adr/0004-payment-link-failed-order-refund-ownership.md.
       this.logger.error(
         `Order ${orderId} was paid through payment link ${link.id} but could not be fulfilled from SKU ${link.skuId}; it owes a refund.`,
       );

@@ -126,59 +126,13 @@ export class OrdersController {
   }
 
   /**
-   * The order's status history, as a sub-resource of the order.
-   *
-   * WHY A SUB-RESOURCE. Every transition row is meaningless without its
-   * order — `sequence` is unique per order and not globally — and it is
-   * readable exactly when the order is. A collection at `/order-status-history`
-   * with an `orderId` filter would state the opposite: that the rows are a
-   * resource in their own right whose scope has to be re-derived from a
-   * query parameter, which is the shape that produces an identifier oracle.
-   *
-   * WHY 404 AND NEVER 403. The same reason `getOrder` gives above, and it
-   * comes from the same `where`: `OrdersService.statusHistory` roots its
-   * query at the order and folds the ability's row scope into it, so an
-   * order the caller cannot reach is indistinguishable from one that does
-   * not exist. A 403 here would confirm that an id belongs to somebody, and
-   * it would do it on a route whose whole payload is a list of what happened
-   * to that somebody's order.
-   *
-   * WHAT THE PAYLOAD DOES NOT CARRY: `deliveredById`. The one transition
-   * that records who performed it writes that column on `Order`, not on
-   * `OrderStatusHistory`, so attributing the DELIVERED entry to the courier
-   * currently named there is an inference and not a recorded fact — a later
-   * transition out of DELIVERED, or a re-delivery, would rewrite the column
-   * and silently restate history. It is also personal data about a third
-   * party with no client-facing purpose: a buyer needs to know their order
-   * was delivered and when, not by whom. If the courier's identity is ever
-   * to be published it needs a `performedById` column on the history row so
-   * the attribution is a fact, and a MANAGER-only projection — which
-   * `docs/AUTHORIZATION-MATRIX.md` puts outside the ability, under "the
-   * per-role projection", because CASL's field permissions only restrict and
-   * this one would have to add.
-   *
-   * ─── Extension point: a subject of its own ──────────────────────────────
-   *
-   * This route rides on the existing `read Order` rule, which is what makes
-   * it work today for all three roles the matrix names. If the author would
-   * rather model the history as its own subject — a defensible reading,
-   * since it is a different resource with a different projection — the rules
-   * are the rules for that extension point:
-   *
-   *   CLIENT   · read · OrderStatusHistory · { order: { is: { userId: <caller> } } }
-   *   MANAGER  · read · OrderStatusHistory · (unconditional)
-   *   DELIVERY · read · OrderStatusHistory · { order: { is: { status: SHIPPED } } }
-   *   DELIVERY · read · OrderStatusHistory · { order: { is: { deliveredById: <caller> } } }
-   *
-   * from the `getOrderStatusHistory` row this branch adds to the Orders
-   * table of `docs/AUTHORIZATION-MATRIX.md`, whose scope column is copied
-   * verbatim from `getOrder`. Adding `'OrderStatusHistory'` to
-   * `AppSubjectName` without those four rules is strictly worse than not
-   * adding it: `PoliciesGuard` denies what the ability does not grant, so
-   * every role would receive 403 and the route would not exist. Until they
-   * are written, `read Order` is the rule, and the scope this handler
-   * actually applies is the order's.
-   * ────────────────────────────────────────────────────────────────────────
+   * The order's status history, as a sub-resource of the order: it rides the
+   * existing `read Order` rule and its 404-never-403 scoping instead of a
+   * top-level, `orderId`-filtered collection, and the payload omits
+   * `deliveredById` since that column is an inference, not a recorded fact,
+   * and names a third party with no client-facing purpose. See
+   * docs/adr/0003-order-status-history-sub-resource.md, including the
+   * extension point for modeling this as its own CASL subject.
    */
   @CheckPolicies({ action: 'read', subject: 'Order' })
   @ApiOperation({
