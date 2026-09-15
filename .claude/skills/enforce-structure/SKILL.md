@@ -43,21 +43,34 @@ repo declared.
    specifier against the file's old location, map it through the moves,
    recompute from the new location.
 
-5. **Verify — this step is the point.** Run, in order, stopping at the first
-   failure:
-   - `npm run typecheck` — catches every broken import path. A migration
-     that doesn't typecheck is a failed migration, not a partial one.
-   - `npm test` — catches module wiring that resolves but no longer loads.
-   - `npm run build` — catches anything the emit sees that the others don't.
+5. **Verify with the repo's full CI sequence — this step is the point.** In
+   this repo that is `/preflight`; in another, run whatever its CI runs.
+   Type checking, tests and build are not enough on their own, and this is
+   not a hypothetical: on the first real migration all three passed green
+   while `lint:ci` failed with nine errors.
+   - A **path glob that stops matching turns a rule off** rather than
+     failing — an `ignores: ['src/common/**']` that no longer matches means
+     the rule it exempted now fires on files it was written to spare.
+   - A **lengthened specifier can outgrow the formatter's line width**, so
+     `format:check` fails on a line nobody edited. Run the repo's formatter
+     (`npm run format` here) and re-run the sequence; the script does the
+     semantic rewrite and leaves formatting to whatever the repo already
+     uses for it.
 
-   Report success only with all three green. If typecheck fails, read what
-   it says before touching anything: the failures name the exact specifiers
-   that were computed wrong, which is usually one pattern repeated, not
-   dozens of separate problems.
+   Report success only with the whole sequence green. If type checking
+   fails, read it before touching anything: the failures name the exact
+   specifiers computed wrong, and it is usually one pattern repeated rather
+   than dozens of separate problems. Fix the script, not the output — a
+   hand-patched import hides a bug that ships.
 
 6. **Re-check.** Run the checker again; the violations it moved should be
    gone. Then run `audit-repo-docs`: a move breaks documentation that cites
    the old paths, and that check is what finds those.
+
+   **Stage the move before auditing.** Until it is staged, `git ls-files`
+   still reports the old paths, so every new path reads as untracked and the
+   audit mixes real stale citations with that artefact. Staging first makes
+   the list say only what actually broke.
 
 ## Extending to another repo
 

@@ -1,5 +1,5 @@
 import { UserRole, UserState } from '@prisma/client';
-import { Problems } from '../common/problem/problem.catalog';
+import { Problems } from '../shared/common/problem/problem.catalog';
 import { buildService, type ServiceHarness } from '../testing/build-service';
 import {
   aOneTimeToken,

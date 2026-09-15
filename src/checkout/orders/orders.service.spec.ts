@@ -1,0 +1,1495 @@
+import {
+  CartStatus,
+  OrderStatus,
+  type Payment,
+  PaymentMethod,
+  PaymentStatus,
+  UserRole,
+} from '@prisma/client';
+
+/* Jest's asymmetric matchers are typed as `any`; the assertions below are
+ * deliberately partial Prisma-call checks, not values passed to production. */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+
+import { AppAbilityFactory } from '../../auth/casl/app-ability.factory';
+import type { AuthenticatedUser } from '../../shared/common/decorators/current-user.decorator';
+import { Problems } from '../../shared/common/problem/problem.catalog';
+import { buildService, type ServiceHarness } from '../../testing/build-service';
+import {
+  aCart,
+  aCartItem,
+  anOrder,
+  anOrderItem,
+  aProduct,
+  aPromoCode,
+  aSku,
+} from '../../testing/factories';
+import {
+  arrangeStatusHistory,
+  HISTORY_ORDER_ID,
+  RECORDED_TRANSITIONS,
+  SHUFFLED_TRANSITIONS,
+} from '../../testing/order-history.fixtures';
+import { resetPrismaMock } from '../../testing/prisma.mock';
+import { OrdersService } from './orders.service';
+import { exactlyTheseInAnyOrder } from '../../testing/matchers';
+import { deferred, flushMicrotasks } from '../../testing/deferred';
+
+/**
+ * The cases that decide whether this module is safe are the ones about the
+ * `where` and the ones about the transaction, and they fail differently.
+ *
+ * The scope is the same story as the cart: `PoliciesGuard` stopped rejecting
+ * a conditional rule, so the only thing keeping one client out of another's
+ * order is what this service folds into its Prisma `where`. Assert the
+ * `where` itself — a service that dropped the scope would still throw a 404
+ * for a missing row while returning somebody else's.
+ *
+ * The transaction is new. Availability is `stock - reserved`, which cannot
+ * be expressed as an atomic `where`, so the check and the increment are two
+ * statements and only the isolation level stops two checkouts from both
+ * passing the check and overselling by one. That is why `checkout` asserts
+ * how `$transaction` was called and not only what it produced: a version
+ * that dropped the isolation option would pass every test that looked at
+ * the resulting order.
+ */
+describe('OrdersService', () => {
+  let h: ServiceHarness<OrdersService>;
+
+  const client: AuthenticatedUser = {
+    id: 'client-1',
+    email: 'client@example.test',
+    role: UserRole.CLIENT,
+  };
+
+  const manager: AuthenticatedUser = {
+    id: 'manager-1',
+    email: 'manager@example.test',
+    role: UserRole.MANAGER,
+  };
+
+  /**
+   * The courier, hoisted here because the DELIVERY cases need it in more than
+   * one place. Note that nothing about ownership appears in this fixture: a
+   * courier reaches an order through its status and through `deliveredById`,
+   * never through `userId`, so every order below is owned by `client` and
+   * that is the point rather than an oversight.
+   */
+  const delivery: AuthenticatedUser = {
+    id: 'delivery-1',
+    email: 'delivery@example.test',
+    role: UserRole.DELIVERY,
+  };
+
+  beforeEach(async () => {
+    h = await buildService(OrdersService, [AppAbilityFactory]);
+    resetPrismaMock(h.prisma);
+  });
+
+  describe('checkout', () => {
+    const address = {
+      recipientName: 'Ada Lovelace',
+      line1: '1 Analytical Street',
+      city: 'London',
+      postalCode: 'E1 6AN',
+    };
+
+    function arrangeCheckout(
+      options: {
+        cart?: ReturnType<typeof aCart> & { items: unknown[] };
+        sku?: ReturnType<typeof aSku> & {
+          product: ReturnType<typeof aProduct>;
+        };
+        pending?: ReturnType<typeof anOrder> & {
+          items: ReturnType<typeof anOrderItem>[];
+        };
+      } = {},
+    ) {
+      const product = aProduct({ name: 'Fresh tee' });
+      const sku = options.sku ?? {
+        ...aSku(product.id, { price: 1250 }),
+        product,
+      };
+      const cart = options.cart ?? {
+        ...aCart(client.id),
+        items: [{ ...aCartItem('cart-1', sku.id, { quantity: 2 }), sku }],
+      };
+      const result = {
+        ...anOrder(client.id),
+        items: [],
+        payments: [],
+      };
+
+      // Two reads of the pending order, in this order: `stopLapsedPayment`
+      // outside the transaction, to decide whether an intent has to be
+      // cancelled before anything is released, and `settlePendingOrder`
+      // inside it, which is the one Serializable can actually protect. The
+      // third and later reads are the view.
+      h.prisma.order.findFirst.mockResolvedValueOnce(options.pending ?? null);
+      h.prisma.order.findFirst.mockResolvedValueOnce(options.pending ?? null);
+      h.prisma.order.findFirst.mockResolvedValue(result);
+      h.prisma.cart.findFirst.mockResolvedValue(cart);
+      h.prisma.sku.findUnique.mockResolvedValue(sku);
+      h.prisma.order.updateMany.mockResolvedValue({ count: 1 });
+      h.prisma.cart.updateMany.mockResolvedValue({ count: 1 });
+      h.prisma.orderStatusHistory.count.mockResolvedValue(0);
+      return { cart, product, result, sku };
+    }
+
+    it('refuses a caller with no active cart', async () => {
+      h.prisma.order.findFirst.mockResolvedValue(null);
+      h.prisma.cart.findFirst.mockResolvedValue(null);
+
+      await expect(
+        h.service.checkout(client, {} as never),
+      ).rejects.toMatchObject({
+        kind: Problems.cartNotCheckoutable,
+      });
+    });
+
+    it('refuses an active cart with no lines', async () => {
+      h.prisma.order.findFirst.mockResolvedValue(null);
+      h.prisma.cart.findFirst.mockResolvedValue({
+        ...aCart(client.id),
+        items: [],
+      } as never);
+
+      await expect(
+        h.service.checkout(client, {} as never),
+      ).rejects.toMatchObject({
+        kind: Problems.cartNotCheckoutable,
+      });
+    });
+    it('settles a pending order that already lapsed, giving its units back before reserving new ones', async () => {
+      const oldSku = aSku(aProduct().id);
+      const pending = {
+        ...anOrder(client.id, {
+          // Placed half an hour before it lapsed, which is what
+          // PENDING_ORDER_TTL_MS makes of a real one. The factory's default
+          // is a fixed date days earlier, and an order that old is past
+          // Stripe's idempotency retention — a state checkout now refuses to
+          // reclaim, and not the one this case is about.
+          createdAt: new Date(Date.now() - 30 * 60 * 1_000),
+          expiresAt: new Date(Date.now() - 1),
+          status: OrderStatus.PENDING,
+        }),
+        items: [anOrderItem('old-order', oldSku.id, { quantity: 3 })],
+      };
+      const { sku } = arrangeCheckout({ pending });
+
+      await h.service.checkout(client, address);
+
+      expect(h.prisma.order.updateMany).toHaveBeenCalledWith({
+        where: { id: pending.id, status: OrderStatus.PENDING },
+        data: { status: OrderStatus.CANCELLED, expiresAt: null },
+      });
+      expect(h.prisma.sku.update.mock.calls).toEqual(
+        expect.arrayContaining([
+          [{ where: { id: oldSku.id }, data: { reserved: { decrement: 3 } } }],
+          [{ where: { id: sku.id }, data: { reserved: { increment: 2 } } }],
+        ]),
+      );
+    });
+
+    it('refuses when a pending order already exists, and says when it expires', async () => {
+      const expiresAt = new Date(Date.now() + 60_000);
+      arrangeCheckout({
+        pending: { ...anOrder(client.id, { expiresAt }), items: [] },
+      });
+
+      await expect(h.service.checkout(client, address)).rejects.toMatchObject({
+        kind: Problems.orderAlreadyPending,
+        extensions: { expiresAt: expiresAt.toISOString() },
+      });
+    });
+
+    it('runs every precondition, the reservation and the insert in one serializable transaction', async () => {
+      arrangeCheckout();
+      await h.service.checkout(client, address);
+      expect(h.prisma.$transaction).toHaveBeenCalledWith(
+        expect.any(Function),
+        expect.objectContaining({ isolationLevel: 'Serializable' }),
+      );
+    });
+
+    it('reserves each line by incrementing the SKU rather than writing a total', async () => {
+      const { sku } = arrangeCheckout();
+      await h.service.checkout(client, address);
+      expect(h.prisma.sku.update).toHaveBeenCalledWith({
+        where: { id: sku.id },
+        data: { reserved: { increment: 2 } },
+      });
+    });
+
+    it('re-reads availability inside the transaction, not from the cart', async () => {
+      const product = aProduct();
+      const staleSku = { ...aSku(product.id, { stock: 100 }), product };
+      const freshSku = {
+        ...aSku(product.id, { id: staleSku.id, stock: 2 }),
+        product,
+      };
+      const cart = {
+        ...aCart(client.id),
+        items: [
+          {
+            ...aCartItem('cart-1', staleSku.id, { quantity: 3 }),
+            sku: staleSku,
+          },
+        ],
+      };
+      arrangeCheckout({ cart, sku: freshSku });
+      await expect(h.service.checkout(client, address)).rejects.toMatchObject({
+        kind: Problems.stockUnavailable,
+      });
+      expect(h.prisma.sku.findUnique).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: staleSku.id } }),
+      );
+    });
+
+    it('refuses a line whose product was withdrawn or soft-deleted', async () => {
+      const product = aProduct({ deletedAt: new Date() });
+      arrangeCheckout({ sku: { ...aSku(product.id), product } });
+      await expect(h.service.checkout(client, address)).rejects.toMatchObject({
+        kind: Problems.itemWithdrawn,
+      });
+    });
+
+    it('refuses a line that no longer fits in the available stock', async () => {
+      const product = aProduct();
+      arrangeCheckout({
+        sku: { ...aSku(product.id, { stock: 2, reserved: 1 }), product },
+      });
+      await expect(h.service.checkout(client, address)).rejects.toMatchObject({
+        kind: Problems.stockUnavailable,
+      });
+    });
+
+    it('freezes productName and unitPrice on the order line', async () => {
+      const { product, sku } = arrangeCheckout();
+      await h.service.checkout(client, address);
+      const data = h.prisma.order.create.mock.calls[0][0].data as never as {
+        items: { create: unknown[] };
+      };
+      expect(data.items.create).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            productName: product.name,
+            unitPrice: sku.price,
+          }),
+        ]),
+      );
+    });
+
+    it('totals the order from the prices it froze', async () => {
+      const { sku } = arrangeCheckout();
+      await h.service.checkout(client, address);
+      expect(h.prisma.order.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            subtotal: sku.price * 2,
+            total: sku.price * 2,
+          }),
+        }),
+      );
+    });
+
+    it('revalidates and reserves a promo use with the order and its stock', async () => {
+      const { sku } = arrangeCheckout();
+      const promoCode = aPromoCode({
+        id: 'promo-1',
+        code: 'SAVE10',
+        discountValue: 10,
+      });
+      h.prisma.promoCode.findUnique.mockResolvedValue(promoCode);
+      h.prisma.promoCode.updateMany.mockResolvedValue({ count: 1 });
+
+      await h.service.checkout(client, { ...address, promoCode: 'SAVE10' });
+
+      expect(h.prisma.promoCode.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            id: promoCode.id,
+            liveCode: 'SAVE10',
+            usageReserved: { lt: promoCode.usageLimit },
+          }),
+          data: { usageReserved: { increment: 1 } },
+        }),
+      );
+      expect(h.prisma.order.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            subtotal: sku.price * 2,
+            orderDiscountAmount: 250,
+            total: 2250,
+          }),
+        }),
+      );
+      expect(h.prisma.promoCodeRedemption.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          promoCodeId: promoCode.id,
+          codeSnapshot: 'SAVE10',
+          discountApplied: 250,
+        }),
+      });
+      expect(h.stripe.createPaymentIntent).toHaveBeenCalledWith(
+        expect.objectContaining({ total: 2250 }),
+      );
+    });
+
+    it('spends the cart with its ACTIVE status as a precondition, not only in the data', async () => {
+      const { cart } = arrangeCheckout();
+      await h.service.checkout(client, address);
+      expect(h.prisma.cart.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: cart.id, status: CartStatus.ACTIVE },
+        }),
+      );
+    });
+
+    it('clears the mirror column so the client can start another cart', async () => {
+      arrangeCheckout();
+      await h.service.checkout(client, address);
+      expect(h.prisma.cart.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: { status: CartStatus.CHECKED_OUT, activeUserId: null },
+        }),
+      );
+    });
+
+    it('refuses when a concurrent request already spent the cart', async () => {
+      arrangeCheckout();
+      h.prisma.cart.updateMany.mockResolvedValue({ count: 0 });
+      await expect(h.service.checkout(client, address)).rejects.toMatchObject({
+        kind: Problems.cartNotCheckoutable,
+      });
+    });
+
+    it('writes the first status history row at sequence 0', async () => {
+      arrangeCheckout();
+      await h.service.checkout(client, address);
+      expect(h.prisma.orderStatusHistory.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            status: OrderStatus.PENDING,
+            sequence: 0,
+          }),
+        }),
+      );
+    });
+
+    it('gives the order an expiry', async () => {
+      const before = Date.now();
+      arrangeCheckout();
+      await h.service.checkout(client, address);
+      const data = h.prisma.order.create.mock.calls[0][0].data as never as {
+        expiresAt: Date;
+      };
+      expect(data.expiresAt.getTime()).toBeGreaterThanOrEqual(
+        before + 1_799_000,
+      );
+      expect(data.expiresAt.getTime()).toBeLessThanOrEqual(
+        Date.now() + 1_801_000,
+      );
+    });
+
+    it('treats a pending order with no expiry as live: refuses it without cancelling or releasing anything', async () => {
+      const pending = {
+        ...anOrder(client.id, { expiresAt: null }),
+        items: [anOrderItem('old-order', 'old-sku', { quantity: 3 })],
+      };
+      arrangeCheckout({ pending });
+
+      await expect(h.service.checkout(client, address)).rejects.toMatchObject({
+        kind: Problems.orderAlreadyPending,
+        extensions: { expiresAt: null },
+      });
+      expect(h.prisma.order.updateMany).not.toHaveBeenCalled();
+      expect(h.prisma.sku.update).not.toHaveBeenCalled();
+      // The history too, and not only the row and the stock: a regression
+      // that returned after recording a CANCELLED entry would leave the
+      // order untouched and still lie about what happened to it.
+      expect(h.prisma.orderStatusHistory.create).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('list', () => {
+    it('folds the ability scope into the where', async () => {
+      h.prisma.order.findMany.mockResolvedValue([]);
+      h.prisma.order.count.mockResolvedValue(0);
+
+      await h.service.list(client, { limit: 2, offset: 0 });
+
+      expect(h.prisma.order.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            AND: expect.arrayContaining([{ OR: [{ userId: client.id }] }]),
+          }),
+        }),
+      );
+    });
+
+    it('filters by status', async () => {
+      h.prisma.order.findMany.mockResolvedValue([]);
+      h.prisma.order.count.mockResolvedValue(0);
+
+      await h.service.list(client, {
+        limit: 2,
+        offset: 0,
+        status: OrderStatus.SHIPPED,
+      });
+
+      expect(h.prisma.order.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            AND: expect.arrayContaining([{ status: OrderStatus.SHIPPED }]),
+          }),
+        }),
+      );
+    });
+    it('filters by the placement date range', async () => {
+      h.prisma.order.findMany.mockResolvedValue([]);
+      h.prisma.order.count.mockResolvedValue(0);
+      await h.service.list(client, {
+        limit: 2,
+        offset: 0,
+        placedFrom: '2026-01-01T00:00:00.000Z',
+        placedTo: '2026-01-31T00:00:00.000Z',
+      });
+      expect(h.prisma.order.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            AND: expect.arrayContaining([
+              {
+                createdAt: {
+                  gte: new Date('2026-01-01T00:00:00.000Z'),
+                  lte: new Date('2026-01-31T00:00:00.000Z'),
+                },
+              },
+            ]),
+          }),
+        }),
+      );
+    });
+    it('filters by the total range', async () => {
+      h.prisma.order.findMany.mockResolvedValue([]);
+      h.prisma.order.count.mockResolvedValue(0);
+      await h.service.list(client, {
+        limit: 2,
+        offset: 0,
+        minTotal: 100,
+        maxTotal: 200,
+      });
+      expect(h.prisma.order.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            AND: expect.arrayContaining([{ total: { gte: 100, lte: 200 } }]),
+          }),
+        }),
+      );
+    });
+    it('combines the three filters', async () => {
+      h.prisma.order.findMany.mockResolvedValue([]);
+      h.prisma.order.count.mockResolvedValue(0);
+      await h.service.list(client, {
+        limit: 2,
+        offset: 0,
+        status: OrderStatus.PAID,
+        minTotal: 100,
+      });
+      expect(h.prisma.order.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            AND: expect.arrayContaining([
+              { status: OrderStatus.PAID, total: { gte: 100 } },
+            ]),
+          }),
+        }),
+      );
+    });
+    it('counts with the same where as the page it describes', async () => {
+      h.prisma.order.findMany.mockResolvedValue([]);
+      h.prisma.order.count.mockResolvedValue(0);
+      await h.service.list(client, { limit: 2, offset: 0 });
+      expect(h.prisma.order.count).toHaveBeenCalledWith({
+        where: (h.prisma.order.findMany.mock.calls[0][0] as { where: unknown })
+          .where,
+      });
+    });
+    it('orders by placement date and breaks ties by id', async () => {
+      h.prisma.order.findMany.mockResolvedValue([]);
+      h.prisma.order.count.mockResolvedValue(0);
+      await h.service.list(client, { limit: 2, offset: 0 });
+      expect(h.prisma.order.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        }),
+      );
+    });
+    it('passes limit and offset through to take and skip', async () => {
+      h.prisma.order.findMany.mockResolvedValue([]);
+      h.prisma.order.count.mockResolvedValue(0);
+      await h.service.list(client, { limit: 3, offset: 6 });
+      expect(h.prisma.order.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ take: 3, skip: 6 }),
+      );
+    });
+  });
+
+  describe('getOne', () => {
+    it('resolves the row with the scope inside the where', async () => {
+      const order = { ...anOrder(client.id), items: [], payments: [] };
+      h.prisma.order.findFirst.mockResolvedValue(order);
+
+      await h.service.getOne(client, order.id);
+
+      expect(h.prisma.order.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            AND: [{ OR: [{ userId: client.id }] }, { id: order.id }],
+          },
+        }),
+      );
+    });
+
+    it("answers 404 and not 403 for another client's order", async () => {
+      h.prisma.order.findFirst.mockResolvedValue(null);
+
+      await expect(
+        h.service.getOne(client, 'another-order'),
+      ).rejects.toMatchObject({
+        kind: Problems.notFound,
+      });
+    });
+  });
+
+  /**
+   * `GET /orders/{orderId}/status-history`, and the two things that make it
+   * safe rather than merely present.
+   *
+   * THE SCOPE. `PoliciesGuard` grants `read Order` by role, so a CLIENT
+   * reaches this handler holding any order id at all; the only thing between
+   * them and another client's transitions is the `where` this service sends.
+   * That is why the cases below are written against
+   * `expect(h.prisma.order.findFirst).toHaveBeenCalledWith(...)` and never
+   * against the array the mock was told to return: a service that dropped the
+   * scope would still answer 404 for a missing order while publishing a
+   * stranger's history for one that exists, and only the `where` tells the
+   * two apart. The shape to expect is the one `getOne` already asserts —
+   * `{ AND: [{ OR: [{ userId: client.id }] }, { id: <the order> }] }` — because
+   * both now build it from the same `reachableOrder`, and a case pinning it
+   * on both is what keeps them from drifting.
+   *
+   * THE SEQUENCE. `recordStatus` numbers each row inside the transaction that
+   * moves the order, which is the only total order over the transitions that
+   * survives two of them landing in the same millisecond — see the last two
+   * rows of `RECORDED_TRANSITIONS`, which share a timestamp. So the claim
+   * "oldest first" is proved by asserting `orderBy: { sequence: 'asc' }` on
+   * the selected relation, not by inspecting the order of the returned array:
+   * the Prisma mock ignores `orderBy` and hands back whatever the fixture
+   * held, so an assertion on the array's order would pass against a service
+   * that asked for no order at all. `SHUFFLED_TRANSITIONS` in
+   * `../testing/order-history.fixtures` is there to make that visible.
+   *
+   * ONE THING THE SCAFFOLD ALREADY LEARNED. CASL does not preserve the order
+   * the rules were declared in, so the courier scope comes back as
+   * `[{ deliveredById }, { status: SHIPPED }]`. Pin it with
+   * `exactlyTheseInAnyOrder` as the DELIVERY block below already does; an
+   * `arrayContaining` would admit a third rule that widened the courier reach.
+   *
+   * Every case below began as an `it.todo`. The assertions are intentionally
+   * independent of the route and query implementation: an assertion derived
+   * only from that implementation agrees with whatever the code does, bugs
+   * included. The fixtures, arrangement and names provide setup; the `expect`
+   * calls pin the contract.
+   */
+  describe('statusHistory', () => {
+    beforeEach(() => {
+      arrangeStatusHistory(h.prisma);
+    });
+
+    it("folds the read scope into the where, so a client cannot reach another client's history", async () => {
+      await h.service.statusHistory(client, HISTORY_ORDER_ID);
+
+      expect(h.prisma.order.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            AND: [{ OR: [{ userId: client.id }] }, { id: HISTORY_ORDER_ID }],
+          },
+        }),
+      );
+    });
+
+    it('sends the same where as getOne for the same caller and order id', async () => {
+      const order = { ...anOrder(client.id), items: [], payments: [] };
+      h.prisma.order.findFirst
+        .mockResolvedValueOnce(order)
+        .mockResolvedValueOnce({ statusHistory: [] } as never);
+
+      await h.service.getOne(client, HISTORY_ORDER_ID);
+      await h.service.statusHistory(client, HISTORY_ORDER_ID);
+
+      expect(h.prisma.order.findFirst.mock.calls[1]?.[0]?.where).toEqual(
+        h.prisma.order.findFirst.mock.calls[0]?.[0]?.where,
+      );
+    });
+
+    it('asks for the entries ordered by sequence ascending, not by their timestamp', async () => {
+      arrangeStatusHistory(h.prisma, { transitions: SHUFFLED_TRANSITIONS });
+
+      await h.service.statusHistory(client, HISTORY_ORDER_ID);
+
+      expect(h.prisma.order.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          select: {
+            statusHistory: expect.objectContaining({
+              orderBy: { sequence: 'asc' },
+            }),
+          },
+        }),
+      );
+    });
+
+    it('selects only status, sequence and createdAt, so a column added to the history row later is not published', async () => {
+      await h.service.statusHistory(client, HISTORY_ORDER_ID);
+
+      expect(h.prisma.order.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          select: {
+            statusHistory: {
+              select: {
+                status: true,
+                sequence: true,
+                createdAt: true,
+              },
+              orderBy: { sequence: 'asc' },
+            },
+          },
+        }),
+      );
+    });
+
+    it('reads the history through the order in a single query, never through orderStatusHistory.findMany', async () => {
+      await h.service.statusHistory(client, HISTORY_ORDER_ID);
+
+      expect(h.prisma.order.findFirst).toHaveBeenCalledTimes(1);
+      expect(h.prisma.orderStatusHistory.findMany).not.toHaveBeenCalled();
+    });
+
+    it('answers 404 and not 403 for an order outside the caller scope', async () => {
+      arrangeStatusHistory(h.prisma, { reachable: false });
+
+      await expect(
+        h.service.statusHistory(client, 'another-client-order'),
+      ).rejects.toMatchObject({ kind: Problems.notFound });
+    });
+
+    it('answers 404 with the same problem for an order that does not exist, so the route is not an identifier oracle', async () => {
+      arrangeStatusHistory(h.prisma, { reachable: false });
+
+      await expect(
+        h.service.statusHistory(client, 'missing-order'),
+      ).rejects.toMatchObject({ kind: Problems.notFound });
+    });
+
+    it('returns an empty list for a reachable order that has recorded no transitions', async () => {
+      arrangeStatusHistory(h.prisma, { transitions: [] });
+
+      await expect(
+        h.service.statusHistory(client, HISTORY_ORDER_ID),
+      ).resolves.toEqual([]);
+    });
+
+    it('serializes each entry occurredAt as an ISO 8601 string', async () => {
+      const result = await h.service.statusHistory(client, HISTORY_ORDER_ID);
+
+      expect(result.map((entry) => entry.occurredAt)).toEqual(
+        RECORDED_TRANSITIONS.map((entry) => entry.createdAt.toISOString()),
+      );
+    });
+
+    it('publishes the sequence on every entry, so a client can order them without trusting the array', async () => {
+      const result = await h.service.statusHistory(client, HISTORY_ORDER_ID);
+
+      expect(result.map((entry) => entry.sequence)).toEqual(
+        RECORDED_TRANSITIONS.map((entry) => entry.sequence),
+      );
+    });
+
+    it('publishes neither the history row id nor the courier who completed the delivery', async () => {
+      const result = await h.service.statusHistory(client, HISTORY_ORDER_ID);
+
+      expect(result).toEqual(
+        RECORDED_TRANSITIONS.map((entry) => ({
+          status: entry.status,
+          sequence: entry.sequence,
+          occurredAt: entry.createdAt.toISOString(),
+        })),
+      );
+    });
+
+    it('sends the manager scope, which is unconditional, for a manager reading any order', async () => {
+      await h.service.statusHistory(manager, HISTORY_ORDER_ID);
+
+      expect(h.prisma.order.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { AND: [{}, { id: HISTORY_ORDER_ID }] },
+        }),
+      );
+    });
+
+    it('sends the shipped-plus-own-deliveries scope for a courier', async () => {
+      await h.service.statusHistory(delivery, HISTORY_ORDER_ID);
+
+      expect(h.prisma.order.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            AND: [
+              {
+                OR: exactlyTheseInAnyOrder([
+                  { status: OrderStatus.SHIPPED },
+                  { deliveredById: delivery.id },
+                ]),
+              },
+              { id: HISTORY_ORDER_ID },
+            ],
+          },
+        }),
+      );
+    });
+
+    it('sends a scope matching nothing for a role the ability grants no order rule', async () => {
+      const unsupported = {
+        id: 'unsupported-1',
+        email: 'unsupported@example.test',
+        role: 'UNSUPPORTED' as UserRole,
+      };
+
+      await h.service.statusHistory(unsupported, HISTORY_ORDER_ID);
+
+      expect(h.prisma.order.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { AND: [{ OR: [] }, { id: HISTORY_ORDER_ID }] },
+        }),
+      );
+    });
+  });
+
+  describe('updateStatus', () => {
+    function arrangeStatusChange(
+      status: OrderStatus = OrderStatus.PENDING,
+      items = [anOrderItem('order-1', 'sku-1', { quantity: 2 })],
+    ) {
+      // Placed just now, and carrying the intent checkout recorded. That is
+      // what a PENDING order being cancelled by its owner actually looks
+      // like: the factory's default `createdAt` is a fixed date days back,
+      // which is past Stripe's idempotency retention and a state the
+      // cancellation now refuses to act on.
+      const order = {
+        ...anOrder(client.id, { status, createdAt: new Date() }),
+        items,
+        payments: [],
+      };
+      h.prisma.order.findFirst.mockResolvedValue(order);
+      h.prisma.payment.findFirst.mockResolvedValue({
+        stripePaymentIntentId: `pi_for_${order.id}`,
+      } as Payment);
+      h.prisma.order.updateMany.mockResolvedValue({ count: 1 });
+      h.prisma.orderStatusHistory.count.mockResolvedValue(0);
+      return order;
+    }
+
+    it('answers 403 when the role can never reach that destination', async () => {
+      const order = arrangeStatusChange(OrderStatus.PENDING);
+      await expect(
+        h.service.updateStatus(manager, order.id, OrderStatus.CANCELLED),
+      ).rejects.toMatchObject({ kind: Problems.forbidden });
+    });
+
+    it('answers 409 when the role cannot reach it from this status', async () => {
+      const order = arrangeStatusChange(OrderStatus.PAID);
+      await expect(
+        h.service.updateStatus(client, order.id, OrderStatus.CANCELLED),
+      ).rejects.toMatchObject({ kind: Problems.conflict });
+    });
+
+    it('writes the new status with the judged status as a precondition in the where', async () => {
+      const order = arrangeStatusChange();
+      await h.service.updateStatus(client, order.id, OrderStatus.CANCELLED);
+      expect(h.prisma.order.updateMany).toHaveBeenCalledWith({
+        where: { id: order.id, status: OrderStatus.PENDING },
+        data: { status: OrderStatus.CANCELLED, expiresAt: null },
+      });
+    });
+
+    it('answers 409 when the order moved between the read and the write, and changes nothing', async () => {
+      const order = arrangeStatusChange();
+      h.prisma.order.updateMany.mockResolvedValue({ count: 0 });
+      await expect(
+        h.service.updateStatus(client, order.id, OrderStatus.CANCELLED),
+      ).rejects.toMatchObject({ kind: Problems.conflict });
+      expect(h.prisma.sku.update).not.toHaveBeenCalled();
+      expect(h.prisma.orderStatusHistory.create).not.toHaveBeenCalled();
+    });
+
+    it('appends the history row after the status is written', async () => {
+      const order = arrangeStatusChange();
+      await h.service.updateStatus(client, order.id, OrderStatus.CANCELLED);
+      expect(
+        h.prisma.order.updateMany.mock.invocationCallOrder[0],
+      ).toBeLessThan(
+        h.prisma.orderStatusHistory.create.mock.invocationCallOrder[0],
+      );
+    });
+
+    it('numbers the history row after the ones already written', async () => {
+      const order = arrangeStatusChange();
+      h.prisma.orderStatusHistory.count.mockResolvedValue(4);
+      await h.service.updateStatus(client, order.id, OrderStatus.CANCELLED);
+      expect(h.prisma.orderStatusHistory.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ sequence: 4 }),
+        }),
+      );
+    });
+
+    it('clears the expiry once the order stops being PENDING', async () => {
+      const order = arrangeStatusChange();
+      await h.service.updateStatus(client, order.id, OrderStatus.CANCELLED);
+      expect(h.prisma.order.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ expiresAt: null }),
+        }),
+      );
+    });
+
+    it('gives the reserved units back when the order is cancelled', async () => {
+      const order = arrangeStatusChange();
+      await h.service.updateStatus(client, order.id, OrderStatus.CANCELLED);
+      expect(h.prisma.sku.update).toHaveBeenCalledWith({
+        where: { id: order.items[0].skuId },
+        data: { reserved: { decrement: order.items[0].quantity } },
+      });
+    });
+
+    it('returns the reserved promo use when a pending order is cancelled', async () => {
+      const order = arrangeStatusChange();
+      h.prisma.order.findFirst.mockResolvedValue({
+        ...order,
+        redemption: { promoCodeId: 'promo-1', codeSnapshot: 'SAVE10' },
+      } as never);
+      h.prisma.promoCode.updateMany.mockResolvedValue({ count: 1 });
+
+      await h.service.updateStatus(client, order.id, OrderStatus.CANCELLED);
+
+      expect(h.prisma.promoCode.updateMany).toHaveBeenCalledWith({
+        where: { id: 'promo-1', usageReserved: { gt: 0 } },
+        data: { usageReserved: { decrement: 1 } },
+      });
+    });
+
+    it('cancels the intent before it gives a single unit back', async () => {
+      // The client holds the clientSecret for this order. Releasing first
+      // and cancelling after — or not cancelling at all — lets them confirm
+      // the payment onto units already back on the shelf.
+      const order = arrangeStatusChange();
+
+      await h.service.updateStatus(client, order.id, OrderStatus.CANCELLED);
+
+      expect(h.stripe.cancelPaymentIntent).toHaveBeenCalledWith(
+        `pi_for_${order.id}`,
+      );
+      expect(
+        h.stripe.cancelPaymentIntent.mock.invocationCallOrder[0],
+      ).toBeLessThan(h.prisma.$transaction.mock.invocationCallOrder[0]);
+    });
+
+    it('refuses the cancellation when the payment will not stop, releasing nothing', async () => {
+      const order = arrangeStatusChange();
+      h.stripe.cancelPaymentIntent.mockResolvedValueOnce(false);
+
+      await expect(
+        h.service.updateStatus(client, order.id, OrderStatus.CANCELLED),
+      ).rejects.toMatchObject({ kind: Problems.conflict });
+      expect(h.prisma.sku.update).not.toHaveBeenCalled();
+      expect(h.prisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('stops no payment when the move does not release stock', async () => {
+      const order = arrangeStatusChange(OrderStatus.PROCESSING);
+
+      await h.service.updateStatus(manager, order.id, OrderStatus.SHIPPED);
+
+      expect(h.stripe.cancelPaymentIntent).not.toHaveBeenCalled();
+    });
+
+    it('leaves the reservations alone on any other move', async () => {
+      const order = arrangeStatusChange(OrderStatus.PAID);
+      await h.service.updateStatus(manager, order.id, OrderStatus.PROCESSING);
+      expect(h.prisma.sku.update).not.toHaveBeenCalled();
+    });
+
+    it('resolves the order with the scope, so a stranger gets 404', async () => {
+      h.prisma.order.findFirst.mockResolvedValue(null);
+      await expect(
+        h.service.updateStatus(client, 'another-order', OrderStatus.CANCELLED),
+      ).rejects.toMatchObject({ kind: Problems.notFound });
+      expect(h.prisma.order.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            AND: [{ OR: [{ userId: client.id }] }, { id: 'another-order' }],
+          },
+        }),
+      );
+    });
+
+    it('records the courier and the moment on a delivery, so the ability keeps letting them read it', async () => {
+      const order = arrangeStatusChange(OrderStatus.SHIPPED);
+
+      await h.service.updateStatus(delivery, order.id, OrderStatus.DELIVERED);
+
+      expect(h.prisma.order.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            status: OrderStatus.DELIVERED,
+            deliveredById: delivery.id,
+            deliveredAt: expect.any(Date),
+          }),
+        }),
+      );
+    });
+  });
+
+  /**
+   * DELIVERY's row scope. The service does not decide any of it — it folds
+   * `accessibleBy` into the `where` and that is all — so these cases test the
+   * rules in `app-ability.factory.ts` through the only surface that can
+   * actually leak: the Prisma call. An assertion written beside a generated
+   * rule agrees with it; a regression disagrees when the scope is wrong.
+   *
+   * The shape to assert is the same one the CLIENT cases already use:
+   * `expect(h.prisma.order.findMany|findFirst).toHaveBeenCalledWith(...)`
+   * with the scope inside `AND`, never the value the mock was told to return.
+   * A service that dropped the scope entirely would still throw 404 for a
+   * missing row while handing back somebody else's order, and only the `where`
+   * shows the difference.
+   *
+   * The cases below build an order owned by `client`; SHIPPED is reachable,
+   * while PAID is outside the courier's scope or transition table.
+   */
+  describe('DELIVERY scope', () => {
+    function shippedOrder(
+      overrides: Parameters<typeof anOrder>[1] & {
+        items?: ReturnType<typeof anOrderItem>[];
+      } = {},
+    ) {
+      const { items = [], ...orderOverrides } = overrides;
+      return {
+        ...anOrder(client.id, {
+          id: 'delivery-order',
+          status: OrderStatus.SHIPPED,
+          ...orderOverrides,
+        }),
+        items,
+        payments: [],
+      };
+    }
+
+    it('folds the shipped-plus-own-deliveries scope into list', async () => {
+      h.prisma.order.findMany.mockResolvedValue([]);
+      h.prisma.order.count.mockResolvedValue(0);
+
+      await h.service.list(delivery, { limit: 20, offset: 0 });
+
+      expect(h.prisma.order.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            AND: [
+              {
+                OR: exactlyTheseInAnyOrder([
+                  { status: OrderStatus.SHIPPED },
+                  { deliveredById: delivery.id },
+                ]),
+              },
+              {},
+            ],
+          },
+        }),
+      );
+    });
+
+    it('keeps query filters ANDed with the delivery scope', async () => {
+      h.prisma.order.findMany.mockResolvedValue([]);
+      h.prisma.order.count.mockResolvedValue(0);
+
+      await h.service.list(delivery, {
+        limit: 20,
+        offset: 0,
+        status: OrderStatus.PENDING,
+      });
+
+      expect(h.prisma.order.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            AND: [
+              {
+                OR: exactlyTheseInAnyOrder([
+                  { status: OrderStatus.SHIPPED },
+                  { deliveredById: delivery.id },
+                ]),
+              },
+              { status: OrderStatus.PENDING },
+            ],
+          },
+        }),
+      );
+    });
+
+    it('gets one order with the delivery scope inside the where', async () => {
+      const order = shippedOrder();
+      h.prisma.order.findFirst.mockResolvedValue(order);
+
+      await h.service.getOne(delivery, order.id);
+
+      expect(h.prisma.order.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            AND: [
+              {
+                OR: exactlyTheseInAnyOrder([
+                  { status: OrderStatus.SHIPPED },
+                  { deliveredById: delivery.id },
+                ]),
+              },
+              { id: order.id },
+            ],
+          },
+        }),
+      );
+    });
+
+    it('answers 404 for a PAID order outside the courier scope', async () => {
+      h.prisma.order.findFirst.mockResolvedValue(null);
+
+      await expect(
+        h.service.getOne(delivery, 'paid-order'),
+      ).rejects.toMatchObject({
+        kind: Problems.notFound,
+      });
+      expect(h.prisma.order.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            AND: [
+              {
+                OR: exactlyTheseInAnyOrder([
+                  { status: OrderStatus.SHIPPED },
+                  { deliveredById: delivery.id },
+                ]),
+              },
+              { id: 'paid-order' },
+            ],
+          }),
+        }),
+      );
+    });
+
+    it('resolves updateStatus with the update scope', async () => {
+      const order = shippedOrder();
+      h.prisma.order.findFirst.mockResolvedValue(order);
+      h.prisma.order.updateMany.mockResolvedValue({ count: 1 });
+      h.prisma.orderStatusHistory.count.mockResolvedValue(0);
+
+      await h.service.updateStatus(delivery, order.id, OrderStatus.DELIVERED);
+
+      expect(h.prisma.order.findFirst.mock.calls[0][0]).toEqual(
+        expect.objectContaining({
+          where: {
+            AND: [
+              {
+                OR: exactlyTheseInAnyOrder([
+                  { status: OrderStatus.SHIPPED },
+                  { deliveredById: delivery.id },
+                ]),
+              },
+              { id: order.id },
+            ],
+          },
+        }),
+      );
+    });
+
+    it('answers 403 when a courier asks for CANCELLED', async () => {
+      const order = shippedOrder();
+      h.prisma.order.findFirst.mockResolvedValue(order);
+
+      await expect(
+        h.service.updateStatus(delivery, order.id, OrderStatus.CANCELLED),
+      ).rejects.toMatchObject({
+        kind: Problems.forbidden,
+      });
+    });
+
+    it('answers 409 when DELIVERED is requested from PAID', async () => {
+      const order = shippedOrder({ status: OrderStatus.PAID });
+      h.prisma.order.findFirst.mockResolvedValue(order);
+
+      await expect(
+        h.service.updateStatus(delivery, order.id, OrderStatus.DELIVERED),
+      ).rejects.toMatchObject({
+        kind: Problems.conflict,
+      });
+    });
+
+    it('appends delivered history after the status write', async () => {
+      const order = shippedOrder();
+      h.prisma.order.findFirst.mockResolvedValue(order);
+      h.prisma.order.updateMany.mockResolvedValue({ count: 1 });
+      h.prisma.orderStatusHistory.count.mockResolvedValue(3);
+
+      await h.service.updateStatus(delivery, order.id, OrderStatus.DELIVERED);
+
+      expect(
+        h.prisma.order.updateMany.mock.invocationCallOrder[0],
+      ).toBeLessThan(
+        h.prisma.orderStatusHistory.create.mock.invocationCallOrder[0],
+      );
+      expect(h.prisma.orderStatusHistory.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            status: OrderStatus.DELIVERED,
+            sequence: 3,
+          }),
+        }),
+      );
+    });
+
+    it('releases no reservations on DELIVERED', async () => {
+      const order = shippedOrder({
+        items: [anOrderItem('delivery-order', 'sku-1', { quantity: 2 })],
+      });
+      h.prisma.order.findFirst.mockResolvedValue(order);
+      h.prisma.order.updateMany.mockResolvedValue({ count: 1 });
+      h.prisma.orderStatusHistory.count.mockResolvedValue(0);
+
+      await h.service.updateStatus(delivery, order.id, OrderStatus.DELIVERED);
+
+      expect(h.prisma.sku.update).not.toHaveBeenCalled();
+    });
+
+    it('keeps a delivered order readable by the courier who delivered it', async () => {
+      const before = shippedOrder();
+      const after = shippedOrder({
+        status: OrderStatus.DELIVERED,
+        deliveredById: delivery.id,
+        deliveredAt: new Date(),
+      });
+      h.prisma.order.findFirst
+        .mockResolvedValueOnce(before)
+        .mockResolvedValue(after);
+      h.prisma.order.updateMany.mockResolvedValue({ count: 1 });
+      h.prisma.orderStatusHistory.count.mockResolvedValue(0);
+
+      await h.service.updateStatus(delivery, before.id, OrderStatus.DELIVERED);
+
+      expect(h.prisma.order.findFirst.mock.calls[1][0]).toEqual(
+        expect.objectContaining({
+          where: {
+            AND: [
+              {
+                OR: exactlyTheseInAnyOrder([
+                  { status: OrderStatus.SHIPPED },
+                  { deliveredById: delivery.id },
+                ]),
+              },
+              { id: before.id },
+            ],
+          },
+        }),
+      );
+    });
+
+    it("does not let a second courier reach the first courier's delivery", async () => {
+      const other = { ...delivery, id: 'delivery-2' };
+      h.prisma.order.findFirst.mockResolvedValue(null);
+
+      await expect(
+        h.service.getOne(other, 'delivery-order'),
+      ).rejects.toMatchObject({
+        kind: Problems.notFound,
+      });
+      expect(h.prisma.order.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            AND: [
+              {
+                OR: exactlyTheseInAnyOrder([
+                  { status: OrderStatus.SHIPPED },
+                  { deliveredById: other.id },
+                ]),
+              },
+              { id: 'delivery-order' },
+            ],
+          }),
+        }),
+      );
+    });
+  });
+
+  describe('without the Order rules in the ability', () => {
+    it('scopes every query to a where that matches nothing', async () => {
+      h.prisma.order.findMany.mockResolvedValue([]);
+      h.prisma.order.count.mockResolvedValue(0);
+      await h.service.list(undefined as never, { limit: 2, offset: 0 });
+      expect(h.prisma.order.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { AND: [{ OR: [] }, {}] } }),
+      );
+    });
+  });
+
+  describe('the payment intent checkout creates', () => {
+    /**
+     * Stripe is called after the transaction commits, which is what makes
+     * these cases worth having. The reservation is already durable when the
+     * intent is asked for, so the order can outlive a failed call — and the
+     * intent can outlive a failed row. Both directions are named below.
+     */
+    const address = {
+      recipientName: 'Ada Lovelace',
+      line1: '1 Analytical Street',
+      city: 'London',
+      postalCode: 'E1 6AN',
+    };
+
+    function arrangePaymentCheckout(
+      total = 4_599,
+      options: { pending?: unknown } = {},
+    ) {
+      const product = aProduct({ name: 'Payment tee' });
+      const sku = {
+        ...aSku(product.id, { price: total }),
+        product,
+      };
+      const cart = {
+        ...aCart(client.id),
+        items: [{ ...aCartItem('cart-payment', sku.id), sku }],
+      };
+      const order = {
+        ...anOrder(client.id, { id: 'order-payment', total }),
+        items: [],
+        payments: [],
+      };
+
+      // The pending order is read twice: once outside the transaction by
+      // `stopLapsedPayment`, once inside it by `settlePendingOrder`.
+      const pending = (options.pending ?? null) as never;
+      h.prisma.order.findFirst.mockResolvedValueOnce(pending);
+      h.prisma.order.findFirst.mockResolvedValueOnce(pending);
+      h.prisma.order.findFirst.mockResolvedValue(order);
+      h.prisma.cart.findFirst.mockResolvedValue(cart);
+      h.prisma.sku.findUnique.mockResolvedValue(sku);
+      h.prisma.sku.update.mockResolvedValue(sku);
+      h.prisma.order.updateMany.mockResolvedValue({ count: 1 });
+      h.prisma.cart.updateMany.mockResolvedValue({ count: 1 });
+      h.prisma.orderStatusHistory.count.mockResolvedValue(0);
+      return { order, cart, sku };
+    }
+
+    /**
+     * The id the transaction actually generated, read from the insert.
+     *
+     * The order's id is not the fixture's: `placeOrder` mints it with
+     * `newId()` inside the transaction, and the intent is now created from
+     * what the transaction handed back rather than from a re-read. Reading
+     * it here keeps these cases asserting the real value instead of one the
+     * mock happened to return.
+     */
+    const placedOrderId = (): string =>
+      (h.prisma.order.create.mock.calls[0]?.[0] as { data: { id: string } })
+        .data.id;
+
+    it('cancels the intent of a lapsed order before its stock goes back on the shelf', async () => {
+      // The returning-customer path. The client still holds the
+      // `clientSecret` of the lapsed order, so releasing its units without
+      // disarming the intent lets a later confirmation charge for goods
+      // that have since been resold — the sweep's oversell, reached through
+      // the door a customer walks in by.
+      const lapsed = anOrder(client.id, {
+        id: 'order-lapsed',
+        status: OrderStatus.PENDING,
+        expiresAt: new Date('2026-08-28T11:00:00.000Z'),
+      });
+      arrangePaymentCheckout(undefined, { pending: { ...lapsed, items: [] } });
+      h.prisma.payment.findFirst.mockResolvedValueOnce({
+        stripePaymentIntentId: 'pi_lapsed',
+      } as Payment);
+
+      await h.service.checkout(client, address);
+
+      expect(h.stripe.cancelPaymentIntent).toHaveBeenCalledWith('pi_lapsed');
+      expect(
+        h.stripe.cancelPaymentIntent.mock.invocationCallOrder[0],
+      ).toBeLessThan(h.prisma.$transaction.mock.invocationCallOrder[0]);
+    });
+
+    it('refuses the checkout when a lapsed payment will not cancel', async () => {
+      const lapsed = anOrder(client.id, {
+        id: 'order-stuck',
+        status: OrderStatus.PENDING,
+        expiresAt: new Date('2026-08-28T11:00:00.000Z'),
+      });
+      arrangePaymentCheckout(undefined, { pending: { ...lapsed, items: [] } });
+      h.prisma.payment.findFirst.mockResolvedValueOnce({
+        stripePaymentIntentId: 'pi_stuck',
+      } as Payment);
+      h.stripe.cancelPaymentIntent.mockResolvedValueOnce(false);
+
+      // The problem is named, not just its class: `cartNotCheckoutable`
+      // and `stockUnavailable` are `ProblemException` too, so asserting the
+      // class alone would keep this green while a regression refused for a
+      // reason that has nothing to do with the bound.
+      await expect(h.service.checkout(client, address)).rejects.toMatchObject({
+        kind: Problems.orderAlreadyPending,
+      });
+      expect(h.prisma.sku.update).not.toHaveBeenCalled();
+    });
+
+    it('refuses to reclaim a lapsed order past Stripe idempotency retention', async () => {
+      // The same bound the sweep applies, reached from the other direction:
+      // a customer coming back to a lapsed order whose intent can no longer
+      // be found by key. Recovering would create a second intent and cancel
+      // that one while the first stayed live.
+      const ancient = anOrder(client.id, {
+        id: 'order-ancient',
+        status: OrderStatus.PENDING,
+        createdAt: new Date(Date.now() - 25 * 60 * 60 * 1_000),
+        expiresAt: new Date(Date.now() - 24 * 60 * 60 * 1_000),
+      });
+      arrangePaymentCheckout(undefined, {
+        pending: { ...ancient, items: [] },
+      });
+      h.prisma.payment.findFirst.mockResolvedValueOnce(null);
+
+      // The problem is named, not just its class: `cartNotCheckoutable`
+      // and `stockUnavailable` are `ProblemException` too, so asserting the
+      // class alone would keep this green while a regression refused for a
+      // reason that has nothing to do with the bound.
+      await expect(h.service.checkout(client, address)).rejects.toMatchObject({
+        kind: Problems.orderAlreadyPending,
+      });
+      expect(h.stripe.createPaymentIntent).not.toHaveBeenCalled();
+      expect(h.prisma.sku.update).not.toHaveBeenCalled();
+    });
+
+    it('creates the intent only after the reservation transaction has committed', async () => {
+      arrangePaymentCheckout();
+
+      // The transaction is held open, and the question is whether Stripe is
+      // reached while it is. Comparing invocation order would not answer it:
+      // `$transaction` is invoked before anything inside its own callback,
+      // so that comparison holds whether the call is inside or outside, and
+      // the case would pass while the code did exactly what it forbids.
+      const commit = deferred();
+      h.prisma.$transaction.mockImplementationOnce(
+        async (run: (tx: typeof h.prisma) => Promise<unknown>) => {
+          const result = await run(h.prisma);
+          await commit.promise;
+          return result;
+        },
+      );
+
+      const checkout = h.service.checkout(client, address);
+      await flushMicrotasks();
+
+      expect(h.stripe.createPaymentIntent).not.toHaveBeenCalled();
+
+      commit.resolve();
+      await checkout;
+
+      expect(h.stripe.createPaymentIntent).toHaveBeenCalledTimes(1);
+    });
+
+    it('asks Stripe for the order total, in cents, with nothing rounded', async () => {
+      arrangePaymentCheckout(4_599);
+
+      await h.service.checkout(client, address);
+
+      expect(h.stripe.createPaymentIntent).toHaveBeenCalledWith(
+        expect.objectContaining({ id: placedOrderId(), total: 4_599 }),
+      );
+    });
+
+    it('records the attempt as a PENDING payment carrying the intent id', async () => {
+      arrangePaymentCheckout();
+
+      await h.service.checkout(client, address);
+
+      const placed = placedOrderId();
+
+      expect(h.prisma.payment.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          orderId: placed,
+          status: PaymentStatus.PENDING,
+          stripePaymentIntentId: `pi_for_${placed}`,
+        }),
+      });
+    });
+
+    it('records the method as PAYMENT_INTENT, so the order view stops reading null', async () => {
+      arrangePaymentCheckout();
+
+      await h.service.checkout(client, address);
+
+      expect(h.prisma.payment.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            method: PaymentMethod.PAYMENT_INTENT,
+          }),
+        }),
+      );
+    });
+
+    it('returns the client secret alongside the order', async () => {
+      const { order } = arrangePaymentCheckout();
+
+      const view = await h.service.checkout(client, address);
+
+      // The view comes from the re-read, so its id is the fixture's; the
+      // secret comes from the intent, keyed on the id the transaction
+      // generated. Both are asserted because a checkout that returned one
+      // order's view with another order's secret would still pass either
+      // half alone.
+      expect(view).toEqual(
+        expect.objectContaining({
+          id: order.id,
+          clientSecret: `pi_for_${placedOrderId()}_secret`,
+        }),
+      );
+    });
+
+    it('leaves the order PENDING when Stripe refuses, so the sweep can reclaim it', async () => {
+      arrangePaymentCheckout();
+      h.stripe.createPaymentIntent.mockRejectedValueOnce(
+        new Error('Stripe unavailable'),
+      );
+
+      await expect(h.service.checkout(client, address)).rejects.toThrow(
+        'Stripe unavailable',
+      );
+      expect(h.prisma.order.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ status: OrderStatus.PENDING }),
+        }),
+      );
+    });
+
+    it('writes no payment row when Stripe refuses, because there is no intent to record', async () => {
+      arrangePaymentCheckout();
+      h.stripe.createPaymentIntent.mockRejectedValueOnce(
+        new Error('Stripe unavailable'),
+      );
+
+      await expect(h.service.checkout(client, address)).rejects.toThrow();
+
+      expect(h.prisma.payment.create).not.toHaveBeenCalled();
+    });
+  });
+});

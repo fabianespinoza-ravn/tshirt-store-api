@@ -21,13 +21,13 @@ import type { Request, Response } from 'express';
 import {
   CurrentUser,
   type AuthenticatedUser,
-} from '../common/decorators/current-user.decorator';
-import { Public } from '../common/decorators/public.decorator';
-import { RateLimited } from '../common/decorators/rate-limited.decorator';
-import { parseDuration } from '../common/ids';
-import { Problems } from '../common/problem/problem.catalog';
-import { ApiProblems } from '../common/swagger';
-import { NodeEnv } from '../config/env.validation';
+} from '../shared/common/decorators/current-user.decorator';
+import { Public } from '../shared/common/decorators/public.decorator';
+import { RateLimited } from '../shared/common/decorators/rate-limited.decorator';
+import { parseDuration } from '../shared/common/ids';
+import { Problems } from '../shared/common/problem/problem.catalog';
+import { ApiProblems } from '../shared/common/swagger';
+import { NodeEnv } from '../shared/config/env.validation';
 import { AuthService, type SessionResult } from './auth.service';
 import {
   ChangePasswordDto,

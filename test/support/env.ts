@@ -13,7 +13,7 @@
 // loads the polyfill itself in the application; here this file is the
 // first thing the test process imports.
 import 'reflect-metadata';
-import { NodeEnv } from '../../src/config/env.validation';
+import { NodeEnv } from '../../src/shared/config/env.validation';
 import { e2eDatabaseUrl } from './e2e-database-url';
 import { e2eRedisHost, e2eRedisPort } from './e2e-redis';
 

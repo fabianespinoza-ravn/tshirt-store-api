@@ -1,7 +1,7 @@
 import { OrderStatus } from '@prisma/client';
-import { Problems } from '../src/common/problem/problem.catalog';
-import type { Paginated } from '../src/common/pagination';
-import type { OrderView } from '../src/orders/orders.views';
+import { Problems } from '../src/shared/common/problem/problem.catalog';
+import type { Paginated } from '../src/shared/common/pagination';
+import type { OrderView } from '../src/checkout/orders/orders.views';
 import { createE2eApp, type E2eApp } from './support/app';
 import { MALFORMED_ACCESS_TOKEN, expiredAccessToken } from './support/fixtures';
 import {
@@ -76,7 +76,7 @@ function expectValidation(response: { status: number; body: unknown }): void {
  * exported from the same fixtures module.
  *
  * ONE THING TO WATCH WHEN ASSERTING ON `items`. `ORDER_INCLUDE` in
- * `src/orders/orders.views.ts` includes the lines with no `orderBy`, so
+ * `src/checkout/orders/orders.views.ts` includes the lines with no `orderBy`, so
  * Postgres returns them in whatever order it likes and the array's order is
  * not part of the contract. The two-line case below is the only one affected;
  * assert on it with a set-like matcher (`expect.arrayContaining`, or sort by

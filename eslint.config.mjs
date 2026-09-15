@@ -8,7 +8,7 @@ import tseslint from 'typescript-eslint';
 
 // CLAUDE.md: a string literal that duplicates an enum value is a finding.
 // The values come from schema.prisma at lint time, so the list can't drift
-// from the schema, plus those of `NodeEnv` (src/config/env.validation.ts),
+// from the schema, plus those of `NodeEnv` (src/shared/config/env.validation.ts),
 // the one enum the code declares itself. `:not(TSEnumMember) >` leaves the
 // enum's own initialisers alone.
 const prismaSchema = readFileSync(
@@ -65,7 +65,7 @@ const responseStatus = {
   selector:
     "CallExpression[callee.object.name=/^(res|response)$/][callee.property.name='status']",
   message:
-    'src/common/filters/problem-details.filter.ts is the only place that sets a status by hand; throw a ProblemException and let the filter shape the response.',
+    'src/shared/common/filters/problem-details.filter.ts is the only place that sets a status by hand; throw a ProblemException and let the filter shape the response.',
 };
 
 // Money is an integer number of cents throughout the schema — `Sku.price`,
@@ -168,7 +168,7 @@ export default tseslint.config(
     // src/common owns the Problems catalog and the filter; everything else
     // goes through them.
     files: ['src/**/*.ts', 'test/**/*.ts'],
-    ignores: ['src/common/**'],
+    ignores: ['src/shared/common/**'],
     rules: {
       'no-restricted-imports': [
         'error',
@@ -178,7 +178,7 @@ export default tseslint.config(
               name: '@nestjs/common',
               importNames: nestExceptions,
               message:
-                'Throw `new ProblemException(Problems.x, detail)` (src/common/problem) instead; the problem-details filter is the only place an error response is shaped.',
+                'Throw `new ProblemException(Problems.x, detail)` (src/shared/common/problem) instead; the problem-details filter is the only place an error response is shaped.',
             },
           ],
         },

@@ -1,9 +1,9 @@
 import { Reflector } from '@nestjs/core';
 import { UserRole } from '@prisma/client';
 import { mockDeep } from 'jest-mock-extended';
-import { Public } from '../../common/decorators/public.decorator';
-import { Problems } from '../../common/problem/problem.catalog';
-import { ProblemException } from '../../common/problem/problem.exception';
+import { Public } from '../../shared/common/decorators/public.decorator';
+import { Problems } from '../../shared/common/problem/problem.catalog';
+import { ProblemException } from '../../shared/common/problem/problem.exception';
 import { anExecutionContext } from '../../testing/http';
 import { TokenService } from '../token.service';
 import { JwtAuthGuard } from './jwt-auth.guard';

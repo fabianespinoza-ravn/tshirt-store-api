@@ -20,7 +20,7 @@ import {
   type PrismaQuery,
   type Subjects,
 } from '@casl/prisma';
-import type { AuthenticatedUser } from '../../common/decorators/current-user.decorator';
+import type { AuthenticatedUser } from '../../shared/common/decorators/current-user.decorator';
 
 export type AppAction = 'create' | 'read' | 'update' | 'delete' | 'validate';
 

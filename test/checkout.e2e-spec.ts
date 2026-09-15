@@ -8,10 +8,13 @@ import {
 import {
   Problems,
   type ProblemKind,
-} from '../src/common/problem/problem.catalog';
-import type { ProblemBody } from '../src/common/problem/problem.exception';
-import { PENDING_ORDER_TTL_MS } from '../src/orders/orders.service';
-import type { CheckoutOrderView, OrderView } from '../src/orders/orders.views';
+} from '../src/shared/common/problem/problem.catalog';
+import type { ProblemBody } from '../src/shared/common/problem/problem.exception';
+import { PENDING_ORDER_TTL_MS } from '../src/checkout/orders/orders.service';
+import type {
+  CheckoutOrderView,
+  OrderView,
+} from '../src/checkout/orders/orders.views';
 import { createE2eApp, type E2eApp } from './support/app';
 import {
   activeCartOf,

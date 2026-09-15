@@ -20,7 +20,7 @@ import {
   type Sku,
   type User,
 } from '@prisma/client';
-import { newId } from '../common/ids';
+import { newId } from '../shared/common/ids';
 
 // Constructors of valid rows for the tests: the default values respect the
 // database's CHECKs (`price > 0`, `reserved <= stock`, a GUEST is never

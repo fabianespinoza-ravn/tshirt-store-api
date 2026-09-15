@@ -34,8 +34,8 @@ codebase; see `docs/ARQUITECTURA.md` for the production architecture and
 
 ## Other conventions
 
-- `src/common/filters/problem-details.filter.ts` is the only place an error
-  response is shaped; no other code formats one.
+- `src/shared/common/filters/problem-details.filter.ts` is the only place an
+  error response is shaped; no other code formats one.
 - Run `/preflight` before considering a change done.
 - `core.hooksPath` points outside the repo, at `~/.claude/git-hooks`: its
   `pre-commit` runs `npm run precommit --if-present` (lint-staged), and a

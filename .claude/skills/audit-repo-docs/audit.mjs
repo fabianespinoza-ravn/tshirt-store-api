@@ -64,7 +64,7 @@ function checkCitations(tracked) {
   const findings = [];
 
   // A path may be written from anywhere above it — `common/ids.ts` in a
-  // comment means `src/common/ids.ts` — so a citation resolves when a
+  // comment means `src/shared/common/ids.ts` — so a citation resolves when a
   // tracked path is it, or ends with it. A moved file stops matching either
   // way, which is the case worth catching.
   const resolves = (ref, universe) => {
