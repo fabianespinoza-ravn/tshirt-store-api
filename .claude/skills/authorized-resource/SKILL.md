@@ -11,7 +11,7 @@ already follows. It's a pointer, not a copy — the actual rules live in
 not this file for the details.
 
 1. **DTO.** `class-validator`-decorated request/response shapes, next to the
-   resource (see `src/categories/dto/*.dto.ts` for the shape).
+   resource (see `src/catalog/categories/dto/*.dto.ts` for the shape).
 
 2. **CASL rule**, in `src/auth/casl/app-ability.factory.ts`. Add the subject
    to `AppSubjectName` / `AppSubjects` if it's new. Look up the resource's row

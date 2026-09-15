@@ -44,7 +44,9 @@ The seven targets that are needed mount with no extra providers:
 ## Factories
 
 `aUser` · `anUnverifiedUser` · `aManager` · `aCategory` · `aProduct` · `anImage` ·
-`aSku` · `aFullProduct` · `aMulterFile` · `aOneTimeToken` · `aRefreshToken`
+`aCart` · `aCartItem` · `anOrder` · `anOrderItem` · `anOrderStatusHistory` ·
+`aProductLike` · `aPromoCode` · `aPromoCodeRedemption` · `aSku` ·
+`aFullProduct` · `aMulterFile` · `aOneTimeToken` · `aRefreshToken`
 
 The default values respect the database's CHECKs: `price > 0`,
 `reserved <= stock`, a GUEST is never verified, a file that passes the three

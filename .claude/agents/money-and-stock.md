@@ -23,7 +23,8 @@ the columns that exist rather than the ones you expect.
 
 - **Stock is two numbers, not one.** `skus.stock` is what the shelf holds and
   `skus.reserved` is what pending orders have claimed; what a client may buy
-  is `availableOf(sku)` in `src/catalog/views.ts`, which is the difference.
+  is `availableOf(sku)` in `src/catalog/shared/views.ts`, which is the
+  difference.
   An order reserves at creation and the reservation is released on
   cancellation or expiry. A decrement of `stock` that does not also settle
   `reserved` counts the same units twice.

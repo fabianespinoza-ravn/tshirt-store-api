@@ -125,6 +125,14 @@
         "lines": 91
       }
     },
-    "testEnvironment": "node"
+    "testEnvironment": "node",
+    "moduleNameMapper": {
+      "^@auth/(.*)$": "<rootDir>/auth/$1",
+      "^@catalog/(.*)$": "<rootDir>/catalog/$1",
+      "^@checkout/(.*)$": "<rootDir>/checkout/$1",
+      "^@platform/(.*)$": "<rootDir>/platform/$1",
+      "^@shared/(.*)$": "<rootDir>/shared/$1",
+      "^@testing/(.*)$": "<rootDir>/testing/$1"
+    }
   }
 }

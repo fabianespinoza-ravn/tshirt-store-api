@@ -1,13 +1,27 @@
 {
-  "moduleFileExtensions": ["js", "json", "ts"],
+  "moduleFileExtensions": [
+    "js",
+    "json",
+    "ts"
+  ],
   "rootDir": ".",
   "testEnvironment": "node",
   "testRegex": ".e2e-spec.ts$",
   "transform": {
     "^.+\\.(t|j)s$": "ts-jest"
   },
-  "setupFiles": ["<rootDir>/support/env.ts"],
+  "setupFiles": [
+    "<rootDir>/support/env.ts"
+  ],
   "globalSetup": "<rootDir>/support/global-setup.ts",
   "maxWorkers": 1,
-  "testTimeout": 30000
+  "testTimeout": 30000,
+  "moduleNameMapper": {
+    "^@auth/(.*)$": "<rootDir>/../src/auth/$1",
+    "^@catalog/(.*)$": "<rootDir>/../src/catalog/$1",
+    "^@checkout/(.*)$": "<rootDir>/../src/checkout/$1",
+    "^@platform/(.*)$": "<rootDir>/../src/platform/$1",
+    "^@shared/(.*)$": "<rootDir>/../src/shared/$1",
+    "^@testing/(.*)$": "<rootDir>/../src/testing/$1"
+  }
 }

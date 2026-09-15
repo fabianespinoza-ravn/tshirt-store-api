@@ -1,10 +1,10 @@
 import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import type { Response } from 'express';
-import { IS_PUBLIC_KEY } from '../../common/decorators/public.decorator';
-import type { RequestWithUser } from '../../common/decorators/current-user.decorator';
-import { Problems } from '../../common/problem/problem.catalog';
-import { ProblemException } from '../../common/problem/problem.exception';
+import { IS_PUBLIC_KEY } from '@shared/common/decorators/public.decorator';
+import type { RequestWithUser } from '@shared/common/decorators/current-user.decorator';
+import { Problems } from '@shared/common/problem/problem.catalog';
+import { ProblemException } from '@shared/common/problem/problem.exception';
 import { TokenService } from '../token.service';
 
 // Authentication only, not authorization (that goes in another guard); it

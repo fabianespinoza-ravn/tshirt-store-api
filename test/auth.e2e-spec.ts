@@ -1,5 +1,5 @@
 import { UserRole, UserState } from '@prisma/client';
-import { Problems } from '../src/common/problem/problem.catalog';
+import { Problems } from '@shared/common/problem/problem.catalog';
 import { createE2eApp, type E2eApp } from './support/app';
 import {
   MALFORMED_ACCESS_TOKEN,

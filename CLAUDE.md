@@ -34,8 +34,8 @@ codebase; see `docs/ARQUITECTURA.md` for the production architecture and
 
 ## Other conventions
 
-- `src/common/filters/problem-details.filter.ts` is the only place an error
-  response is shaped; no other code formats one.
+- `src/shared/common/filters/problem-details.filter.ts` is the only place an
+  error response is shaped; no other code formats one.
 - Run `/preflight` before considering a change done.
 - `core.hooksPath` points outside the repo, at `~/.claude/git-hooks`: its
   `pre-commit` runs `npm run precommit --if-present` (lint-staged), and a
@@ -43,8 +43,11 @@ codebase; see `docs/ARQUITECTURA.md` for the production architecture and
 - Root-level `*.md` files other than `README.md` and `CLAUDE.md` are
   untracked local notes; never cite one from a tracked file. `lint:ci` fails
   on a citation of an untracked Markdown file.
-- Money is an integer number of cents everywhere — `Sku.price`, `Order.total`,
-  `OrderItem.unitPrice`, `Payment.amount`. Nothing rounds, so ESLint rejects
+- Money is an integer number of cents everywhere — `Sku.price`,
+  `Order.subtotal`, `Order.orderDiscountAmount`, `Order.total`,
+  `OrderItem.unitPrice`, `Payment.amount`, `PaymentLink.unitPriceAtCreation`,
+  `PromoCode.discountValue`, `PromoCode.minimumPurchaseAmount`,
+  `PromoCodeRedemption.discountApplied`. Nothing rounds, so ESLint rejects
   `toFixed` and `parseFloat`, and `no-console` under `src/` keeps output in
   the logger rather than on stdout.
 - A credential-shaped string cannot be written into the repository: the

@@ -1,6 +1,6 @@
 import type { ArgumentsHost, ExecutionContext } from '@nestjs/common';
-import type { AuthenticatedUser } from '../common/decorators/current-user.decorator';
-import type { ProblemBody } from '../common/problem/problem.exception';
+import type { AuthenticatedUser } from '@shared/common/decorators/current-user.decorator';
+import type { ProblemBody } from '@shared/common/problem/problem.exception';
 
 // Doubles for the HTTP side: ProblemDetailsFilter and the guards receive
 // Express and Nest objects that can't really be constructed in a unit test.

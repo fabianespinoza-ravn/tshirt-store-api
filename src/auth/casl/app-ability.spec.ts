@@ -1,8 +1,8 @@
 import { accessibleBy } from '@casl/prisma';
 import { OrderStatus, Prisma, UserRole } from '@prisma/client';
-import type { AuthenticatedUser } from '../../common/decorators/current-user.decorator';
+import type { AuthenticatedUser } from '@shared/common/decorators/current-user.decorator';
 import { AppAbilityFactory, type AppAction } from './app-ability.factory';
-import { exactlyTheseInAnyOrder } from '../../testing/matchers';
+import { exactlyTheseInAnyOrder } from '@testing/matchers';
 
 describe('AppAbilityFactory', () => {
   const factory = new AppAbilityFactory();

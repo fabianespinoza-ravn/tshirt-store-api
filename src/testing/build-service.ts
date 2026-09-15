@@ -1,18 +1,18 @@
 import { Test } from '@nestjs/testing';
 import type { Provider, Type } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { NodeEnv } from '../config/env.validation';
+import { NodeEnv } from '@shared/config/env.validation';
 import { JwtService } from '@nestjs/jwt';
 import { mockDeep, type DeepMockProxy } from 'jest-mock-extended';
-import { PasswordService } from '../auth/password.service';
-import { TokenService } from '../auth/token.service';
-import { PaymentLinksService } from '../payments/payment-links/payment-links.service';
-import { ProductsService } from '../products/products.service';
-import { MailService } from '../mail/mail.service';
-import { StockNotificationsService } from '../notifications/stock-notifications.service';
-import { StripeService } from '../payments/stripe.service';
-import { PrismaService } from '../prisma/prisma.service';
-import { StorageService } from '../storage/storage.service';
+import { PasswordService } from '@auth/password.service';
+import { TokenService } from '@auth/token.service';
+import { PaymentLinksService } from '@checkout/payments/payment-links/payment-links.service';
+import { ProductsService } from '@catalog/products/products.service';
+import { MailService } from '@platform/mail/mail.service';
+import { StockNotificationsService } from '@platform/notifications/stock-notifications.service';
+import { StripeService } from '@checkout/payments/stripe.service';
+import { PrismaService } from '@platform/prisma/prisma.service';
+import { StorageService } from '@platform/storage/storage.service';
 import { createPrismaMock, type PrismaMock } from './prisma.mock';
 
 export type StorageMock = DeepMockProxy<StorageService>;

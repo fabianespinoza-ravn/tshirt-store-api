@@ -1,5 +1,5 @@
 import { Prisma } from '@prisma/client';
-import type { PrismaService } from '../../src/prisma/prisma.service';
+import type { PrismaService } from '@platform/prisma/prisma.service';
 
 // Every table the schema declares, by its physical name, read from the
 // client's DMMF so a model added later is truncated without touching this

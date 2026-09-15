@@ -1,4 +1,4 @@
-import { Problems } from '../src/common/problem/problem.catalog';
+import { Problems } from '@shared/common/problem/problem.catalog';
 import { createE2eApp, type E2eApp } from './support/app';
 import { someCredentials } from './support/fixtures';
 

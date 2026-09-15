@@ -23,6 +23,9 @@ const trackedNames = new Set(tracked.map((file) => basename(file)));
 const citation = /[\w./-]*[\w-]\.md\b/g;
 const url = /\bhttps?:\/\/\S+/g;
 const skipped = /(^|\/)package-lock\.json$/;
+// A path written as a template — `docs/adr/NNNN-slug.md` — describes the
+// shape a file will take, so there is nothing for it to resolve to.
+const template = /([A-Z])\1{2,}/;
 
 const findings = [];
 for (const file of tracked) {
@@ -34,6 +37,7 @@ for (const file of tracked) {
     .split('\n')
     .forEach((line, index) => {
       for (const [ref] of line.replace(url, '').matchAll(citation)) {
+        if (template.test(ref)) continue;
         if (!trackedNames.has(basename(ref))) {
           findings.push(`${file}:${index + 1}: ${ref} is not a tracked file`);
         }

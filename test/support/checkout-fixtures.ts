@@ -6,10 +6,10 @@ import {
   Size,
   UserRole,
 } from '@prisma/client';
-import { availableOf } from '../../src/catalog/views';
-import { newId } from '../../src/common/ids';
-import { PENDING_ORDER_TTL_MS } from '../../src/orders/orders.service';
-import { IDEMPOTENCY_KEY_TTL_MS } from '../../src/orders/payment-recovery';
+import { availableOf } from '@catalog/shared/views';
+import { newId } from '@shared/common/ids';
+import { PENDING_ORDER_TTL_MS } from '@checkout/orders/orders.service';
+import { IDEMPOTENCY_KEY_TTL_MS } from '@checkout/orders/payment-recovery';
 import type { E2eApp } from './app';
 import {
   signIn,
@@ -379,7 +379,7 @@ async function seedPending(
 export interface SkuCounts {
   stock: number;
   reserved: number;
-  /** `stock - reserved`, the number `src/catalog/views.ts` calls available. */
+  /** `stock - reserved`, the number `src/catalog/shared/views.ts` calls available. */
   available: number;
 }
 

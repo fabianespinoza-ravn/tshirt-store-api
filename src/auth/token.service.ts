@@ -3,8 +3,8 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import type { User } from '@prisma/client';
 import { createHash, randomBytes } from 'node:crypto';
-import { newId, parseDuration } from '../common/ids';
-import { PrismaService } from '../prisma/prisma.service';
+import { newId, parseDuration } from '@shared/common/ids';
+import { PrismaService } from '@platform/prisma/prisma.service';
 
 export interface AccessTokenPayload {
   sub: string;
