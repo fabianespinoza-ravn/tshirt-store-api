@@ -8,12 +8,9 @@ import {
 } from '@prisma/client';
 import type Stripe from 'stripe';
 import { PaymentLinkCheckoutService } from '../payment-links/payment-link-checkout.service';
-import {
-  buildService,
-  type ServiceHarness,
-} from '../../../testing/build-service';
-import { anOrder, anOrderItem, aSku, aUser } from '../../../testing/factories';
-import { resetPrismaMock } from '../../../testing/prisma.mock';
+import { buildService, type ServiceHarness } from '@testing/build-service';
+import { anOrder, anOrderItem, aSku, aUser } from '@testing/factories';
+import { resetPrismaMock } from '@testing/prisma.mock';
 import {
   SettlementEventType,
   type PaymentIntentSettlementJobData,

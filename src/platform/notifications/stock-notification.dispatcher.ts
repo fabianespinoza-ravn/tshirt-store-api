@@ -2,8 +2,8 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Injectable, Logger } from '@nestjs/common';
 import { NotificationStatus, Prisma } from '@prisma/client';
 import type { Queue } from 'bullmq';
-import { availableOf } from '../../catalog/shared/views';
-import { newId } from '../../shared/common/ids';
+import { availableOf } from '@catalog/shared/views';
+import { newId } from '@shared/common/ids';
 import {
   MailKind,
   type MailAttachment,

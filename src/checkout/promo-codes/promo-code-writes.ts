@@ -1,6 +1,6 @@
 import type { Prisma, PromoCodeRedemption } from '@prisma/client';
-import { Problems } from '../../shared/common/problem/problem.catalog';
-import { ProblemException } from '../../shared/common/problem/problem.exception';
+import { Problems } from '@shared/common/problem/problem.catalog';
+import { ProblemException } from '@shared/common/problem/problem.exception';
 import { applyPromoCode, type AppliedPromoCode } from './promo-code-policy';
 
 type RedemptionReference = Pick<PromoCodeRedemption, 'promoCodeId'> | null;

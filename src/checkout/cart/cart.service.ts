@@ -4,16 +4,16 @@ import { CartStatus, type Cart, type Prisma, type Sku } from '@prisma/client';
 import {
   AppAbilityFactory,
   type AppAction,
-} from '../../auth/casl/app-ability.factory';
-import { NOT_DELETED } from '../../catalog/shared/query';
-import { availableOf, type ImageView } from '../../catalog/shared/views';
-import type { AuthenticatedUser } from '../../shared/common/decorators/current-user.decorator';
-import { newId } from '../../shared/common/ids';
-import { loadOrThrow } from '../../shared/common/load-or-throw';
-import { Problems } from '../../shared/common/problem/problem.catalog';
-import { ProblemException } from '../../shared/common/problem/problem.exception';
-import { PrismaService } from '../../platform/prisma/prisma.service';
-import { StorageService } from '../../platform/storage/storage.service';
+} from '@auth/casl/app-ability.factory';
+import { NOT_DELETED } from '@catalog/shared/query';
+import { availableOf, type ImageView } from '@catalog/shared/views';
+import type { AuthenticatedUser } from '@shared/common/decorators/current-user.decorator';
+import { newId } from '@shared/common/ids';
+import { loadOrThrow } from '@shared/common/load-or-throw';
+import { Problems } from '@shared/common/problem/problem.catalog';
+import { ProblemException } from '@shared/common/problem/problem.exception';
+import { PrismaService } from '@platform/prisma/prisma.service';
+import { StorageService } from '@platform/storage/storage.service';
 import {
   CART_LINE_INCLUDE,
   EMPTY_CART,

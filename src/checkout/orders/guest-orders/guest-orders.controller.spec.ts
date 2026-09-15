@@ -1,9 +1,9 @@
 import { HttpStatus, ParseUUIDPipe } from '@nestjs/common';
 import { ROUTE_ARGS_METADATA } from '@nestjs/common/constants';
 import { OrderStatus } from '@prisma/client';
-import { CHECK_POLICIES_KEY } from '../../../auth/casl/check-policies.decorator';
-import { newId } from '../../../shared/common/ids';
-import { IS_PUBLIC_KEY } from '../../../shared/common/decorators/public.decorator';
+import { CHECK_POLICIES_KEY } from '@auth/casl/check-policies.decorator';
+import { newId } from '@shared/common/ids';
+import { IS_PUBLIC_KEY } from '@shared/common/decorators/public.decorator';
 import { GuestOrdersController } from './guest-orders.controller';
 import type { GuestOrdersService } from './guest-orders.service';
 import type { GuestOrderView } from './guest-orders.views';

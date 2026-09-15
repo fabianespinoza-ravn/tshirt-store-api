@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
-import { AppAbilityFactory } from '../../auth/casl/app-ability.factory';
-import { PoliciesGuard } from '../../auth/guards/policies.guard';
-import { PaymentLinksModule } from '../../checkout/payments/payment-links/payment-links.module';
+import { AppAbilityFactory } from '@auth/casl/app-ability.factory';
+import { PoliciesGuard } from '@auth/guards/policies.guard';
+import { PaymentLinksModule } from '@checkout/payments/payment-links/payment-links.module';
 import { ProductsModule } from '../products/products.module';
 import { SkusController } from './skus.controller';
 import { SkusService } from './skus.service';

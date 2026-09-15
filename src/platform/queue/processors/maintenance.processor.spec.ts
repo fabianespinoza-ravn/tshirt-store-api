@@ -1,6 +1,6 @@
 import { Logger } from '@nestjs/common';
 import type { Job } from 'bullmq';
-import type { OrdersSweepService } from '../../../checkout/orders/orders-sweep.service';
+import type { OrdersSweepService } from '@checkout/orders/orders-sweep.service';
 import { JobName } from '../queue.constants';
 import { MaintenanceProcessor } from './maintenance.processor';
 

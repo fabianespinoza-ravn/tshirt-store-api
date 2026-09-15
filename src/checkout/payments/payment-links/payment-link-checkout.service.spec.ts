@@ -11,14 +11,11 @@ import {
 } from '@prisma/client';
 import { Logger } from '@nestjs/common';
 import type Stripe from 'stripe';
-import { newId } from '../../../shared/common/ids';
-import { ProblemException } from '../../../shared/common/problem/problem.exception';
-import {
-  buildService,
-  type ServiceHarness,
-} from '../../../testing/build-service';
-import { aProduct, aSku } from '../../../testing/factories';
-import { resetPrismaMock } from '../../../testing/prisma.mock';
+import { newId } from '@shared/common/ids';
+import { ProblemException } from '@shared/common/problem/problem.exception';
+import { buildService, type ServiceHarness } from '@testing/build-service';
+import { aProduct, aSku } from '@testing/factories';
+import { resetPrismaMock } from '@testing/prisma.mock';
 import { PAYMENT_LINK_QUANTITY } from '../stripe.service';
 import { PaymentLinkCheckoutService } from './payment-link-checkout.service';
 

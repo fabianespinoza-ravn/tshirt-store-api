@@ -1,10 +1,10 @@
 import { CartStatus, DiscountType, UserRole } from '@prisma/client';
-import { CHECK_POLICIES_KEY } from '../../auth/casl/check-policies.decorator';
-import { AppAbilityFactory } from '../../auth/casl/app-ability.factory';
-import type { AuthenticatedUser } from '../../shared/common/decorators/current-user.decorator';
-import { Problems } from '../../shared/common/problem/problem.catalog';
-import { ProblemException } from '../../shared/common/problem/problem.exception';
-import { buildService, type ServiceHarness } from '../../testing/build-service';
+import { CHECK_POLICIES_KEY } from '@auth/casl/check-policies.decorator';
+import { AppAbilityFactory } from '@auth/casl/app-ability.factory';
+import type { AuthenticatedUser } from '@shared/common/decorators/current-user.decorator';
+import { Problems } from '@shared/common/problem/problem.catalog';
+import { ProblemException } from '@shared/common/problem/problem.exception';
+import { buildService, type ServiceHarness } from '@testing/build-service';
 import {
   aCart,
   aCartItem,
@@ -12,8 +12,8 @@ import {
   aProduct,
   aPromoCode,
   aSku,
-} from '../../testing/factories';
-import { resetPrismaMock } from '../../testing/prisma.mock';
+} from '@testing/factories';
+import { resetPrismaMock } from '@testing/prisma.mock';
 import type {
   CreatePromoCodeDto,
   UpdatePromoCodeDto,

@@ -1,15 +1,15 @@
 import { Injectable } from '@nestjs/common';
 import type { Category } from '@prisma/client';
-import { newId } from '../../shared/common/ids';
-import { loadOrThrow } from '../../shared/common/load-or-throw';
+import { newId } from '@shared/common/ids';
+import { loadOrThrow } from '@shared/common/load-or-throw';
 import {
   paginate,
   type Paginated,
   type PaginationQueryDto,
-} from '../../shared/common/pagination';
-import { Problems } from '../../shared/common/problem/problem.catalog';
-import { ProblemException } from '../../shared/common/problem/problem.exception';
-import { PrismaService } from '../../platform/prisma/prisma.service';
+} from '@shared/common/pagination';
+import { Problems } from '@shared/common/problem/problem.catalog';
+import { ProblemException } from '@shared/common/problem/problem.exception';
+import { PrismaService } from '@platform/prisma/prisma.service';
 
 export interface CategoryView {
   id: string;

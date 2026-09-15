@@ -13,10 +13,10 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import type { Response } from 'express';
-import { CheckPolicies } from '../../../auth/casl/check-policies.decorator';
-import { PoliciesGuard } from '../../../auth/guards/policies.guard';
-import { Problems } from '../../../shared/common/problem/problem.catalog';
-import { ApiProblems } from '../../../shared/common/swagger';
+import { CheckPolicies } from '@auth/casl/check-policies.decorator';
+import { PoliciesGuard } from '@auth/guards/policies.guard';
+import { Problems } from '@shared/common/problem/problem.catalog';
+import { ApiProblems } from '@shared/common/swagger';
 import { CreatePaymentLinkDto } from './dto/create-payment-link.dto';
 import { PaymentLinksService } from './payment-links.service';
 import type { PaymentLinkView } from './payment-links.views';

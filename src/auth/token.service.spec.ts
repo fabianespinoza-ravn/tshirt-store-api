@@ -1,6 +1,6 @@
-import { buildService, type ServiceHarness } from '../testing/build-service';
-import { aRefreshToken, aUser } from '../testing/factories';
-import { resetPrismaMock } from '../testing/prisma.mock';
+import { buildService, type ServiceHarness } from '@testing/build-service';
+import { aRefreshToken, aUser } from '@testing/factories';
+import { resetPrismaMock } from '@testing/prisma.mock';
 import { TokenService } from './token.service';
 
 /**

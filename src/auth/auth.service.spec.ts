@@ -1,13 +1,13 @@
 import { UserRole, UserState } from '@prisma/client';
-import { Problems } from '../shared/common/problem/problem.catalog';
-import { buildService, type ServiceHarness } from '../testing/build-service';
+import { Problems } from '@shared/common/problem/problem.catalog';
+import { buildService, type ServiceHarness } from '@testing/build-service';
 import {
   aOneTimeToken,
   aRefreshToken,
   aUser,
   anUnverifiedUser,
-} from '../testing/factories';
-import { resetPrismaMock } from '../testing/prisma.mock';
+} from '@testing/factories';
+import { resetPrismaMock } from '@testing/prisma.mock';
 import { AuthService } from './auth.service';
 import { PasswordService } from './password.service';
 

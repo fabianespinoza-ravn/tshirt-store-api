@@ -6,14 +6,11 @@ import {
   type Sku,
 } from '@prisma/client';
 import type Stripe from 'stripe';
-import { newId } from '../../../shared/common/ids';
-import { Problems } from '../../../shared/common/problem/problem.catalog';
-import {
-  buildService,
-  type ServiceHarness,
-} from '../../../testing/build-service';
-import { aProduct, aSku } from '../../../testing/factories';
-import { resetPrismaMock } from '../../../testing/prisma.mock';
+import { newId } from '@shared/common/ids';
+import { Problems } from '@shared/common/problem/problem.catalog';
+import { buildService, type ServiceHarness } from '@testing/build-service';
+import { aProduct, aSku } from '@testing/factories';
+import { resetPrismaMock } from '@testing/prisma.mock';
 import { PaymentLinksService } from './payment-links.service';
 import type { StripeService } from '../stripe.service';
 

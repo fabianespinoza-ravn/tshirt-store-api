@@ -1,11 +1,11 @@
 import { Injectable } from '@nestjs/common';
-import { newId } from '../../shared/common/ids';
-import { Problems } from '../../shared/common/problem/problem.catalog';
-import { ProblemException } from '../../shared/common/problem/problem.exception';
-import { StockNotificationsService } from '../../platform/notifications/stock-notifications.service';
-import { PaymentLinksService } from '../../checkout/payments/payment-links/payment-links.service';
-import { PrismaService } from '../../platform/prisma/prisma.service';
-import { StorageService } from '../../platform/storage/storage.service';
+import { newId } from '@shared/common/ids';
+import { Problems } from '@shared/common/problem/problem.catalog';
+import { ProblemException } from '@shared/common/problem/problem.exception';
+import { StockNotificationsService } from '@platform/notifications/stock-notifications.service';
+import { PaymentLinksService } from '@checkout/payments/payment-links/payment-links.service';
+import { PrismaService } from '@platform/prisma/prisma.service';
+import { StorageService } from '@platform/storage/storage.service';
 import { NOT_DELETED } from '../shared/query';
 import { toManagerSku, type ManagerSkuView } from '../shared/views';
 import { ProductsService } from '../products/products.service';

@@ -1,8 +1,8 @@
 import { Prisma } from '@prisma/client';
-import { Problems } from '../../shared/common/problem/problem.catalog';
-import { buildService, type ServiceHarness } from '../../testing/build-service';
-import { aCategory } from '../../testing/factories';
-import { resetPrismaMock } from '../../testing/prisma.mock';
+import { Problems } from '@shared/common/problem/problem.catalog';
+import { buildService, type ServiceHarness } from '@testing/build-service';
+import { aCategory } from '@testing/factories';
+import { resetPrismaMock } from '@testing/prisma.mock';
 import { CategoriesService } from './categories.service';
 
 // Used by the two propagation cases below: the P2002 the service now lets through.

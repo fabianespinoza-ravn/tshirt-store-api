@@ -4,7 +4,7 @@ import type { Job } from 'bullmq';
 import {
   OrderConfirmationOutboxService,
   type ConfirmationOutboxDrainOutcome,
-} from '../../../checkout/payments/webhooks/order-confirmation-outbox.service';
+} from '@checkout/payments/webhooks/order-confirmation-outbox.service';
 import { JobName, QueueName } from '../queue.constants';
 
 /**

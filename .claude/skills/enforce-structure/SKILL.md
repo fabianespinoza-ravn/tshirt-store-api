@@ -56,6 +56,14 @@ repo declared.
      (`npm run format` here) and re-run the sequence; the script does the
      semantic rewrite and leaves formatting to whatever the repo already
      uses for it.
+   - A **moved file can leave the test runner's cache stale**, and the crash
+     that follows carries no message: the suite exits non-zero having printed
+     nothing at all. Re-run with the cache off (`--no-cache` for jest) before
+     reading anything into a failure that appeared right after a move.
+   - After `--alias`, **grep the build output** for the alias prefix:
+     `grep -rl 'require("@' dist/` must print nothing. Whether aliases
+     survive compilation depends on the builder, and the build reports
+     success either way.
 
    Report success only with the whole sequence green. If type checking
    fails, read it before touching anything: the failures name the exact

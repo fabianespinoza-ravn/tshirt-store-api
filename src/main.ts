@@ -2,7 +2,7 @@ import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { configureApp } from './app.setup';
-import { setupSwagger } from './shared/common/swagger';
+import { setupSwagger } from '@shared/common/swagger';
 
 async function bootstrap() {
   // `rawBody` keeps the untouched request body alongside the parsed one, and

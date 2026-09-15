@@ -1,6 +1,6 @@
 import { HttpStatus } from '@nestjs/common';
-import { CHECK_POLICIES_KEY } from '../../../auth/casl/check-policies.decorator';
-import { newId } from '../../../shared/common/ids';
+import { CHECK_POLICIES_KEY } from '@auth/casl/check-policies.decorator';
+import { newId } from '@shared/common/ids';
 import { PaymentLinksController } from './payment-links.controller';
 import type { PaymentLinksService } from './payment-links.service';
 import type { PaymentLinkView } from './payment-links.views';

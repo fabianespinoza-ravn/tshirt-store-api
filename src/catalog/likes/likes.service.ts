@@ -1,9 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { NOT_DELETED } from '../shared/query';
-import type { AuthenticatedUser } from '../../shared/common/decorators/current-user.decorator';
-import { newId } from '../../shared/common/ids';
-import { loadOrThrow } from '../../shared/common/load-or-throw';
-import { PrismaService } from '../../platform/prisma/prisma.service';
+import type { AuthenticatedUser } from '@shared/common/decorators/current-user.decorator';
+import { newId } from '@shared/common/ids';
+import { loadOrThrow } from '@shared/common/load-or-throw';
+import { PrismaService } from '@platform/prisma/prisma.service';
 import type { ProductLikeView } from './dto/set-product-like.dto';
 
 @Injectable()

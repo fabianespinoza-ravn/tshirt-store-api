@@ -1,4 +1,4 @@
-import type { PrismaService } from '../../platform/prisma/prisma.service';
+import type { PrismaService } from '@platform/prisma/prisma.service';
 import type { StripeService } from '../payments/stripe.service';
 
 /**

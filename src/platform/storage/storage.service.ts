@@ -7,7 +7,7 @@ import {
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { newId } from '../../shared/common/ids';
+import { newId } from '@shared/common/ids';
 
 // Types and ceiling exactly as the contract declares them, so we can reject
 // before uploading.

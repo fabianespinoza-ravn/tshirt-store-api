@@ -1,6 +1,6 @@
 import { JwtService } from '@nestjs/jwt';
 import { UserRole } from '@prisma/client';
-import type { AccessTokenPayload } from '../../src/auth/token.service';
+import type { AccessTokenPayload } from '@auth/token.service';
 import type { E2eApp } from './app';
 
 const AUTH = '/api/v1/auth';

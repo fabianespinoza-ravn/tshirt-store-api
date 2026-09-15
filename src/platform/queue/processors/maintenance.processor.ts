@@ -4,7 +4,7 @@ import type { Job } from 'bullmq';
 import {
   OrdersSweepService,
   type SweepOutcome,
-} from '../../../checkout/orders/orders-sweep.service';
+} from '@checkout/orders/orders-sweep.service';
 import { JobName, QueueName } from '../queue.constants';
 
 /**

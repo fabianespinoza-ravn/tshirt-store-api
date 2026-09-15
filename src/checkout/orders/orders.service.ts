@@ -10,17 +10,17 @@ import {
 import {
   AppAbilityFactory,
   type AppAction,
-} from '../../auth/casl/app-ability.factory';
-import { availableOf } from '../../catalog/shared/views';
-import type { AuthenticatedUser } from '../../shared/common/decorators/current-user.decorator';
-import { newId, parseDuration } from '../../shared/common/ids';
-import { loadOrThrow } from '../../shared/common/load-or-throw';
-import { paginate, type Paginated } from '../../shared/common/pagination';
-import { Problems } from '../../shared/common/problem/problem.catalog';
-import { ProblemException } from '../../shared/common/problem/problem.exception';
+} from '@auth/casl/app-ability.factory';
+import { availableOf } from '@catalog/shared/views';
+import type { AuthenticatedUser } from '@shared/common/decorators/current-user.decorator';
+import { newId, parseDuration } from '@shared/common/ids';
+import { loadOrThrow } from '@shared/common/load-or-throw';
+import { paginate, type Paginated } from '@shared/common/pagination';
+import { Problems } from '@shared/common/problem/problem.catalog';
+import { ProblemException } from '@shared/common/problem/problem.exception';
 import { StripeService } from '../payments/stripe.service';
 import { intentToCancel } from './payment-recovery';
-import { PrismaService } from '../../platform/prisma/prisma.service';
+import { PrismaService } from '@platform/prisma/prisma.service';
 import { recordStatus, releaseReservations } from './order-writes';
 import { reservePromoCodeUsage } from '../promo-codes/promo-code-writes';
 import type { CheckoutDto, ListOrdersQueryDto } from './dto/orders.dto';

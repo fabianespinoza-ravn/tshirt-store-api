@@ -1,7 +1,7 @@
 import { OrderStatus } from '@prisma/client';
-import { Problems } from '../src/shared/common/problem/problem.catalog';
-import type { Paginated } from '../src/shared/common/pagination';
-import type { OrderView } from '../src/checkout/orders/orders.views';
+import { Problems } from '@shared/common/problem/problem.catalog';
+import type { Paginated } from '@shared/common/pagination';
+import type { OrderView } from '@checkout/orders/orders.views';
 import { createE2eApp, type E2eApp } from './support/app';
 import { MALFORMED_ACCESS_TOKEN, expiredAccessToken } from './support/fixtures';
 import {

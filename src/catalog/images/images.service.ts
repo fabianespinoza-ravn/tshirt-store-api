@@ -1,14 +1,14 @@
 import { Injectable } from '@nestjs/common';
-import { newId } from '../../shared/common/ids';
-import { Problems } from '../../shared/common/problem/problem.catalog';
-import { ProblemException } from '../../shared/common/problem/problem.exception';
-import { PrismaService } from '../../platform/prisma/prisma.service';
+import { newId } from '@shared/common/ids';
+import { Problems } from '@shared/common/problem/problem.catalog';
+import { ProblemException } from '@shared/common/problem/problem.exception';
+import { PrismaService } from '@platform/prisma/prisma.service';
 import {
   ACCEPTED_IMAGE_TYPES,
   MAX_IMAGE_BYTES,
   StorageService,
   detectImageType,
-} from '../../platform/storage/storage.service';
+} from '@platform/storage/storage.service';
 import type { ImageView } from '../shared/views';
 import { ProductsService } from '../products/products.service';
 

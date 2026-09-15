@@ -1,7 +1,7 @@
 import type { Job } from 'bullmq';
 import { Logger } from '@nestjs/common';
-import type { ConfirmationOutboxDrainOutcome } from '../../../checkout/payments/webhooks/order-confirmation-outbox.service';
-import type { OrderConfirmationOutboxService } from '../../../checkout/payments/webhooks/order-confirmation-outbox.service';
+import type { ConfirmationOutboxDrainOutcome } from '@checkout/payments/webhooks/order-confirmation-outbox.service';
+import type { OrderConfirmationOutboxService } from '@checkout/payments/webhooks/order-confirmation-outbox.service';
 import { JobName } from '../queue.constants';
 import { ConfirmationOutboxProcessor } from './confirmation-outbox.processor';
 

@@ -1,11 +1,11 @@
 import { Logger } from '@nestjs/common';
 import type { Job } from 'bullmq';
-import { SettlementEventType } from '../../../checkout/payments/webhooks/settlement.jobs';
-import type { SettlementJobData } from '../../../checkout/payments/webhooks/settlement.jobs';
+import { SettlementEventType } from '@checkout/payments/webhooks/settlement.jobs';
+import type { SettlementJobData } from '@checkout/payments/webhooks/settlement.jobs';
 import {
   SettlementOutcome,
   type SettlementService,
-} from '../../../checkout/payments/webhooks/settlement.service';
+} from '@checkout/payments/webhooks/settlement.service';
 import { JobName } from '../queue.constants';
 import { SettlementProcessor } from './settlement.processor';
 

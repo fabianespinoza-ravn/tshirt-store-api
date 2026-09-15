@@ -1,8 +1,8 @@
 import { getQueueToken } from '@nestjs/bullmq';
 import { JobName, QueueName } from '../queue/queue.constants';
-import { buildService, type ServiceHarness } from '../../testing/build-service';
-import { aProduct, aSku } from '../../testing/factories';
-import { createPrismaMock, type PrismaMock } from '../../testing/prisma.mock';
+import { buildService, type ServiceHarness } from '@testing/build-service';
+import { aProduct, aSku } from '@testing/factories';
+import { createPrismaMock, type PrismaMock } from '@testing/prisma.mock';
 import type { StockNotificationJobData } from './stock-notification.jobs';
 import { LOW_STOCK_THRESHOLD } from './stock-threshold';
 import {

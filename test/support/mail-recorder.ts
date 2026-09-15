@@ -1,9 +1,9 @@
 import {
   TOKEN_LINE_PREFIX,
   type MailMessage,
-} from '../../src/platform/mail/mail.content';
+} from '@platform/mail/mail.content';
 
-export { MailKind } from '../../src/platform/mail/mail.jobs';
+export { MailKind } from '@platform/mail/mail.jobs';
 
 /**
  * Stands in for `MailTransport` — the socket, and nothing above it.

@@ -1,11 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma, UserRole, UserState, type User } from '@prisma/client';
-import { newId } from '../shared/common/ids';
-import { loadOrThrow } from '../shared/common/load-or-throw';
-import { Problems } from '../shared/common/problem/problem.catalog';
-import { ProblemException } from '../shared/common/problem/problem.exception';
-import { MailService } from '../platform/mail/mail.service';
-import { PrismaService } from '../platform/prisma/prisma.service';
+import { newId } from '@shared/common/ids';
+import { loadOrThrow } from '@shared/common/load-or-throw';
+import { Problems } from '@shared/common/problem/problem.catalog';
+import { ProblemException } from '@shared/common/problem/problem.exception';
+import { MailService } from '@platform/mail/mail.service';
+import { PrismaService } from '@platform/prisma/prisma.service';
 import { PasswordService } from './password.service';
 import { TokenService, type IssuedRefreshToken } from './token.service';
 

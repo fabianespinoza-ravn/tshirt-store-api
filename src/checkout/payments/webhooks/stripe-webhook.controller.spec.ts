@@ -1,10 +1,10 @@
 import { HttpStatus, type RawBodyRequest } from '@nestjs/common';
 import { HTTP_CODE_METADATA } from '@nestjs/common/constants';
 import type { Request } from 'express';
-import { CHECK_POLICIES_KEY } from '../../../auth/casl/check-policies.decorator';
-import { IS_PUBLIC_KEY } from '../../../shared/common/decorators/public.decorator';
-import { Problems } from '../../../shared/common/problem/problem.catalog';
-import { ProblemException } from '../../../shared/common/problem/problem.exception';
+import { CHECK_POLICIES_KEY } from '@auth/casl/check-policies.decorator';
+import { IS_PUBLIC_KEY } from '@shared/common/decorators/public.decorator';
+import { Problems } from '@shared/common/problem/problem.catalog';
+import { ProblemException } from '@shared/common/problem/problem.exception';
 import { StripeWebhookController } from './stripe-webhook.controller';
 import { StripeWebhookService, WebhookOutcome } from './stripe-webhook.service';
 

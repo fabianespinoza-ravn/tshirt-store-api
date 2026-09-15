@@ -2,8 +2,8 @@ import { ValidationPipe, type INestApplication } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
-import { ProblemDetailsFilter } from './shared/common/filters/problem-details.filter';
-import { NodeEnv } from './shared/config/env.validation';
+import { ProblemDetailsFilter } from '@shared/common/filters/problem-details.filter';
+import { NodeEnv } from '@shared/config/env.validation';
 
 function corsOrigin(config: ConfigService): string[] | boolean {
   const raw = config.get<string>('CORS_ORIGINS')?.trim();

@@ -1,11 +1,8 @@
 import { OrderStatus, PaymentMethod, UserState } from '@prisma/client';
-import { newId } from '../../../shared/common/ids';
-import { Problems } from '../../../shared/common/problem/problem.catalog';
-import {
-  buildService,
-  type ServiceHarness,
-} from '../../../testing/build-service';
-import { resetPrismaMock } from '../../../testing/prisma.mock';
+import { newId } from '@shared/common/ids';
+import { Problems } from '@shared/common/problem/problem.catalog';
+import { buildService, type ServiceHarness } from '@testing/build-service';
+import { resetPrismaMock } from '@testing/prisma.mock';
 import { GuestOrdersService } from './guest-orders.service';
 import { GUEST_ORDER_SELECT, type GuestOrderRow } from './guest-orders.views';
 

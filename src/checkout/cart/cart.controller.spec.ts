@@ -1,6 +1,6 @@
 import { HttpStatus } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
-import type { AuthenticatedUser } from '../../shared/common/decorators/current-user.decorator';
+import type { AuthenticatedUser } from '@shared/common/decorators/current-user.decorator';
 import { CartController } from './cart.controller';
 import type { CartService } from './cart.service';
 

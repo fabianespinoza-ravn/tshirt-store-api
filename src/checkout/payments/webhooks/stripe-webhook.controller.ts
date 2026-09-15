@@ -9,9 +9,9 @@ import {
 } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
-import { Public } from '../../../shared/common/decorators/public.decorator';
-import { Problems } from '../../../shared/common/problem/problem.catalog';
-import { ApiProblems } from '../../../shared/common/swagger';
+import { Public } from '@shared/common/decorators/public.decorator';
+import { Problems } from '@shared/common/problem/problem.catalog';
+import { ApiProblems } from '@shared/common/swagger';
 import { StripeWebhookService } from './stripe-webhook.service';
 
 /** What Stripe reads of the response, which is nothing but its status. */

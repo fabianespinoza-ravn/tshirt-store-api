@@ -3,7 +3,7 @@ import {
   toPublicSku,
   type ImageView,
   type PublicSkuView,
-} from '../../catalog/shared/views';
+} from '@catalog/shared/views';
 
 /**
  * A cart line reads the product as it is now. `productName` and `unitPrice`

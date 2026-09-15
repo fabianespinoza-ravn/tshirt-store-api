@@ -1,8 +1,8 @@
 import { CanActivate, type ExecutionContext, Injectable } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import type { RequestWithUser } from '../../shared/common/decorators/current-user.decorator';
-import { Problems } from '../../shared/common/problem/problem.catalog';
-import { ProblemException } from '../../shared/common/problem/problem.exception';
+import type { RequestWithUser } from '@shared/common/decorators/current-user.decorator';
+import { Problems } from '@shared/common/problem/problem.catalog';
+import { ProblemException } from '@shared/common/problem/problem.exception';
 import { AppAbilityFactory } from '../casl/app-ability.factory';
 import {
   CHECK_POLICIES_KEY,

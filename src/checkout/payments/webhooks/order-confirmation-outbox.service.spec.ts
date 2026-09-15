@@ -1,10 +1,7 @@
 import { Logger } from '@nestjs/common';
 import { NotificationStatus } from '@prisma/client';
-import {
-  buildService,
-  type ServiceHarness,
-} from '../../../testing/build-service';
-import { resetPrismaMock } from '../../../testing/prisma.mock';
+import { buildService, type ServiceHarness } from '@testing/build-service';
+import { resetPrismaMock } from '@testing/prisma.mock';
 import {
   CONFIRMATION_OUTBOX_BATCH_SIZE,
   OrderConfirmationOutboxService,

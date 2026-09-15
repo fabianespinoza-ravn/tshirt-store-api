@@ -12,14 +12,14 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
-import { CheckPolicies } from '../../auth/casl/check-policies.decorator';
-import { PoliciesGuard } from '../../auth/guards/policies.guard';
+import { CheckPolicies } from '@auth/casl/check-policies.decorator';
+import { PoliciesGuard } from '@auth/guards/policies.guard';
 import {
   CurrentUser,
   type AuthenticatedUser,
-} from '../../shared/common/decorators/current-user.decorator';
-import { Problems } from '../../shared/common/problem/problem.catalog';
-import { ApiProblems } from '../../shared/common/swagger';
+} from '@shared/common/decorators/current-user.decorator';
+import { Problems } from '@shared/common/problem/problem.catalog';
+import { ApiProblems } from '@shared/common/swagger';
 import {
   SetProductLikeDto,
   type ProductLikeView,

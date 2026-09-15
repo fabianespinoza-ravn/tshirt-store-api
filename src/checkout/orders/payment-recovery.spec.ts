@@ -1,6 +1,6 @@
 import { mockDeep } from 'jest-mock-extended';
 import type { StripeService } from '../payments/stripe.service';
-import { createPrismaMock, type PrismaMock } from '../../testing/prisma.mock';
+import { createPrismaMock, type PrismaMock } from '@testing/prisma.mock';
 import { IDEMPOTENCY_KEY_TTL_MS, intentToCancel } from './payment-recovery';
 
 /**

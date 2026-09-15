@@ -11,10 +11,10 @@ import {
  * deliberately partial Prisma-call checks, not values passed to production. */
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
 
-import { AppAbilityFactory } from '../../auth/casl/app-ability.factory';
-import type { AuthenticatedUser } from '../../shared/common/decorators/current-user.decorator';
-import { Problems } from '../../shared/common/problem/problem.catalog';
-import { buildService, type ServiceHarness } from '../../testing/build-service';
+import { AppAbilityFactory } from '@auth/casl/app-ability.factory';
+import type { AuthenticatedUser } from '@shared/common/decorators/current-user.decorator';
+import { Problems } from '@shared/common/problem/problem.catalog';
+import { buildService, type ServiceHarness } from '@testing/build-service';
 import {
   aCart,
   aCartItem,
@@ -23,17 +23,17 @@ import {
   aProduct,
   aPromoCode,
   aSku,
-} from '../../testing/factories';
+} from '@testing/factories';
 import {
   arrangeStatusHistory,
   HISTORY_ORDER_ID,
   RECORDED_TRANSITIONS,
   SHUFFLED_TRANSITIONS,
-} from '../../testing/order-history.fixtures';
-import { resetPrismaMock } from '../../testing/prisma.mock';
+} from '@testing/order-history.fixtures';
+import { resetPrismaMock } from '@testing/prisma.mock';
 import { OrdersService } from './orders.service';
-import { exactlyTheseInAnyOrder } from '../../testing/matchers';
-import { deferred, flushMicrotasks } from '../../testing/deferred';
+import { exactlyTheseInAnyOrder } from '@testing/matchers';
+import { deferred, flushMicrotasks } from '@testing/deferred';
 
 /**
  * The cases that decide whether this module is safe are the ones about the

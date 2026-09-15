@@ -1,6 +1,6 @@
 import { Logger } from '@nestjs/common';
 import type { Job } from 'bullmq';
-import { newId } from '../../../shared/common/ids';
+import { newId } from '@shared/common/ids';
 import type { StockNotificationDispatcher } from '../../notifications/stock-notification.dispatcher';
 import type {
   StockNotificationJobData,

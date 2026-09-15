@@ -1,7 +1,7 @@
 import { Color, OrderStatus, Size } from '@prisma/client';
-import { newId } from '../../src/shared/common/ids';
-import { releasesStock } from '../../src/checkout/orders/order-state-machine';
-import { PENDING_ORDER_TTL_MS } from '../../src/checkout/orders/orders.service';
+import { newId } from '@shared/common/ids';
+import { releasesStock } from '@checkout/orders/order-state-machine';
+import { PENDING_ORDER_TTL_MS } from '@checkout/orders/orders.service';
 import type { E2eApp } from './app';
 import {
   promoteToManager,

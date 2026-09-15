@@ -1,5 +1,5 @@
 import { OrderStatus, UserRole } from '@prisma/client';
-import type { AuthenticatedUser } from '../../shared/common/decorators/current-user.decorator';
+import type { AuthenticatedUser } from '@shared/common/decorators/current-user.decorator';
 import { OrdersController } from './orders.controller';
 import { OrderStatusEventResponseDto } from './dto/orders.dto';
 import type { OrdersService } from './orders.service';

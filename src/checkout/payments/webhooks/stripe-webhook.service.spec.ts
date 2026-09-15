@@ -7,14 +7,11 @@ import Stripe from 'stripe';
  * Prisma and BullMQ calls and are never values passed to production code. */
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
 
-import {
-  buildService,
-  type ServiceHarness,
-} from '../../../testing/build-service';
-import { resetPrismaMock } from '../../../testing/prisma.mock';
-import { Problems } from '../../../shared/common/problem/problem.catalog';
-import type { ProblemException } from '../../../shared/common/problem/problem.exception';
-import { JobName, QueueName } from '../../../platform/queue/queue.constants';
+import { buildService, type ServiceHarness } from '@testing/build-service';
+import { resetPrismaMock } from '@testing/prisma.mock';
+import { Problems } from '@shared/common/problem/problem.catalog';
+import type { ProblemException } from '@shared/common/problem/problem.exception';
+import { JobName, QueueName } from '@platform/queue/queue.constants';
 import { SettlementEventType } from './settlement.jobs';
 import { StripeWebhookService, WebhookOutcome } from './stripe-webhook.service';
 

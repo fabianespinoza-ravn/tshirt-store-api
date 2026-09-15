@@ -11,7 +11,7 @@ import {
   MaxLength,
   Min,
 } from 'class-validator';
-import { PaginationQueryDto } from '../../../shared/common/pagination';
+import { PaginationQueryDto } from '@shared/common/pagination';
 
 const ADDRESS_FIELD = 255;
 

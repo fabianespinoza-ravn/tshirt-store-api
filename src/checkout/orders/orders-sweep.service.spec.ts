@@ -4,15 +4,11 @@ import { OrderStatus, Payment } from '@prisma/client';
  * Prisma calls and are never values passed to production code. */
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
 
-import { buildService, type ServiceHarness } from '../../testing/build-service';
-import {
-  anOrder,
-  anOrderItem,
-  aPromoCodeRedemption,
-} from '../../testing/factories';
-import { resetPrismaMock } from '../../testing/prisma.mock';
+import { buildService, type ServiceHarness } from '@testing/build-service';
+import { anOrder, anOrderItem, aPromoCodeRedemption } from '@testing/factories';
+import { resetPrismaMock } from '@testing/prisma.mock';
 import { OrdersSweepService, SWEEP_BATCH_SIZE } from './orders-sweep.service';
-import { deferred, flushMicrotasks } from '../../testing/deferred';
+import { deferred, flushMicrotasks } from '@testing/deferred';
 import { Logger } from '@nestjs/common';
 
 /**

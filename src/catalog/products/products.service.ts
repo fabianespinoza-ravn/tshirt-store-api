@@ -1,13 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
-import { newId } from '../../shared/common/ids';
-import { loadOrThrow } from '../../shared/common/load-or-throw';
-import { paginate, type Paginated } from '../../shared/common/pagination';
-import { Problems } from '../../shared/common/problem/problem.catalog';
-import { ProblemException } from '../../shared/common/problem/problem.exception';
-import { PaymentLinksService } from '../../checkout/payments/payment-links/payment-links.service';
-import { PrismaService } from '../../platform/prisma/prisma.service';
-import { StorageService } from '../../platform/storage/storage.service';
+import { newId } from '@shared/common/ids';
+import { loadOrThrow } from '@shared/common/load-or-throw';
+import { paginate, type Paginated } from '@shared/common/pagination';
+import { Problems } from '@shared/common/problem/problem.catalog';
+import { ProblemException } from '@shared/common/problem/problem.exception';
+import { PaymentLinksService } from '@checkout/payments/payment-links/payment-links.service';
+import { PrismaService } from '@platform/prisma/prisma.service';
+import { StorageService } from '@platform/storage/storage.service';
 import { NOT_DELETED } from '../shared/query';
 import {
   aggregate,

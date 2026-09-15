@@ -5,8 +5,8 @@ import {
   UserState,
 } from '@prisma/client';
 import type Stripe from 'stripe';
-import { newId } from '../src/shared/common/ids';
-import type { PaymentLinkView } from '../src/checkout/payments/payment-links/payment-links.views';
+import { newId } from '@shared/common/ids';
+import type { PaymentLinkView } from '@checkout/payments/payment-links/payment-links.views';
 import { createE2eApp, type E2eApp } from './support/app';
 import {
   promoteToManager,

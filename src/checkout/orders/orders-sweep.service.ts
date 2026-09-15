@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { OrderStatus, Prisma } from '@prisma/client';
 import { StripeService } from '../payments/stripe.service';
 import { intentToCancel } from './payment-recovery';
-import { PrismaService } from '../../platform/prisma/prisma.service';
+import { PrismaService } from '@platform/prisma/prisma.service';
 import { recordStatus, releaseReservations } from './order-writes';
 
 /**

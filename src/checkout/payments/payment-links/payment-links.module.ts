@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
-import { AppAbilityFactory } from '../../../auth/casl/app-ability.factory';
-import { PoliciesGuard } from '../../../auth/guards/policies.guard';
+import { AppAbilityFactory } from '@auth/casl/app-ability.factory';
+import { PoliciesGuard } from '@auth/guards/policies.guard';
 import { PaymentsModule } from '../payments.module';
 import { PaymentLinkCheckoutService } from './payment-link-checkout.service';
 import { PaymentLinksController } from './payment-links.controller';

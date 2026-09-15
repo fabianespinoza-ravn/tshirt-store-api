@@ -1,4 +1,4 @@
-import { newId } from '../../shared/common/ids';
+import { newId } from '@shared/common/ids';
 import type { OrderStatus, Prisma } from '@prisma/client';
 import { releasePromoCodeReservation } from '../promo-codes/promo-code-writes';
 

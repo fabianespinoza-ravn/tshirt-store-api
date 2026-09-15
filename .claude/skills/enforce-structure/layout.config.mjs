@@ -28,6 +28,22 @@ export const layout = {
     testing: 'testing',
   },
 
+  // An import that leaves its domain reads better, and survives the next
+  // move, when it names the domain instead of counting `../`. Remove this
+  // block and the skill leaves every specifier relative.
+  //
+  // What it does NOT do is wire the resolvers: `tsconfig`'s `paths`, the
+  // test runner's mapping and the build's rewrite step stay the author's,
+  // because those files carry comments and structure a JSON editor would
+  // flatten. The skill reports what is missing and verifies the one failure
+  // that is silent — an alias surviving into the build output.
+  alias: {
+    prefix: '@',
+    // Listed rather than inferred, so adding a top-level folder is a
+    // decision about whether it deserves an alias.
+    of: ['auth', 'catalog', 'checkout', 'platform', 'shared', 'testing'],
+  },
+
   // Each domain's members, used once to compute the migration. The check
   // that keeps the layout afterwards is structural and needs no list: a
   // folder inside a domain is a module or it is the domain's `shared/`.

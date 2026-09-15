@@ -19,11 +19,11 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
-import { CheckPolicies } from '../../auth/casl/check-policies.decorator';
-import { PoliciesGuard } from '../../auth/guards/policies.guard';
-import { Problems } from '../../shared/common/problem/problem.catalog';
-import { ApiProblems } from '../../shared/common/swagger';
-import { MAX_IMAGE_BYTES } from '../../platform/storage/storage.service';
+import { CheckPolicies } from '@auth/casl/check-policies.decorator';
+import { PoliciesGuard } from '@auth/guards/policies.guard';
+import { Problems } from '@shared/common/problem/problem.catalog';
+import { ApiProblems } from '@shared/common/swagger';
+import { MAX_IMAGE_BYTES } from '@platform/storage/storage.service';
 import type { ImageView } from '../shared/views';
 import { ImagesService } from './images.service';
 

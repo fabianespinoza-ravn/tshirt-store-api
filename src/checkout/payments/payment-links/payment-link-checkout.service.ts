@@ -9,14 +9,14 @@ import {
   UserState,
 } from '@prisma/client';
 import type Stripe from 'stripe';
-import { availableOf } from '../../../catalog/shared/views';
-import { newId } from '../../../shared/common/ids';
+import { availableOf } from '@catalog/shared/views';
+import { newId } from '@shared/common/ids';
 import {
   StockNotificationsService,
   type StockChange,
-} from '../../../platform/notifications/stock-notifications.service';
+} from '@platform/notifications/stock-notifications.service';
 import { recordStatus } from '../../orders/order-writes';
-import { PrismaService } from '../../../platform/prisma/prisma.service';
+import { PrismaService } from '@platform/prisma/prisma.service';
 import { PAYMENT_LINK_QUANTITY } from '../stripe.service';
 
 /**

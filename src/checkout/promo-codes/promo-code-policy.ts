@@ -1,6 +1,6 @@
 import { DiscountType, type PromoCode } from '@prisma/client';
-import { Problems } from '../../shared/common/problem/problem.catalog';
-import { ProblemException } from '../../shared/common/problem/problem.exception';
+import { Problems } from '@shared/common/problem/problem.catalog';
+import { ProblemException } from '@shared/common/problem/problem.exception';
 
 /** Stripe's minimum for the store's minor-unit currencies. */
 export const MINIMUM_CHARGE_AMOUNT = 50;

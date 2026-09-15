@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
-import { AppAbilityFactory } from '../../auth/casl/app-ability.factory';
-import { PoliciesGuard } from '../../auth/guards/policies.guard';
-import { StorageModule } from '../../platform/storage/storage.module';
+import { AppAbilityFactory } from '@auth/casl/app-ability.factory';
+import { PoliciesGuard } from '@auth/guards/policies.guard';
+import { StorageModule } from '@platform/storage/storage.module';
 import { CartController } from './cart.controller';
 import { CartService } from './cart.service';
 

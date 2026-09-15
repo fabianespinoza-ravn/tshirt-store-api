@@ -1,5 +1,5 @@
 import { UserRole } from '@prisma/client';
-import type { AuthenticatedUser } from '../../shared/common/decorators/current-user.decorator';
+import type { AuthenticatedUser } from '@shared/common/decorators/current-user.decorator';
 import { LikesController } from './likes.controller';
 import type { LikesService } from './likes.service';
 

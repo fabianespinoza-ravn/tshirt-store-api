@@ -1,17 +1,17 @@
 import { Injectable } from '@nestjs/common';
 import { CartStatus, DiscountType, Prisma } from '@prisma/client';
-import { availableOf } from '../../catalog/shared/views';
-import type { AuthenticatedUser } from '../../shared/common/decorators/current-user.decorator';
-import { newId } from '../../shared/common/ids';
-import { loadOrThrow } from '../../shared/common/load-or-throw';
+import { availableOf } from '@catalog/shared/views';
+import type { AuthenticatedUser } from '@shared/common/decorators/current-user.decorator';
+import { newId } from '@shared/common/ids';
+import { loadOrThrow } from '@shared/common/load-or-throw';
 import {
   paginate,
   type Paginated,
   type PaginationQueryDto,
-} from '../../shared/common/pagination';
-import { Problems } from '../../shared/common/problem/problem.catalog';
-import { ProblemException } from '../../shared/common/problem/problem.exception';
-import { PrismaService } from '../../platform/prisma/prisma.service';
+} from '@shared/common/pagination';
+import { Problems } from '@shared/common/problem/problem.catalog';
+import { ProblemException } from '@shared/common/problem/problem.exception';
+import { PrismaService } from '@platform/prisma/prisma.service';
 import type {
   CreatePromoCodeDto,
   UpdatePromoCodeDto,

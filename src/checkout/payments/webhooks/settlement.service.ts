@@ -6,15 +6,15 @@ import {
   PaymentStatus,
   Prisma,
 } from '@prisma/client';
-import { newId } from '../../../shared/common/ids';
-import { MailService } from '../../../platform/mail/mail.service';
+import { newId } from '@shared/common/ids';
+import { MailService } from '@platform/mail/mail.service';
 import {
   StockNotificationsService,
   type StockChange,
-} from '../../../platform/notifications/stock-notifications.service';
+} from '@platform/notifications/stock-notifications.service';
 import { recordStatus } from '../../orders/order-writes';
 import { consumePromoCodeReservation } from '../../promo-codes/promo-code-writes';
-import { PrismaService } from '../../../platform/prisma/prisma.service';
+import { PrismaService } from '@platform/prisma/prisma.service';
 import { StripeService } from '../stripe.service';
 import { PaymentLinkCheckoutService } from '../payment-links/payment-link-checkout.service';
 import {

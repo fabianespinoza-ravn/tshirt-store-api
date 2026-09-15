@@ -3,11 +3,11 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type { Queue } from 'bullmq';
 import Stripe from 'stripe';
-import { newId } from '../../../shared/common/ids';
-import { Problems } from '../../../shared/common/problem/problem.catalog';
-import { ProblemException } from '../../../shared/common/problem/problem.exception';
-import { PrismaService } from '../../../platform/prisma/prisma.service';
-import { JobName, QueueName } from '../../../platform/queue/queue.constants';
+import { newId } from '@shared/common/ids';
+import { Problems } from '@shared/common/problem/problem.catalog';
+import { ProblemException } from '@shared/common/problem/problem.exception';
+import { PrismaService } from '@platform/prisma/prisma.service';
+import { JobName, QueueName } from '@platform/queue/queue.constants';
 import { StripeService } from '../stripe.service';
 import { settlementJobFor, type SettlementJobData } from './settlement.jobs';
 

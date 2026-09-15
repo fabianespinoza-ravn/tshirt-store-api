@@ -1,4 +1,4 @@
-import { CHECK_POLICIES_KEY } from '../../auth/casl/check-policies.decorator';
+import { CHECK_POLICIES_KEY } from '@auth/casl/check-policies.decorator';
 import { ProductsController } from './products.controller';
 
 // This spec only checks the `@CheckPolicies` metadata attached to each

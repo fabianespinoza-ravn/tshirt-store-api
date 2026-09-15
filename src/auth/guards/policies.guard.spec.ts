@@ -7,7 +7,7 @@ import {
   AppAbilityFactory,
   type AppAbility,
 } from '../casl/app-ability.factory';
-import { ProblemException } from '../../shared/common/problem/problem.exception';
+import { ProblemException } from '@shared/common/problem/problem.exception';
 import { PoliciesGuard } from './policies.guard';
 
 class ProtectedHandler {

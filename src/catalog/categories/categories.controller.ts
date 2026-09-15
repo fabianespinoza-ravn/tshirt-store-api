@@ -18,15 +18,12 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
-import { CheckPolicies } from '../../auth/casl/check-policies.decorator';
-import { PoliciesGuard } from '../../auth/guards/policies.guard';
-import { Public } from '../../shared/common/decorators/public.decorator';
-import {
-  PaginationQueryDto,
-  type Paginated,
-} from '../../shared/common/pagination';
-import { Problems } from '../../shared/common/problem/problem.catalog';
-import { ApiProblems } from '../../shared/common/swagger';
+import { CheckPolicies } from '@auth/casl/check-policies.decorator';
+import { PoliciesGuard } from '@auth/guards/policies.guard';
+import { Public } from '@shared/common/decorators/public.decorator';
+import { PaginationQueryDto, type Paginated } from '@shared/common/pagination';
+import { Problems } from '@shared/common/problem/problem.catalog';
+import { ApiProblems } from '@shared/common/swagger';
 import { CategoriesService, type CategoryView } from './categories.service';
 import { CreateCategoryDto } from './dto/create-category.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';

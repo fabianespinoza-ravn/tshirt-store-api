@@ -4,7 +4,7 @@ import {
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
-import { anArgumentsHost } from '../../../testing/http';
+import { anArgumentsHost } from '@testing/http';
 import { Problems } from '../problem/problem.catalog';
 import { ProblemException } from '../problem/problem.exception';
 import * as translators from '../problem/translators';

@@ -1,9 +1,9 @@
 import { UserRole } from '@prisma/client';
-import type { AuthenticatedUser } from '../../shared/common/decorators/current-user.decorator';
-import { Problems } from '../../shared/common/problem/problem.catalog';
-import { buildService, type ServiceHarness } from '../../testing/build-service';
-import { aProduct } from '../../testing/factories';
-import { resetPrismaMock } from '../../testing/prisma.mock';
+import type { AuthenticatedUser } from '@shared/common/decorators/current-user.decorator';
+import { Problems } from '@shared/common/problem/problem.catalog';
+import { buildService, type ServiceHarness } from '@testing/build-service';
+import { aProduct } from '@testing/factories';
+import { resetPrismaMock } from '@testing/prisma.mock';
 import { LikesService } from './likes.service';
 
 /**

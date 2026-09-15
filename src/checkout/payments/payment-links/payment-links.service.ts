@@ -1,15 +1,15 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma, type PaymentLink } from '@prisma/client';
-import { NOT_DELETED } from '../../../catalog/shared/query';
-import { newId } from '../../../shared/common/ids';
-import { loadOrThrow } from '../../../shared/common/load-or-throw';
-import { Problems } from '../../../shared/common/problem/problem.catalog';
-import { ProblemException } from '../../../shared/common/problem/problem.exception';
+import { NOT_DELETED } from '@catalog/shared/query';
+import { newId } from '@shared/common/ids';
+import { loadOrThrow } from '@shared/common/load-or-throw';
+import { Problems } from '@shared/common/problem/problem.catalog';
+import { ProblemException } from '@shared/common/problem/problem.exception';
 import {
   GENERIC_INTERNAL_DETAIL,
   translateStripeError,
-} from '../../../shared/common/problem/translators';
-import { PrismaService } from '../../../platform/prisma/prisma.service';
+} from '@shared/common/problem/translators';
+import { PrismaService } from '@platform/prisma/prisma.service';
 import { StripeService } from '../stripe.service';
 import type { CreatePaymentLinkDto } from './dto/create-payment-link.dto';
 import { toPaymentLink, type PaymentLinkView } from './payment-links.views';

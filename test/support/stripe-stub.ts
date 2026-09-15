@@ -1,5 +1,5 @@
 import type Stripe from 'stripe';
-import type { StripeService } from '../../src/checkout/payments/stripe.service';
+import type { StripeService } from '@checkout/payments/stripe.service';
 
 /**
  * The intent id this stub answers with for an order, derived rather than

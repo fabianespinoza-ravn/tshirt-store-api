@@ -15,10 +15,10 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
-import { CheckPolicies } from '../../auth/casl/check-policies.decorator';
-import { PoliciesGuard } from '../../auth/guards/policies.guard';
-import { Problems } from '../../shared/common/problem/problem.catalog';
-import { ApiProblems } from '../../shared/common/swagger';
+import { CheckPolicies } from '@auth/casl/check-policies.decorator';
+import { PoliciesGuard } from '@auth/guards/policies.guard';
+import { Problems } from '@shared/common/problem/problem.catalog';
+import { ApiProblems } from '@shared/common/swagger';
 import type { ManagerSkuView } from '../shared/views';
 import { CreateSkuDto } from './dto/create-sku.dto';
 import { UpdateSkuDto } from './dto/update-sku.dto';

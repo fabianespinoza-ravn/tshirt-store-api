@@ -6,10 +6,10 @@ import {
   Size,
   UserRole,
 } from '@prisma/client';
-import { availableOf } from '../../src/catalog/shared/views';
-import { newId } from '../../src/shared/common/ids';
-import { PENDING_ORDER_TTL_MS } from '../../src/checkout/orders/orders.service';
-import { IDEMPOTENCY_KEY_TTL_MS } from '../../src/checkout/orders/payment-recovery';
+import { availableOf } from '@catalog/shared/views';
+import { newId } from '@shared/common/ids';
+import { PENDING_ORDER_TTL_MS } from '@checkout/orders/orders.service';
+import { IDEMPOTENCY_KEY_TTL_MS } from '@checkout/orders/payment-recovery';
 import type { E2eApp } from './app';
 import {
   signIn,

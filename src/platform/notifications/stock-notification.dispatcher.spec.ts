@@ -5,11 +5,11 @@ import { getQueueToken } from '@nestjs/bullmq';
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
 
 import { NotificationStatus, OrderStatus, Prisma } from '@prisma/client';
-import { newId } from '../../shared/common/ids';
+import { newId } from '@shared/common/ids';
 import { MailKind, type MailJobData } from '../mail/mail.jobs';
 import { JobName, QueueName } from '../queue/queue.constants';
-import { buildService, type ServiceHarness } from '../../testing/build-service';
-import { aProduct, aSku, anImage, aUser } from '../../testing/factories';
+import { buildService, type ServiceHarness } from '@testing/build-service';
+import { aProduct, aSku, anImage, aUser } from '@testing/factories';
 import { MAX_ATTACHMENT_BYTES } from './product-image.attachment';
 import { StockNotificationDispatcher } from './stock-notification.dispatcher';
 import {

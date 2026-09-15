@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { NotificationStatus } from '@prisma/client';
-import { MailService } from '../../../platform/mail/mail.service';
-import { PrismaService } from '../../../platform/prisma/prisma.service';
+import { MailService } from '@platform/mail/mail.service';
+import { PrismaService } from '@platform/prisma/prisma.service';
 
 /** How many pending confirmations one drain run will retry. */
 export const CONFIRMATION_OUTBOX_BATCH_SIZE = 100;

@@ -1,8 +1,8 @@
 import { Controller, Get, Param, ParseUUIDPipe } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
-import { Public } from '../../../shared/common/decorators/public.decorator';
-import { Problems } from '../../../shared/common/problem/problem.catalog';
-import { ApiProblems } from '../../../shared/common/swagger';
+import { Public } from '@shared/common/decorators/public.decorator';
+import { Problems } from '@shared/common/problem/problem.catalog';
+import { ApiProblems } from '@shared/common/swagger';
 import { GuestOrdersService } from './guest-orders.service';
 import type { GuestOrderView } from './guest-orders.views';
 

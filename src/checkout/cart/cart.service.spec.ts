@@ -1,16 +1,10 @@
 import { CartStatus, UserRole } from '@prisma/client';
-import { AppAbilityFactory } from '../../auth/casl/app-ability.factory';
-import type { AuthenticatedUser } from '../../shared/common/decorators/current-user.decorator';
-import { Problems } from '../../shared/common/problem/problem.catalog';
-import { buildService, type ServiceHarness } from '../../testing/build-service';
-import {
-  aCart,
-  aCartItem,
-  anImage,
-  aProduct,
-  aSku,
-} from '../../testing/factories';
-import { resetPrismaMock } from '../../testing/prisma.mock';
+import { AppAbilityFactory } from '@auth/casl/app-ability.factory';
+import type { AuthenticatedUser } from '@shared/common/decorators/current-user.decorator';
+import { Problems } from '@shared/common/problem/problem.catalog';
+import { buildService, type ServiceHarness } from '@testing/build-service';
+import { aCart, aCartItem, anImage, aProduct, aSku } from '@testing/factories';
+import { resetPrismaMock } from '@testing/prisma.mock';
 import { CartService } from './cart.service';
 import type { CartLineRow } from './cart.views';
 

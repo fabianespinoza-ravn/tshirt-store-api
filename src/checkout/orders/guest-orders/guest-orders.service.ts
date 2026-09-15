@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PaymentMethod, UserState } from '@prisma/client';
-import { loadOrThrow } from '../../../shared/common/load-or-throw';
-import { PrismaService } from '../../../platform/prisma/prisma.service';
+import { loadOrThrow } from '@shared/common/load-or-throw';
+import { PrismaService } from '@platform/prisma/prisma.service';
 import {
   GUEST_ORDER_SELECT,
   toGuestOrder,

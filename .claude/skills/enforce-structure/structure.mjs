@@ -29,6 +29,7 @@ const REPO_ROOT = execFileSync('git', ['rev-parse', '--show-toplevel'], {
   encoding: 'utf8',
 }).trim();
 const APPLY = process.argv.includes('--apply');
+const ALIAS = process.argv.includes('--alias');
 
 const { layout } = await import(
   pathToFileURL(join(SKILL_DIR, 'layout.config.mjs')).href
@@ -224,6 +225,54 @@ function rewriteQuotedPaths(moves, mapPath, trackedText) {
   return touched;
 }
 
+// ---------- aliasing ----------
+// An import that stays inside its own top-level folder keeps its relative
+// form: `./orders.service` says more about locality than `@checkout/orders/
+// orders.service` does. Only a specifier that leaves the folder is worth
+// naming the destination for.
+function aliasTargets() {
+  const cfg = layout.alias;
+  if (!cfg) return null;
+  const tops = new Set(cfg.of);
+  return {
+    prefix: cfg.prefix,
+    tops,
+    resolve(target) {
+      const parts = target.split('/');
+      if (parts[0] !== ROOT || !tops.has(parts[1])) return null;
+      return { top: parts[1], rest: parts.slice(2).join('/') };
+    },
+  };
+}
+
+function relativeEscapes(file, a) {
+  // A spec living outside the root escapes on every import it makes into a
+  // domain; a file inside one escapes only when it leaves that one.
+  return !file.startsWith(`${ROOT}/${a.top}/`);
+}
+
+function aliasPass(write) {
+  const alias = aliasTargets();
+  if (!alias) return { files: 0, specifiers: 0 };
+  let files = 0;
+  let specifiers = 0;
+
+  for (const file of trackedSources()) {
+    const before = readFileSync(abs(file), 'utf8');
+    const after = before.replace(SPECIFIER, (whole, kw, quote, spec) => {
+      const a = alias.resolve(posixResolve(posixDirname(file), spec));
+      if (!a || !relativeEscapes(file, a)) return whole;
+      specifiers += 1;
+      return `${kw}${quote}${alias.prefix}${a.top}/${a.rest}${quote}`;
+    });
+    if (after !== before) {
+      files += 1;
+      if (write) writeFileSync(abs(file), after);
+    }
+  }
+  return { files, specifiers };
+}
+
 function apply(moves) {
   const mapPath = (p) => {
     for (const m of moves) {
@@ -273,16 +322,45 @@ function apply(moves) {
 // ---------- run ----------
 const findings = check();
 
-if (findings.length === 0) {
-  console.log(`enforce-structure: ${layout.root}/ matches the declared layout.`);
+if (findings.length > 0) {
+  console.log(`## Layout violations (${findings.length})`);
+  for (const f of findings) console.log(`${f.path}: ${f.message}`);
+}
+
+if (ALIAS) {
+  const { files, specifiers } = aliasPass(true);
+  console.log(
+    `\nAliased ${specifiers} cross-domain specifier(s) in ${files} file(s).`,
+  );
+  console.log(
+    'This only rewrote the imports. Three resolvers have to agree with them,\n' +
+      'and only two of them tell you when they do not:\n' +
+      '  · tsconfig `paths`  — type checking fails without it\n' +
+      '  · the test runner   — suites fail to resolve without it\n' +
+      '  · the build output  — says nothing either way. Whether an alias\n' +
+      '    survives into the emitted JS depends on the builder: plain tsc\n' +
+      '    leaves it, and the process then dies at require() time in\n' +
+      '    production while `build` exits 0 and the entrypoint exists.\n' +
+      '\n' +
+      "Do not reason about which builder you have — grep the output:\n" +
+      '  grep -rl \'require("@\' dist/    → must print nothing',
+  );
   process.exit(0);
 }
 
-console.log(`## Layout violations (${findings.length})`);
-for (const f of findings) console.log(`${f.path}: ${f.message}`);
-
 if (!APPLY) {
-  console.log('\nRun with --apply to move them and rewrite the imports.');
+  const pending = aliasPass(false);
+  if (pending.specifiers > 0) {
+    console.log(
+      `\n${pending.specifiers} cross-domain import(s) in ${pending.files} file(s) are still relative.`,
+    );
+    console.log('Run with --alias to name their domain instead.');
+  }
+  if (findings.length === 0 && pending.specifiers === 0) {
+    console.log(`enforce-structure: ${ROOT}/ matches the declared layout.`);
+    process.exit(0);
+  }
+  console.log('\nRun with --apply to move what is misplaced.');
   console.log("Verify with the repo's full CI sequence, not typecheck alone.");
   process.exit(1);
 }
