@@ -1,14 +1,16 @@
 ---
 name: audit-repo-docs
 description: >-
-  Read-only documentation and comment auditor for any repo. Use before
-  opening a PR that touches Markdown docs, `.claude/skills`, `.claude/agents`,
-  or `.claude/commands`; after adding, renaming, or removing an exported
-  symbol, config value, or schema column that a README or doc table
-  enumerates; or when a source comment has grown into a multi-paragraph
-  rationale that reads like an architectural decision. Reports dangling doc
-  references, incomplete `.claude/**` files, drifted doc-vs-code lists, and
-  ADR-worthy comment blocks. Does not edit anything, only reports.
+  Read-only documentation and comment auditor for any repo. Use after moving
+  or renaming anything documentation might name; before opening a PR that
+  touches Markdown docs, `.claude/skills`, `.claude/agents`, or
+  `.claude/commands`; after adding, renaming, or removing an exported symbol,
+  config value, or schema column that a README or doc table enumerates; or
+  when a source comment has grown into a multi-paragraph rationale that reads
+  like an architectural decision. Reports paths that resolve to nothing —
+  documents, source files and directories alike — incomplete `.claude/**`
+  files, drifted doc-vs-code lists, and ADR-worthy comment blocks. Does not
+  edit anything, only reports.
 ---
 
 # Audit repo docs

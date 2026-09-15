@@ -2,12 +2,12 @@
 name: enforce-structure
 description: >-
   Checks a repo's folders against a declared layout, and can move the ones
-  that don't conform. Use when a folder's kind isn't obvious from where it
-  sits — a folder that looks like a feature module but holds no module file,
-  a shared folder that grew one, a source file left loose at the root; when
-  onboarding a repo whose top level doesn't say what each folder is; or
-  before adding a folder, to know where it belongs. Reports violations by
-  default; with `--apply` it moves folders and rewrites every import the
+  that don't conform. Use when the top level lists everything flat so nothing
+  says which folders belong together; when a folder sits outside the domain
+  it belongs to, or inside one without being a module; when a source file is
+  left loose at a root that declares its entry points; or before adding a
+  folder, to know where it goes. Reports violations by default; with
+  `--apply` it moves folders and rewrites every import and path string the
   move breaks. Edits files, not read-only.
 ---
 
@@ -27,11 +27,20 @@ repo declared.
    Done when you have the violation list (exit 1 means violations, 0 means
    the layout holds).
 
-2. **Decide, per violation.** Two kinds, and only one of them is a move:
-   - *Folder in the wrong tier* — mechanical, `--apply` handles it.
-   - *Stray root file, or a module found inside the shared tier* — these
-     need a human call about what the thing actually is. Say so; don't guess
-     a destination for it.
+2. **Decide, per violation.** Only one kind is a move:
+   - *Declared somewhere it isn't yet* (`move-to-domain`) — the config says
+     where it goes, so `--apply` handles it mechanically.
+   - *Loose file in a domain, a folder inside a domain with no module, a
+     folder that is neither a module nor a folder of modules, a stray file
+     at the root* — each needs a human call about what the thing actually
+     is. Report them; don't guess a destination.
+
+   Membership is the part the checker cannot derive: nothing about a `cart/`
+   folder says it belongs to checkout. That decision lives in
+   `layout.config.mjs`, and the check reports whatever hasn't arrived there.
+   Shape — a domain is a module or a folder of modules, with an optional
+   `shared/` of its own — is derived, so it keeps holding for folders added
+   later without touching the config.
 
 3. **Before applying, make a restore point.** The migration rewrites imports
    across the repo. Ask the author to commit or stash first — if the result
@@ -49,8 +58,8 @@ repo declared.
    not a hypothetical: on the first real migration all three passed green
    while `lint:ci` failed with nine errors.
    - A **path glob that stops matching turns a rule off** rather than
-     failing — an `ignores: ['src/common/**']` that no longer matches means
-     the rule it exempted now fires on files it was written to spare.
+     failing — an obsolete ignore glob means the rule it exempted now fires
+     on files it was written to spare.
    - A **lengthened specifier can outgrow the formatter's line width**, so
      `format:check` fails on a line nobody edited. Run the repo's formatter
      (`npm run format` here) and re-run the sequence; the script does the
@@ -83,7 +92,13 @@ repo declared.
 ## Extending to another repo
 
 `structure.mjs` is repo-agnostic — copy it as-is. `layout.config.mjs` is the
-part that changes: declare the tiers, what each requires, and which files may
-sit at the root. A repo with a different shape (a `packages/` monorepo, a
-`cmd/` + `internal/` Go layout) declares that instead; the checker's question
-is always the same one — does this folder's location match its kind?
+part that changes: the root, the files allowed loose in it, the reserved
+folder names, and which members belong to which domain. A repo with a
+different shape (a `packages/` monorepo, a `cmd/` + `internal/` Go layout)
+declares that instead; the checker's question is always the same one — does
+this folder's location match its kind?
+
+Declare membership only for what still has to move. Once a domain is
+assembled, its entry can stay as the record of what belongs to it, or go:
+the shape rules keep holding either way, which is what makes the tool
+useful on the run after the migration rather than only during it.

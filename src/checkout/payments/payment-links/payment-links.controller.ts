@@ -28,31 +28,9 @@ import type { PaymentLinkView } from './payment-links.views';
 export class PaymentLinksController {
   constructor(private readonly links: PaymentLinksService) {}
 
-  // ─── Authorization: the MANAGER rule for PaymentLink ───────────────────
-  //
-  // `PaymentLink` is already a declared subject in
-  // `auth/casl/app-ability.factory.ts` and carries a manager-only create rule,
-  // so this route answers 201 to a manager and 403 to every other role.
-  // That is `PoliciesGuard` doing its job — a protected route the ability
-  // grants nothing for is denied — and not a bug in this module.
-  //
-  // The rule the matrix asks for, spelled out:
-  //
-  //   MANAGER · create · PaymentLink
-  //
-  // It comes from the `createPaymentLink` row of the "Payment links,
-  // webhooks and promotions" table in docs/AUTHORIZATION-MATRIX.md: MANAGER,
-  // with 401 and 403 declared and no other role named.
-  //
-  // It carries **no condition**, and that is worth stating rather than
-  // leaving to be inferred. A payment link belongs to a SKU and not to a
-  // person, so there is no ownership column to scope by; every manager
-  // reaches every link. That also means this is one of the rules where a
-  // dropped condition could not be a leak — there is nothing to drop — which
-  // is the opposite of the cart and order rules the same file warns about.
-  //
-  // The route and its e2e coverage prove the rule at the HTTP boundary.
-  // ────────────────────────────────────────────────────────────────────────
+  // Payment links belong to SKUs rather than users, so the authorization
+  // matrix grants MANAGER an unconditional create rule. PoliciesGuard denies
+  // every other role, and the route's e2e coverage proves that boundary.
   @CheckPolicies({ action: 'create', subject: 'PaymentLink' })
   @ApiOperation({ summary: 'Create a Stripe Payment Link for one SKU' })
   @ApiResponse({ status: 201, description: 'The link was published' })

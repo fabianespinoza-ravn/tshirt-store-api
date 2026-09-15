@@ -2,7 +2,10 @@
 // Read-only auditor: portable across repos. Assumes only git + Node.
 //
 // Reports four categories of finding, never fixes anything:
-//   1. Dangling Markdown citations   — a tracked file cites a `.md` that isn't tracked.
+//   1. Dangling citations            — a tracked file names a path that resolves to
+//      nothing: a document, a source file, or a directory. Paths are matched as paths,
+//      so a file that moved stops matching while a dependency's own path, a reference
+//      to another repo and a template like `NNNN-slug.md` are left alone.
 //   2. `.claude/**` structural gaps  — an agent/command/skill file missing frontmatter.
 //   3. Long comment blocks           — candidates for ADR extraction (length + signal only;
 //      the domain-modeling three-part test still has to be applied by a reader).
