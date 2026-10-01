@@ -98,7 +98,7 @@ jobs:
           count="$(node ./.github/scripts/count-review-comments.mjs)"
           echo "count=${count}" >> "$GITHUB_OUTPUT"
 
-      - uses: anthropics/claude-code-action@8251c103ac8c1d761882c86aba1412c7f583c844 # v1
+      - uses: anthropics/claude-code-action@8ce9314fa9a404564fa7e954cd84f25bcba2b829 # v1
         with:
           # Subscription token, not an API key: reviews aren't billed
           # separately. Renew it with `claude setup-token`.
